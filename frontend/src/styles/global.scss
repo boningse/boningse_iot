@@ -1,0 +1,246 @@
+/* 全局样式定义 */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  height: 100%;
+  font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-size: 14px;
+  color: var(--text-primary);
+  background: var(--app-bg);
+  transition: color 0.2s ease, background-color 0.2s ease;
+}
+
+button, input, textarea, select {
+  font: inherit;
+}
+
+/* 响应式设计基础 */
+@media (max-width: 768px) {
+  html, body {
+    font-size: 13px;
+  }
+}
+
+@media (max-width: 480px) {
+  html, body {
+    font-size: 12px;
+  }
+}
+
+/* 滚动条样式 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--fill-light);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-secondary);
+}
+
+/* 常用工具类 */
+.flex-center {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.flex-between {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.text-ellipsis {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 响应式工具类 */
+.hide-on-mobile {
+  @media (max-width: 768px) {
+    display: none !important;
+  }
+}
+
+.show-on-mobile {
+  display: none !important;
+  @media (max-width: 768px) {
+    display: block !important;
+  }
+}
+
+.flex-column-mobile {
+  @media (max-width: 768px) {
+    flex-direction: column !important;
+  }
+}
+
+.full-width-mobile {
+  @media (max-width: 768px) {
+    width: 100% !important;
+  }
+}
+
+/* 主题颜色变量 */
+:root {
+  --primary-color: #0d9488;
+  --primary-hover: #0f766e;
+  --success-color: #67C23A;
+  --warning-color: #E6A23C;
+  --danger-color: #F56C6C;
+  --info-color: #909399;
+  
+  --app-bg: #f4f7f9;
+  --background-color: #f4f7f9;
+  --surface-color: #ffffff;
+  --surface-raised: #ffffff;
+  --sidebar-bg: #172a32;
+  --sidebar-border: rgba(255,255,255,0.08);
+  --sidebar-active: #0d9488;
+  --header-bg: rgba(255,255,255,0.94);
+  
+  --text-primary: #303133;
+  --text-regular: #606266;
+  --text-secondary: #909399;
+  --text-placeholder: #c0c4cc;
+  
+  --border-color: #dcdfe6;
+  --border-light: #e4e7ed;
+  --border-lighter: #ebeef5;
+  --fill-light: #f1f5f7;
+  --fill-lighter: #f7f9fa;
+  --scrollbar-thumb: #b8c3c8;
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.05);
+  --shadow-md: 0 8px 24px rgba(15, 23, 42, 0.08);
+  --shadow-lg: 0 18px 48px rgba(15, 23, 42, 0.2);
+
+  --el-color-primary: var(--primary-color);
+  --el-bg-color: var(--surface-color);
+  --el-bg-color-overlay: var(--surface-raised);
+  --el-text-color-primary: var(--text-primary);
+  --el-text-color-regular: var(--text-regular);
+  --el-border-color: var(--border-color);
+  --el-border-color-light: var(--border-light);
+  --el-fill-color-light: var(--fill-light);
+  --el-fill-color-lighter: var(--fill-lighter);
+}
+
+:root.dark {
+  --app-bg: #0d1418;
+  --background-color: #0d1418;
+  --surface-color: #151f24;
+  --surface-raised: #1a262c;
+  --sidebar-bg: #0b171c;
+  --sidebar-border: rgba(255,255,255,0.08);
+  --sidebar-active: #0f766e;
+  --header-bg: rgba(21,31,36,0.95);
+  --text-primary: #edf4f3;
+  --text-regular: #c7d2d0;
+  --text-secondary: #8fa29f;
+  --text-placeholder: #667976;
+  --border-color: #344349;
+  --border-light: #2a393f;
+  --border-lighter: #223137;
+  --fill-light: #1d2b31;
+  --fill-lighter: #18252a;
+  --scrollbar-thumb: #45575d;
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.24);
+  --shadow-md: 0 10px 28px rgba(0,0,0,0.28);
+  --shadow-lg: 0 18px 48px rgba(0,0,0,0.42);
+  --el-mask-color: rgba(0,0,0,0.65);
+}
+
+#app {
+  min-width: 0;
+  min-height: 100%;
+}
+
+.el-card {
+  border-color: var(--border-light);
+  background: var(--surface-color);
+  box-shadow: var(--shadow-sm);
+}
+
+.el-card__header {
+  padding: 15px 18px;
+  border-bottom-color: var(--border-light);
+}
+
+.el-button {
+  border-radius: 5px;
+}
+
+.el-input__wrapper,
+.el-select__wrapper,
+.el-textarea__inner {
+  border-radius: 5px;
+}
+
+.el-tag {
+  border-radius: 4px;
+}
+
+.el-table th.el-table__cell {
+  color: var(--text-regular);
+  font-weight: 600;
+}
+
+.el-table {
+  --el-table-bg-color: var(--surface-color);
+  --el-table-tr-bg-color: var(--surface-color);
+  --el-table-header-bg-color: var(--fill-lighter);
+  --el-table-row-hover-bg-color: var(--fill-light);
+  border-radius: 6px;
+}
+
+.el-dialog, .el-drawer {
+  background: var(--surface-raised);
+}
+
+@media (max-width: 768px) {
+  .el-dialog {
+    width: calc(100vw - 24px) !important;
+    margin-top: 5vh !important;
+  }
+
+  .el-dialog .el-row {
+    row-gap: 0;
+  }
+
+  .el-dialog .el-col {
+    max-width: 100%;
+    flex: 0 0 100%;
+  }
+
+  .el-dialog .el-select,
+  .el-dialog .el-date-editor,
+  .el-dialog .el-input-number {
+    width: 100% !important;
+  }
+
+  .el-message-box {
+    width: calc(100vw - 32px) !important;
+  }
+
+  .el-pagination {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+}

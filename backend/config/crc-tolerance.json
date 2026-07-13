@@ -1,0 +1,25 @@
+{
+  "enabled": true,
+  "maxFailureRate": 0.4,
+  "recoveryConfidence": 0.4,
+  "fallbackToManualParsing": true,
+  "logLevel": "warn",
+  "recoveryStrategies": {
+    "encodingFix": true,
+    "diagnosticAnalysis": true,
+    "manualParsing": true,
+    "confidenceThreshold": 0.3
+  },
+  "communication": {
+    "timeout": 12000,
+    "retryDelay": 3000,
+    "maxRetries": 3,
+    "adaptiveTimeout": true
+  },
+  "monitoring": {
+    "trackFailureRate": true,
+    "alertThreshold": 0.6,
+    "reportInterval": 300000
+  },
+  "lastUpdated": "2025-07-23T12:51:22.136Z"
+}

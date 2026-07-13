@@ -1,0 +1,7 @@
+DROP INDEX IF EXISTS protocol_configs_manufacturer_code_device_type_is_default;
+DROP INDEX IF EXISTS protocol_configs_manufacturer_code_device_type_is_default_idx;
+DROP INDEX IF EXISTS protocol_configs_manufacturer_code_device_type_is_default_unique;
+
+CREATE UNIQUE INDEX IF NOT EXISTS protocol_configs_tenant_manufacturer_device_default
+ON protocol_configs (tenant_id, manufacturer_code, device_type)
+WHERE is_default = true;
