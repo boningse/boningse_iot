@@ -12,6 +12,9 @@ require('dotenv').config();
 
 const persistVerboseDeviceLogs = process.env.PERSIST_VERBOSE_DEVICE_LOGS === 'true';
 const persistDetailedMessageStats = process.env.MESSAGE_DETAIL_TRACKING_ENABLED === 'true';
+const isInactiveControlModuleError = (error) => (
+  error?.code === '23514' && /not active in control module/.test(error.message || '')
+);
 const persistDeviceLog = async (entry) => {
   const level = String(entry?.level || 'info').toLowerCase();
   if (!persistVerboseDeviceLogs && !['warning', 'warn', 'error'].includes(level)) return null;
@@ -547,7 +550,7 @@ class MqttService {
       }
       
       // 增强的MQTT消息接收日志
-      logger.info('收到MQTT消息', {
+      logger.debug('收到MQTT消息', {
         消息ID: messageId,
         主题: topic,
         内容: isBinaryRtuData ? 
@@ -873,7 +876,7 @@ class MqttService {
         if (Buffer.isBuffer(rawData)) {
           // 如果已经是Buffer，直接使用
           buffer = rawData;
-          logger.info('RTU响应数据已为Buffer格式', { 
+          logger.debug('RTU响应数据已为Buffer格式', {
             bufferLength: buffer.length,
             hexString: ModbusRtuUtils.bufferToHexString(buffer)
           });
@@ -886,7 +889,7 @@ class MqttService {
           }
           buffer = Buffer.from(bytes);
           
-          logger.info('RTU响应数据从字符串转换为Buffer', { 
+          logger.debug('RTU响应数据从字符串转换为Buffer', {
             originalLength: rawData.length,
             bufferLength: buffer.length,
             hexString: ModbusRtuUtils.bufferToHexString(buffer)
@@ -905,7 +908,7 @@ class MqttService {
       let parsedResponse;
       try {
         parsedResponse = ModbusRtuUtils.parseRTUResponse(buffer);
-        logger.info('RTU响应解析成功', { parsedResponse });
+        logger.debug('RTU响应解析成功', { parsedResponse });
       } catch (parseError) {
         const errorDetails = {
           error: parseError.message,
@@ -925,7 +928,7 @@ class MqttService {
         const diagnosis = RtuDiagnostics.diagnoseRtuResponse(buffer);
         
         // 记录诊断信息
-        logger.info('RTU响应诊断结果', {
+        logger.debug('RTU响应诊断结果', {
           confidence: diagnosis.confidence,
           issues: diagnosis.issues,
           suggestions: diagnosis.suggestions.slice(0, 3), // 只记录前3个建议
@@ -951,7 +954,7 @@ class MqttService {
             }
           };
           
-          logger.info('通过RTU诊断工具成功恢复数据', {
+          logger.debug('通过RTU诊断工具成功恢复数据', {
             confidence: diagnosis.confidence,
             registers: diagnosis.parsedData.registers
           });
@@ -1010,7 +1013,7 @@ class MqttService {
                 }
               };
               
-              logger.info('传统手动解析RTU响应成功', { 
+              logger.debug('传统手动解析RTU响应成功', {
                 parsedResponse,
                 originalBufferLength: buffer.length,
                 processedBufferLength: processedBuffer.length
@@ -1086,7 +1089,7 @@ class MqttService {
           protocolConfig = commandInfo.protocolConfig;
           registerConfig = commandInfo.registerConfig;
           
-          logger.info('使用已记录的命令信息解析RTU响应', {
+          logger.debug('使用已记录的命令信息解析RTU响应', {
             deviceId: device.id,
             slaveAddress: parsedResponse.slaveAddress,
             functionCode: parsedResponse.functionCode,
@@ -1105,7 +1108,7 @@ class MqttService {
             if (matchingRegister) {
               startAddress = matchingRegister.address;
               protocolConfig = electricMeter.protocol_config;
-              logger.info('从电表协议配置中获取起始地址', {
+              logger.debug('从电表协议配置中获取起始地址', {
                 deviceId: device.id,
                 slaveAddress: parsedResponse.slaveAddress,
                 functionCode: parsedResponse.functionCode,
@@ -1130,7 +1133,7 @@ class MqttService {
           // 逐条查询响应解析
           const mapping = commandInfo.registerMapping[0];
           
-          logger.info('开始解析逐条查询响应', {
+          logger.debug('开始解析逐条查询响应', {
             meterId: electricMeter.id,
             meterAddress: parsedResponse.slaveAddress,
             functionCode: parsedResponse.functionCode,
@@ -1171,7 +1174,7 @@ class MqttService {
           // 存储解析后的值
           electricMeterData.register_data[mapping.address] = value;
           
-          logger.info('逐条查询响应解析完成', {
+          logger.debug('逐条查询响应解析完成', {
             meterId: electricMeter.id,
             meterAddress: parsedResponse.slaveAddress,
             registerName: mapping.name,
@@ -1182,7 +1185,7 @@ class MqttService {
           
         } else if (commandInfo && commandInfo.isBatchQuery && commandInfo.registerMapping) {
           // 批量查询响应解析
-          logger.info('解析批量查询响应', {
+          logger.debug('解析批量查询响应', {
             deviceId: device.id,
             slaveAddress: parsedResponse.slaveAddress,
             functionCode: parsedResponse.functionCode,
@@ -1267,7 +1270,7 @@ class MqttService {
             }
           }
           
-          logger.info('批量查询响应解析完成', {
+          logger.debug('批量查询响应解析完成', {
             meterId: electricMeter.id,
             meterAddress: parsedResponse.slaveAddress,
             mappedRegisters: Object.keys(electricMeterData.register_data).length,
@@ -1287,7 +1290,7 @@ class MqttService {
               electricMeterData.register_data[matchingRegister.address + i] = registers[i];
             }
             
-            logger.info('使用协议配置解析寄存器数据', {
+            logger.debug('使用协议配置解析寄存器数据', {
               registerName: matchingRegister.name || matchingRegister.description,
               configuredAddress: matchingRegister.address,
               configuredCount: matchingRegister.count || 1,
@@ -1320,7 +1323,7 @@ class MqttService {
           }
         }
         
-        logger.info('电表寄存器数据解析完成', {
+        logger.debug('电表寄存器数据解析完成', {
           meterId: electricMeter.id,
           meterAddress: parsedResponse.slaveAddress,
           startAddress: startAddress,
@@ -1417,7 +1420,7 @@ class MqttService {
    */
   determineMessageType(messageData, topic) {
     // 添加调试日志
-    logger.info('消息类型判断', { 
+    logger.debug('消息类型判断', {
       messageData: Buffer.isBuffer(messageData) ? messageData.toString('hex') : 
                    (typeof messageData === 'string' ? messageData.substring(0, 100) : messageData), 
       messageType: Buffer.isBuffer(messageData) ? 'Buffer' : typeof messageData,
@@ -1426,7 +1429,7 @@ class MqttService {
     
     // 如果是Buffer类型，直接识别为RTU响应数据
     if (Buffer.isBuffer(messageData)) {
-      logger.info('识别为RTU响应数据(Buffer格式)', { 
+      logger.debug('识别为RTU响应数据(Buffer格式)', {
         hexData: messageData.toString('hex'),
         length: messageData.length 
       });
@@ -1443,17 +1446,17 @@ class MqttService {
           /\\u[0-9A-Fa-f]{4}/.test(trimmedData) || 
           trimmedData.match(/[\x00-\x1F\x7F-\xFF]/) ||
           (trimmedData.includes('\u0001') || trimmedData.includes('\u0003') || trimmedData.includes('\u0004'))) {
-        logger.info('识别为RTU响应数据(字符串格式)', { messageData: trimmedData.substring(0, 50) });
+        logger.debug('识别为RTU响应数据(字符串格式)', { messageData: trimmedData.substring(0, 50) });
         return 'modbus_response';
       }
       
       // DTU心跳包通常是简单的字符串，如"www.usr.cn"
       if (messageData === 'www.usr.cn' || messageData.includes('usr.cn')) {
-        logger.info('识别为DTU心跳包', { messageData });
+        logger.debug('识别为DTU心跳包', { messageData });
         return 'heartbeat';
       }
       
-      logger.info('识别为普通数据', { messageData: messageData.substring(0, 50) });
+      logger.debug('识别为普通数据', { messageData: messageData.substring(0, 50) });
       return 'data';
     }
 
@@ -1725,7 +1728,7 @@ class MqttService {
         timestamp: receivedAt
       });
 
-      logger.info('设备数据处理完成', {
+      logger.debug('设备数据处理完成', {
         deviceId: device.id,
         deviceName: device.name
       });
@@ -1808,7 +1811,7 @@ class MqttService {
         await this.messageProcessingService.recordStorageCompleted(messageId);
       }
 
-      logger.info('ZQC开关电气数据处理完成', {
+      logger.debug('ZQC开关电气数据处理完成', {
         deviceId: device.id,
         imei: device.imei,
         manufacturerCode,
@@ -1889,7 +1892,7 @@ class MqttService {
           data.toString('hex').substring(0, 50) : 
           data.substring(0, 50);
         
-        logger.info('处理原始RTU响应数据', { 
+        logger.debug('处理原始RTU响应数据', {
           dataType,
           rawData: dataPreview,
           length: Buffer.isBuffer(data) ? data.length : data.length
@@ -1934,7 +1937,7 @@ class MqttService {
         data: logData
       });
 
-      logger.info('电表数据响应处理完成', {
+      logger.debug('电表数据响应处理完成', {
         deviceId: device.id,
         deviceName: device.name,
         meterId: processedData.meter_id,
@@ -2013,7 +2016,7 @@ class MqttService {
         await this.messageProcessingService.recordStorageCompleted(messageId, true);
       }
 
-      logger.info('温控器运行时间统计数据处理完成', {
+      logger.debug('温控器运行时间统计数据处理完成', {
         deviceId: device.id,
         deviceName: device.name,
         runtimeStats: runtimeData
@@ -2097,7 +2100,7 @@ class MqttService {
       runtimeData.runtime_speed2 = runtimeData.fan_middle;
       runtimeData.runtime_speed3 = runtimeData.fan_high;
 
-      logger.info('运行时间数据解析成功', { 
+      logger.debug('运行时间数据解析成功', {
         originalData: runtimeValues, 
         parsedData: runtimeData 
       });
@@ -2139,7 +2142,7 @@ class MqttService {
 
       await pool.query(query, values);
 
-      logger.info('温控器运行时间统计数据保存成功', {
+      logger.debug('温控器运行时间统计数据保存成功', {
         deviceId: device.id,
         statDate,
         runtimeData
@@ -2212,7 +2215,7 @@ class MqttService {
         timestamp: new Date().toISOString()
       });
 
-      logger.info('设备状态更新完成', {
+      logger.debug('设备状态更新完成', {
         deviceId: device.id,
         status: newStatus
       });
@@ -2455,7 +2458,7 @@ class MqttService {
 
       if (hasSwitchData) {
         // 如果包含开关状态数据，调用照明开关状态处理方法
-        logger.info('事件消息包含开关状态数据，调用开关状态处理方法', {
+        logger.debug('事件消息包含开关状态数据，调用开关状态处理方法', {
           deviceId,
           switchData: {
             key1: eventData.key1,
@@ -2468,7 +2471,7 @@ class MqttService {
 
       if (hasElectricalData) {
         // 如果包含电气数据，调用照明电气数据处理方法
-        logger.info('事件消息包含电气数据，调用电气数据处理方法', {
+        logger.debug('事件消息包含电气数据，调用电气数据处理方法', {
           deviceId,
           electricalData: {
             voltage: eventData.voltage,
@@ -2545,7 +2548,7 @@ class MqttService {
         await this.messageProcessingService.recordStorageCompleted(messageId);
       }
 
-      logger.info('设备事件处理完成', {
+      logger.debug('设备事件处理完成', {
         deviceId: device.id,
         deviceName: device.name,
         eventCode: eventData.code,
@@ -3942,7 +3945,7 @@ try {
           Array.isArray(parsedData.body.items) && Array.isArray(parsedData.body.data) &&
           parsedData.body.data.length > 0 && Array.isArray(parsedData.body.data[0])) {
         
-        logger.info('检测到温控器特殊响应格式，按items和data数组对应关系解析', {
+        logger.debug('检测到温控器特殊响应格式，按items和data数组对应关系解析', {
           deviceId: device.id,
           itemsCount: parsedData.body.items.length,
           dataCount: parsedData.body.data[0].length
@@ -4018,9 +4021,13 @@ try {
 
       // 如果有提取到的数据，保存到对应的数据表
       if (Object.keys(extractedData).length > 0) {
-        await this.saveDeviceDataByProtocolConfig(device, extractedData, protocolConfig, topic);
+        const saved = await this.saveDeviceDataByProtocolConfig(device, extractedData, protocolConfig, topic);
 
-        logger.info('设备数据已根据协议配置解析和存储', {
+        if (saved === false) {
+          return true;
+        }
+
+        logger.debug('设备数据已根据协议配置解析和存储', {
           deviceId: device.id,
           protocolName: protocolConfig.name,
           protocolVersion: protocolConfig.version,
@@ -4204,7 +4211,17 @@ try {
         await this.saveGenericDeviceData(device, extractedData);
       }
 
+      return true;
+
     } catch (error) {
+      if (isInactiveControlModuleError(error)) {
+        logger.debug('设备未加入对应控制模块，跳过分类时序数据', {
+          deviceId: device.id,
+          protocolConfigId: protocolConfig.id
+        });
+        return false;
+      }
+
       logger.error('根据协议配置保存设备数据失败', {
         deviceId: device.id,
         protocolConfigId: protocolConfig.id,
@@ -4389,7 +4406,7 @@ try {
           rawPayload: data
         });
 
-        logger.info('温控器设备数据已保存', {
+        logger.debug('温控器设备数据已保存', {
           deviceId: device.id,
           updatedFields: Object.keys(fields).filter(k => fields[k] !== null),
           dataFields: Object.keys(data)
@@ -4425,6 +4442,13 @@ try {
       }
 
     } catch (error) {
+      if (isInactiveControlModuleError(error)) {
+        logger.debug('温控器设备未加入控制模块，跳过分类时序数据', {
+          deviceId: device.id
+        });
+        return false;
+      }
+
       logger.error('保存温控器设备数据失败', {
         deviceId: device.id,
         error: error.message
@@ -4471,7 +4495,7 @@ try {
         ]
       );
 
-      logger.info('照明设备数据已保存（协议配置）', {
+      logger.debug('照明设备数据已保存（协议配置）', {
         deviceId: device.id,
         manufacturerCode
       });
@@ -4620,7 +4644,7 @@ try {
       electrical_data: electricalData,
       timestamp: new Date().toISOString()
     });
-    logger.info('分散空调上报数据已解析并保存', {
+    logger.debug('分散空调上报数据已解析并保存', {
       deviceId: device.id,
       imei: device.imei,
       currentTemperature: statusData.current_temperature,
@@ -4742,7 +4766,7 @@ try {
         await this.messageProcessingService.recordStorageCompleted(messageId);
       }
 
-      logger.info('照明开关状态数据处理完成', {
+      logger.debug('照明开关状态数据处理完成', {
         deviceId: device.id,
         deviceName: device.name,
         switchData: {
@@ -4849,7 +4873,7 @@ try {
         await this.messageProcessingService.recordStorageCompleted(messageId);
       }
 
-      logger.info('照明电气数据处理完成', {
+      logger.debug('照明电气数据处理完成', {
         deviceId: device.id,
         deviceName: device.name,
         electricalData: {
@@ -4898,7 +4922,7 @@ try {
         return;
       }
 
-      logger.info('照明设备数据已保存到统一时序表', {
+      logger.debug('照明设备数据已保存到统一时序表', {
         deviceId: device.id,
         manufacturerCode,
         device_id: device.device_id,
@@ -5558,7 +5582,7 @@ try {
         timestamp: new Date().toISOString()
       });
 
-      logger.info('多联机状态数据处理完成', {
+      logger.debug('多联机状态数据处理完成', {
         deviceId: device.id,
         deviceName: device.name
       });
@@ -5714,7 +5738,7 @@ try {
         // 继续执行，不因为WebSocket广播失败而中断
       }
 
-      logger.info('多联机心跳包处理完成', {
+      logger.debug('多联机心跳包处理完成', {
         deviceId: device.id,
         deviceName: device.name,
         hostsUpdated: hosts.length

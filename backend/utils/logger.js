@@ -139,7 +139,7 @@ const accessLogger = winston.createLogger({
 
 // 创建专门的MQTT日志器
 const mqttLogger = winston.createLogger({
-  level: 'info',
+  level: process.env.MQTT_LOG_LEVEL || 'info',
   format: logFormat,
   transports: [
     new winston.transports.File({
