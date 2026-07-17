@@ -1,6 +1,6 @@
 const express = require('express');
-const { Op } = require('sequelize');
-const { User, Tenant, Device, DeviceData, DeviceLog, DeviceType, sequelize } = require('../models');
+const { Op, QueryTypes } = require('sequelize');
+const { User, Tenant, Device, DeviceLog, DeviceType, sequelize } = require('../models');
 const {
   authenticateToken,
   requireAdmin
@@ -15,6 +15,59 @@ const os = require('os');
 
 const router = express.Router();
 const mqttService = require('../services/mqttService');
+const { version: packageVersion } = require('../package.json');
+const appVersion = process.env.APP_VERSION || packageVersion;
+
+const CURRENT_TELEMETRY_TABLES = [
+  'switch_status_measurements',
+  'switch_electrical_measurements',
+  'lighting_status_measurements',
+  'lighting_electrical_measurements',
+  'air_conditioner_status_measurements',
+  'air_conditioner_electrical_measurements',
+  'thermostat_status_measurements',
+  'thermostat_electrical_measurements'
+];
+
+const telemetryUnionSql = CURRENT_TELEMETRY_TABLES
+  .map((table) => `SELECT tenant_id, measured_at FROM ${table}`)
+  .join(' UNION ALL ');
+
+async function countCurrentTelemetry({ tenantId = null, since = null } = {}) {
+  const where = [];
+  const replacements = {};
+  if (tenantId) {
+    where.push('tenant_id = :tenantId');
+    replacements.tenantId = tenantId;
+  }
+  if (since) {
+    where.push('measured_at >= :since');
+    replacements.since = since;
+  }
+  const rows = await sequelize.query(
+    `SELECT COUNT(*)::bigint AS count FROM (${telemetryUnionSql}) telemetry${where.length ? ` WHERE ${where.join(' AND ')}` : ''}`,
+    { replacements, type: QueryTypes.SELECT }
+  );
+  return Number(rows[0]?.count || 0);
+}
+
+async function getCurrentTelemetryTimeline({ tenantId = null, since, until }) {
+  const where = ['measured_at >= :since', 'measured_at <= :until'];
+  const replacements = { since, until };
+  if (tenantId) {
+    where.push('tenant_id = :tenantId');
+    replacements.tenantId = tenantId;
+  }
+  return sequelize.query(
+    `SELECT to_char(date_trunc('minute', measured_at), 'YYYY-MM-DD HH24:MI:00') AS minute,
+            COUNT(*)::bigint AS count
+       FROM (${telemetryUnionSql}) telemetry
+      WHERE ${where.join(' AND ')}
+      GROUP BY date_trunc('minute', measured_at)
+      ORDER BY date_trunc('minute', measured_at)`,
+    { replacements, type: QueryTypes.SELECT }
+  );
+}
 
 /**
  * @route GET /api/system/stats
@@ -40,11 +93,7 @@ router.get('/stats', authenticateToken, async (req, res) => {
       user.role === 'admin' ? User.count() : User.count({ where: userWhereClause }),
       user.role === 'admin' ? Tenant.count() : 1, // 非管理员只显示自己的租户
       Device.count({ where: deviceWhereClause }),
-      user.role === 'admin' ? DeviceData.count() : DeviceData.count({
-        where: deviceWhereClause.tenant_id ? {
-          device_id: { [Op.in]: await Device.findAll({ where: deviceWhereClause, attributes: ['id'] }).then(devices => devices.map(d => d.id)) }
-        } : {}
-      })
+      countCurrentTelemetry({ tenantId: deviceWhereClause.tenant_id })
     ]);
 
     // 获取活跃统计
@@ -56,19 +105,10 @@ router.get('/stats', authenticateToken, async (req, res) => {
 
     // 获取最近24小时的数据
     const last24Hours = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    const deviceIds = deviceWhereClause.tenant_id ?
-      await Device.findAll({ where: deviceWhereClause, attributes: ['id'] }).then(devices => devices.map(d => d.id)) :
-      [];
-
     const [recentUsers, recentDevices, recentDataPoints] = await Promise.all([
       user.role === 'admin' ? User.count({ where: { created_at: { [Op.gte]: last24Hours } } }) : User.count({ where: { ...userWhereClause, created_at: { [Op.gte]: last24Hours } } }),
       Device.count({ where: { ...deviceWhereClause, created_at: { [Op.gte]: last24Hours } } }),
-      user.role === 'admin' ? DeviceData.count({ where: { timestamp: { [Op.gte]: last24Hours } } }) : DeviceData.count({
-        where: {
-          timestamp: { [Op.gte]: last24Hours },
-          ...(deviceIds.length > 0 ? { device_id: { [Op.in]: deviceIds } } : {})
-        }
-      })
+      countCurrentTelemetry({ tenantId: deviceWhereClause.tenant_id, since: last24Hours })
     ]);
 
     // 获取设备类型统计
@@ -238,7 +278,7 @@ router.get('/dashboard-stats', authenticateToken, async (req, res) => {
     // 获取基础统计
     const [totalDevices, totalDataPoints] = await Promise.all([
       Device.count({ where: deviceWhereClause }),
-      DeviceData.count({ where: deviceWhereClause.tenant_id ? { device_id: { [Op.in]: await Device.findAll({ where: deviceWhereClause, attributes: ['id'] }).then(devices => devices.map(d => d.id)) } } : {} })
+      countCurrentTelemetry({ tenantId: deviceWhereClause.tenant_id })
     ]);
 
     // 获取设备状态统计
@@ -249,15 +289,9 @@ router.get('/dashboard-stats', authenticateToken, async (req, res) => {
 
     // 获取最近24小时的数据
     const last24Hours = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    const deviceIds = deviceWhereClause.tenant_id ?
-      await Device.findAll({ where: deviceWhereClause, attributes: ['id'] }).then(devices => devices.map(d => d.id)) :
-      [];
-
-    const recentDataPoints = await DeviceData.count({
-      where: {
-        timestamp: { [Op.gte]: last24Hours },
-        ...(deviceIds.length > 0 ? { device_id: { [Op.in]: deviceIds } } : {})
-      }
+    const recentDataPoints = await countCurrentTelemetry({
+      tenantId: deviceWhereClause.tenant_id,
+      since: last24Hours
     });
 
     // 获取设备类型统计
@@ -400,7 +434,7 @@ router.get('/health', async (req, res) => {
       timestamp: new Date().toISOString(),
       checks: healthChecks,
       uptime: process.uptime(),
-      version: process.env.npm_package_version || '1.0.0'
+      version: appVersion
     });
   } catch (error) {
     logger.error('Health check error', { error: error.message, stack: error.stack });
@@ -521,27 +555,10 @@ router.get('/performance', authenticateToken, async (req, res) => {
       deviceIds = userDevices.map(d => d.id);
     }
 
-    // 获取数据写入性能
-    const dataWriteWhereClause = {
-      timestamp: {
-        [Op.gte]: startTime,
-        [Op.lte]: now
-      }
-    };
-    
-    if (deviceIds.length > 0) {
-      dataWriteWhereClause.device_id = { [Op.in]: deviceIds };
-    }
-
-    const dataWriteStats = await DeviceData.findAll({
-      where: dataWriteWhereClause,
-      attributes: [
-        [require('sequelize').fn('to_char', require('sequelize').col('timestamp'), 'YYYY-MM-DD HH24:MI:00'), 'minute'],
-        [require('sequelize').fn('COUNT', require('sequelize').col('id')), 'count']
-      ],
-      group: [require('sequelize').literal('minute')],
-      order: [[require('sequelize').literal('minute'), 'ASC']],
-      raw: true
+    const dataWriteStats = await getCurrentTelemetryTimeline({
+      tenantId: deviceWhereClause.tenant_id,
+      since: startTime,
+      until: now
     });
 
     // 获取设备连接性能
@@ -677,23 +694,10 @@ router.post('/cleanup', authenticateToken, requireAdmin, async (req, res) => {
 
     switch (cleanupType) {
       case 'device_data':
-        // 清理设备数据
-        const dataWhereClause = {
-          timestamp: { [Op.lt]: cutoffDate }
-        };
-
-        if (deviceIds.length > 0) {
-          dataWhereClause.device_id = { [Op.in]: deviceIds };
-        }
-
-        if (dataTypes.length > 0) {
-          dataWhereClause.data_type = { [Op.in]: dataTypes };
-        }
-
-        deletedCount = await DeviceData.destroy({
-          where: dataWhereClause
+        return res.status(410).json({
+          success: false,
+          message: '通用设备数据表已停用，当前数据由四个控制模块的时序表独立管理'
         });
-        break;
 
       case 'device_logs':
         // 清理设备日志
@@ -775,7 +779,7 @@ router.get('/config', authenticateToken, requireAdmin, (req, res) => {
     const config = {
       app: {
         name: process.env.APP_NAME || 'IoT Device Management',
-        version: process.env.APP_VERSION || '1.0.0',
+        version: appVersion,
         environment: process.env.NODE_ENV || 'development',
         port: process.env.PORT || 3003
       },
@@ -1016,7 +1020,7 @@ router.get('/info', (req, res) => {
   try {
     const info = {
       name: process.env.APP_NAME || 'IoT Device Management System',
-      version: process.env.APP_VERSION || '1.0.0',
+      version: appVersion,
       description: 'Internet of Things Device Management Platform',
       author: 'IoT Team',
       license: 'MIT',

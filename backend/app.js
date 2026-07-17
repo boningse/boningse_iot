@@ -34,19 +34,16 @@ const tenantRoutes = require('./routes/tenants');
 const manufacturerRoutes = require('./routes/manufacturers');
 const protocolConfigRoutes = require('./routes/protocolConfigs');
 const projectManagementRoutes = require('./routes/projectManagement');
-const dataRoutes = require('./routes/data');
 const lightingControlRoutes = require('./routes/lightingControl');
 const switchControlRoutes = require('./routes/switchControl');
 const airConditionerControlRoutes = require('./routes/airConditionerControl');
 const lightingDataRoutes = require('./routes/lightingData');
 const lightingScenesRoutes = require('./routes/lightingScenes');
 const lightingTimerRoutes = require('./routes/lightingTimer');
-const { router: modbusRoutes, modbusManager } = require('./routes/modbus');
 
 const systemRoutes = require('./routes/system');
 const userRoutes = require('./routes/users');
 const testRoutes = require('./routes/test');
-const messageProcessingRoutes = require('./routes/messageProcessing');
 const thermostatRoutes = require('./routes/thermostat');
 const eqinfoRoutes = require('./routes/eqinfo');
 
@@ -102,14 +99,12 @@ app.use('/api/tenants', tenantRoutes);
 app.use('/api/project-management', projectManagementRoutes);
 app.use('/api/manufacturers', manufacturerRoutes);
 app.use('/api/protocol-configs', protocolConfigRoutes);
-app.use('/api/data', dataRoutes);
 app.use('/api/lighting-control', lightingControlRoutes);
 app.use('/api/switch-control', switchControlRoutes);
 app.use('/api/air-conditioner-control', airConditionerControlRoutes);
 app.use('/api/lighting-data', lightingDataLimiter, lightingDataRoutes);
 app.use('/api/lighting-scenes', lightingScenesRoutes);
 app.use('/api/lighting-timer', lightingTimerRoutes);
-app.use('/api/modbus', modbusRoutes);
 
 app.use('/api/system', systemRoutes);
 app.use('/api/users', userRoutes);
@@ -118,7 +113,6 @@ if (!isProduction || enableTestRoutes) {
 } else {
   logger.info('生产环境未启用测试路由', { route: '/api/test' });
 }
-app.use('/api/message-processing', messageProcessingRoutes);
 app.use('/api/thermostat', thermostatRoutes);
 app.use('/api/v1/eqinfo', eqinfoRoutes);
 
@@ -231,10 +225,6 @@ async function startServer() {
     global.messageProcessingServiceInstance = messageProcessingService;
     logger.info('消息处理服务初始化成功');
     
-    // 设置 Modbus 管理器为全局变量
-    global.modbusManagerInstance = modbusManager;
-    logger.info('Modbus 协议管理器初始化成功');
-    
     // 优雅关闭 - 统一信号处理
     const gracefulShutdown = async (signal) => {
       logger.info(`收到${signal}信号，正在关闭服务器...`);
@@ -250,11 +240,6 @@ async function startServer() {
         
         // 断开MQTT连接
         await mqttService.disconnect();
-        
-        // 关闭Modbus管理器
-        if (global.modbusManagerInstance) {
-          await global.modbusManagerInstance.shutdown();
-        }
         
         // 关闭WebSocket服务
         websocketService.close();

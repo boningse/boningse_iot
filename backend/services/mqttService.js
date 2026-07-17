@@ -1,6 +1,6 @@
 const mqtt = require('mqtt');
 const { Op } = require('sequelize');
-const { Device, DeviceData, DeviceLog, DeviceType, Tenant, Manufacturer } = require('../models');
+const { Device, DeviceLog, DeviceType, Tenant, Manufacturer } = require('../models');
 const websocketService = require('./websocketService');
 const MessageProcessingService = require('./messageProcessingService');
 const { mqttLogger: logger } = require('../utils/logger');
@@ -9,6 +9,14 @@ const { getPoolConfig } = require('../config/database');
 const { parseDa51kdUplink } = require('../utils/da51kdProtocol');
 const telemetryStore = require('./telemetryStore');
 require('dotenv').config();
+
+const persistVerboseDeviceLogs = process.env.PERSIST_VERBOSE_DEVICE_LOGS === 'true';
+const persistDetailedMessageStats = process.env.MESSAGE_DETAIL_TRACKING_ENABLED === 'true';
+const persistDeviceLog = async (entry) => {
+  const level = String(entry?.level || 'info').toLowerCase();
+  if (!persistVerboseDeviceLogs && !['warning', 'warn', 'error'].includes(level)) return null;
+  return DeviceLog.create(entry);
+};
 
 // PostgreSQL连接池
 const pool = new Pool({
@@ -1649,13 +1657,7 @@ class MqttService {
         await this.messageProcessingService.recordStorageStarted(messageId);
       }
 
-      // 保存设备数据
-      const deviceData = await DeviceData.create({
-        device_id: device.id,
-        data_type: 'sensor',
-        payload: data,
-        timestamp: new Date()
-      });
+      const receivedAt = new Date();
 
       // 根据设备类型解析和存储数据
       await this.parseAndStoreDeviceData(device, data, topic);
@@ -1667,7 +1669,7 @@ class MqttService {
       const cleanedData = this.sanitizeDataForStorage(data);
 
       // 记录日志
-      await DeviceLog.create({
+      await persistDeviceLog({
         device_id: device.id,
         level: 'info',
         message: '接收到设备数据',
@@ -1702,7 +1704,7 @@ class MqttService {
         data: data,
         dataSize: JSON.stringify(data).length,
         messageType: 'data',
-        timestamp: deviceData.timestamp
+        timestamp: receivedAt
       });
 
       // 同时推送通信日志
@@ -1720,7 +1722,7 @@ class MqttService {
         dataSize: JSON.stringify(data).length,
         messageType: 'data',
         type: 'data',
-        timestamp: deviceData.timestamp
+        timestamp: receivedAt
       });
 
       logger.info('设备数据处理完成', {
@@ -1761,13 +1763,6 @@ class MqttService {
         await this.messageProcessingService.recordStorageStarted(messageId);
       }
 
-      await DeviceData.create({
-        device_id: device.id,
-        data_type: 'switch_electrical',
-        payload: data,
-        timestamp: new Date()
-      });
-
       const manufacturerCode = this.extractManufacturerFromTopic(topic) || device.manufacturer_code || 'ZQC';
       const records = [];
 
@@ -1780,7 +1775,7 @@ class MqttService {
         }
       }
 
-      await DeviceLog.create({
+      await persistDeviceLog({
         device_id: device.id,
         level: 'info',
         message: '接收到ZQC开关电气数据',
@@ -1932,7 +1927,7 @@ class MqttService {
       };
 
       // 记录日志
-      await DeviceLog.create({
+      await persistDeviceLog({
         device_id: device.id,
         level: 'info',
         message: '接收到电表数据响应',
@@ -1992,7 +1987,7 @@ class MqttService {
       await this.saveThermostatRuntimeStats(device, runtimeData);
 
       // 记录日志
-      await DeviceLog.create({
+      await persistDeviceLog({
         device_id: device.id,
         level: 'info',
         message: '接收到温控器运行时间统计数据',
@@ -2185,7 +2180,7 @@ class MqttService {
       const cleanedStatusData = this.sanitizeDataForStorage(statusData);
 
       // 记录日志
-      await DeviceLog.create({
+      await persistDeviceLog({
         device_id: device.id,
         level: 'info',
         message: `设备状态更新: ${newStatus}`,
@@ -2263,7 +2258,7 @@ class MqttService {
       const cleanedHeartbeatData = this.sanitizeDataForStorage(heartbeatData);
 
       // 记录设备心跳日志
-      await DeviceLog.create({
+      await persistDeviceLog({
         device_id: device.id,
         level: 'info',
         message: `设备心跳${device.device_type?.name === 'DTU电表' ? ' (DTU心跳包)' : ''}`,
@@ -2358,7 +2353,7 @@ class MqttService {
       const cleanedResponseData = this.sanitizeDataForStorage(responseData);
 
       // 记录设备响应日志
-      await DeviceLog.create({
+      await persistDeviceLog({
         device_id: device.id,
         level: 'info',
         message: '接收到设备响应',
@@ -2489,7 +2484,7 @@ class MqttService {
       const cleanedEventData = this.sanitizeDataForStorage(eventData);
 
       // 记录事件日志
-      await DeviceLog.create({
+      await persistDeviceLog({
         device_id: device.id,
         level: 'info',
         message: `设备事件: ${cleanedEventData.code || '未知事件'}`,
@@ -2588,7 +2583,7 @@ class MqttService {
 
       // 记录设备状态变化日志
       if (oldStatus !== status) {
-        await DeviceLog.create({
+        await persistDeviceLog({
           device_id: device.id,
           level: 'info',
           message: `设备状态更新: ${status}`,
@@ -2775,7 +2770,7 @@ try {
       const cleanedCommand = this.sanitizeDataForStorage(command);
 
       // 记录命令发送日志
-      await DeviceLog.create({
+      await persistDeviceLog({
         device_id: device.id,
         level: 'info',
         message: `发送氟系统空调命令: ${JSON.stringify(cleanedCommand).substring(0, 50)}${JSON.stringify(cleanedCommand).length > 50 ? '...' : ''}`,
@@ -2902,7 +2897,7 @@ try {
       const cleanedCommand = this.sanitizeDataForStorage(command);
 
       // 记录命令发送日志
-      await DeviceLog.create({
+      await persistDeviceLog({
         device_id: device.id,
         level: 'info',
         message: `发送命令: ${typeof cleanedCommand === 'string' ? cleanedCommand.substring(0, 50) : JSON.stringify(cleanedCommand).substring(0, 50)}${(typeof cleanedCommand === 'string' ? cleanedCommand.length : JSON.stringify(cleanedCommand).length) > 50 ? '...' : ''}`,
@@ -3079,7 +3074,7 @@ try {
           offlineDevices.push(device);
 
           // 记录设备离线检测日志
-          await DeviceLog.create({
+          await persistDeviceLog({
             device_id: device.id,
             level: 'warning',
             message: isSubDevice ? '设备离线检测：上级网关通信超时，子设备离线' : '设备离线检测：设备超时离线',
@@ -3159,10 +3154,11 @@ try {
     const currentCount = this.messageStats.inbound.get(timeKey) || 0;
     this.messageStats.inbound.set(timeKey, currentCount + 1);
 
-    // 持久化到数据库
-    this.persistMessageStats('inbound', now).catch(error => {
-      logger.error('持久化入站消息统计失败:', error);
-    });
+    if (persistDetailedMessageStats) {
+      this.persistMessageStats('inbound', now).catch(error => {
+        logger.error('持久化入站消息统计失败:', error);
+      });
+    }
   }
 
   /**
@@ -3179,10 +3175,11 @@ try {
     const currentCount = this.messageStats.outbound.get(timeKey) || 0;
     this.messageStats.outbound.set(timeKey, currentCount + 1);
 
-    // 持久化到数据库
-    this.persistMessageStats('outbound', now).catch(error => {
-      logger.error('持久化出站消息统计失败:', error);
-    });
+    if (persistDetailedMessageStats) {
+      this.persistMessageStats('outbound', now).catch(error => {
+        logger.error('持久化出站消息统计失败:', error);
+      });
+    }
   }
 
   /**
@@ -3387,6 +3384,10 @@ try {
    * 获取消息流量统计数据（从数据库获取历史数据）
    */
   async getMessageFlowStats(timeRange = '24h') {
+    if (!persistDetailedMessageStats) {
+      return this.getMessageFlowStatsFromMemory(timeRange);
+    }
+
     try {
       const { MessageFlowStatistic } = require('../models');
       const { Op } = require('sequelize');
@@ -4631,25 +4632,10 @@ try {
    * 保存通用设备数据
    */
   async saveGenericDeviceData(device, data) {
-    try {
-      // 更新设备数据表的payload字段
-      await db.query(
-        'UPDATE device_data SET payload = ?, updated_at = NOW() WHERE device_id = ?',
-        [JSON.stringify(data), device.id]
-      );
-
-      logger.info('通用设备数据已保存', {
-        deviceId: device.id,
-        dataFields: Object.keys(data)
-      });
-
-    } catch (error) {
-      logger.error('保存通用设备数据失败', {
-        deviceId: device.id,
-        error: error.message
-      });
-      throw error;
-    }
+    logger.debug('通用设备数据表已停用，未识别数据仅实时转发', {
+      deviceId: device.id,
+      dataFields: Object.keys(data || {})
+    });
   }
 
   /**
@@ -4716,7 +4702,7 @@ try {
       const cleanedSwitchData = this.sanitizeDataForStorage(data);
 
       // 记录日志
-      await DeviceLog.create({
+      await persistDeviceLog({
         device_id: device.id,
         level: 'info',
         message: '接收到照明开关状态数据',
@@ -4822,7 +4808,7 @@ try {
       const cleanedElectricalData = this.sanitizeDataForStorage(data);
 
       // 记录日志
-      await DeviceLog.create({
+      await persistDeviceLog({
         device_id: device.id,
         level: 'info',
         message: '接收到照明电气数据',
@@ -5537,16 +5523,8 @@ try {
         }
       }
 
-      // 保存设备数据
-      const deviceData = await DeviceData.create({
-        device_id: device.id,
-        data_type: 'multi_unit_ac_status',
-        payload: parsedData,
-        timestamp: new Date()
-      });
-
       // 记录日志
-      await DeviceLog.create({
+      await persistDeviceLog({
         device_id: device.id,
         level: 'info',
         message: '接收到多联机状态数据',
@@ -5577,7 +5555,7 @@ try {
         topic: topic,
         payload: parsedData,
         messageType: 'multi_unit_ac_status',
-        timestamp: deviceData.timestamp
+        timestamp: new Date().toISOString()
       });
 
       logger.info('多联机状态数据处理完成', {
@@ -5627,7 +5605,7 @@ try {
         
         // 记录设备日志（如果可能的话，创建一个临时记录）
         try {
-          await DeviceLog.create({
+          await persistDeviceLog({
             device_id: null, // 设备不存在，所以device_id为null
             level: 'warning',
             message: errorMessage,
@@ -5689,7 +5667,7 @@ try {
 
       // 记录心跳日志
       try {
-        await DeviceLog.create({
+        await persistDeviceLog({
           device_id: device.id,
           level: 'info',
           message: '接收到多联机心跳包',
@@ -5788,16 +5766,8 @@ try {
         }
       }
 
-      // 保存设备数据
-      const deviceData = await DeviceData.create({
-        device_id: device.id,
-        data_type: 'multi_unit_ac_response',
-        payload: parsedData,
-        timestamp: new Date()
-      });
-
       // 记录日志
-      await DeviceLog.create({
+      await persistDeviceLog({
         device_id: device.id,
         level: 'info',
         message: '接收到多联机控制响应',
@@ -5828,7 +5798,7 @@ try {
         topic: topic,
         payload: parsedData,
         messageType: 'multi_unit_ac_response',
-        timestamp: deviceData.timestamp
+        timestamp: new Date().toISOString()
       });
 
       logger.info('多联机控制响应处理完成', {

@@ -4,6 +4,7 @@ const logger = require('../utils/logger');
 
 class MessageProcessingService {
   constructor() {
+    this.detailedTrackingEnabled = process.env.MESSAGE_DETAIL_TRACKING_ENABLED === 'true';
     this.models = null;
     this.anomalyRules = new Map();
     this.statisticsCache = new Map();
@@ -13,22 +14,9 @@ class MessageProcessingService {
     this.batchTimer = null;
     this.dtuMessageHandler = null; // DTU消息处理器
 
-    // 初始化批处理
-    this.initBatchProcessing();
-  // 定期清理统计数据缓存，防止内存泄漏
-  setInterval(() => {
-    if (this.statisticsCache && this.statisticsCache.size > 5000) {
-      const entries = [...this.statisticsCache.entries()];
-      const now = Date.now();
-      // 按时间桶排序，删除最老的
-      entries.sort((a, b) => (a[0] || '').localeCompare(b[0] || ''));
-      const toRemove = entries.slice(0, entries.length - 2000);
-      for (const [key] of toRemove) {
-        this.statisticsCache.delete(key);
-      }
-      console.log('statisticsCache cleanup: removed', toRemove.length, 'entries, remaining:', this.statisticsCache.size);
+    if (this.detailedTrackingEnabled) {
+      this.initBatchProcessing();
     }
-  }, 30 * 60 * 1000); // 每30分钟清理一次
   }
 
   /**
@@ -37,8 +25,10 @@ class MessageProcessingService {
   async initialize() {
     try {
       this.models = require('../models');
-      await this.loadAnomalyRules();
-      logger.info('消息处理服务初始化完成');
+      if (this.detailedTrackingEnabled) await this.loadAnomalyRules();
+      logger.info('消息处理服务初始化完成', {
+        detailedTrackingEnabled: this.detailedTrackingEnabled
+      });
     } catch (error) {
       logger.error('消息处理服务初始化失败', { error: error.message });
       throw error;
@@ -70,6 +60,7 @@ class MessageProcessingService {
    * 加载异常检测规则
    */
   async loadAnomalyRules() {
+    if (!this.detailedTrackingEnabled) return;
     try {
       const { AnomalyDetectionRule } = this.models;
       const rules = await AnomalyDetectionRule.findAll({
@@ -95,6 +86,7 @@ class MessageProcessingService {
   async recordMessageReceived(deviceId, topic, messageType, payload, direction = 'inbound', messageId = null) {
     // 如果没有传入messageId，则生成一个新的
     const finalMessageId = messageId || uuidv4();
+    if (!this.detailedTrackingEnabled) return finalMessageId;
     const receivedAt = new Date();
     const messageSize = JSON.stringify(payload).length;
     const payloadHash = this.generatePayloadHash(payload);
@@ -137,6 +129,7 @@ class MessageProcessingService {
    * 记录消息处理开始
    */
   async recordProcessingStarted(messageId) {
+    if (!this.detailedTrackingEnabled) return null;
     try {
       const { MessageProcessingStat } = this.models;
       const processingStartedAt = new Date();
@@ -158,6 +151,7 @@ class MessageProcessingService {
    * 记录消息处理完成
    */
   async recordProcessingCompleted(messageId, success = true, error = null) {
+    if (!this.detailedTrackingEnabled) return;
     try {
       const { MessageProcessingStat } = this.models;
       const processingCompletedAt = new Date();
@@ -205,6 +199,7 @@ class MessageProcessingService {
    * 记录处理失败
    */
   async recordProcessingFailed(messageId, errorMessage, processingTime = null) {
+    if (!this.detailedTrackingEnabled) return;
     try {
       const { MessageProcessingStat } = this.models;
       const processingCompletedAt = new Date();
@@ -251,6 +246,7 @@ class MessageProcessingService {
    * 记录存储开始
    */
   async recordStorageStarted(messageId, storageLocation) {
+    if (!this.detailedTrackingEnabled) return null;
     try {
       const { MessageProcessingStat } = this.models;
       const storageStartedAt = new Date();
@@ -273,6 +269,7 @@ class MessageProcessingService {
    * 记录存储完成
    */
   async recordStorageCompleted(messageId, success = true, error = null) {
+    if (!this.detailedTrackingEnabled) return;
     try {
       const { MessageProcessingStat } = this.models;
       const storageCompletedAt = new Date();
@@ -323,6 +320,7 @@ class MessageProcessingService {
    * 异常检测
    */
   async detectAnomalies(messageId, recordData) {
+    if (!this.detailedTrackingEnabled) return;
     try {
       const { MessageProcessingStat } = this.models;
 
@@ -436,6 +434,7 @@ class MessageProcessingService {
    * 更新流量统计
    */
   async updateFlowStatistics(originalRecord, updateData) {
+    if (!this.detailedTrackingEnabled) return;
     try {
       const { MessageFlowStatistic } = this.models;
       const now = new Date();
@@ -580,6 +579,7 @@ class MessageProcessingService {
    * 处理统计批量更新
    */
   async processStatisticsBatch() {
+    if (!this.detailedTrackingEnabled) return;
     if (!this.statisticsBatch || this.statisticsBatch.size === 0) return;
 
     const batch = Array.from(this.statisticsBatch.values());
@@ -612,6 +612,7 @@ class MessageProcessingService {
    * 获取真实的消息流量统计
    */
   async getRealMessageFlowStats(timeRange = '24h') {
+    if (!this.detailedTrackingEnabled) return null;
     try {
       const { MessageFlowStatistic } = this.models;
       const now = new Date();
@@ -762,6 +763,7 @@ class MessageProcessingService {
    * 处理批次
    */
   async processBatch() {
+    if (!this.detailedTrackingEnabled) return;
     if (this.pendingBatch.length === 0) return;
 
     const batch = [...this.pendingBatch];
@@ -797,9 +799,10 @@ class MessageProcessingService {
       this.statisticsBatchTimer = null;
     }
 
-    // 处理剩余的批次
-    await this.processBatch();
-    await this.processStatisticsBatch();
+    if (this.detailedTrackingEnabled) {
+      await this.processBatch();
+      await this.processStatisticsBatch();
+    }
 
     logger.info('消息处理服务已停止');
   }

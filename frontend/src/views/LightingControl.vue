@@ -855,7 +855,7 @@ import { ref, reactive, onMounted, onUnmounted, nextTick, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, VideoPlay, VideoPause, RefreshRight, View, Delete, Search, Refresh, Setting, Sunny, Moon, House, Coffee, Reading, Close, Clock, Loading } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
-import { lightingControlAPI, projectManagementAPI, tenantAPI, deviceAPI, dataAPI, lightingScenesAPI, lightingDataAPI } from '@/api/index.js'
+import { lightingControlAPI, projectManagementAPI, tenantAPI, deviceAPI, lightingScenesAPI, lightingDataAPI } from '@/api/index.js'
 import websocketService from '@/utils/websocket'
 
 // 响应式数据
@@ -2101,22 +2101,8 @@ const fetchDeviceData = async (deviceImei, startTime, endTime) => {
         }
       }
     } catch (lightingError) {
-      console.warn('照明数据API调用失败，回退到通用数据API:', lightingError)
+      console.warn('照明时序数据API调用失败:', lightingError)
     }
-    
-    // 回退到通用设备数据API
-    const result = await dataAPI.getDeviceHistoryDataByImei(deviceImei, startTime, endTime)
-    
-    console.log('通用数据API响应结果:', result)
-    
-    if (!result.success) {
-      throw new Error(result.message || '获取设备数据失败')
-    }
-    if (result.success && result.data && result.data.deviceData) {
-      console.log('获取到设备历史数据:', result.data.deviceData)
-      return processDeviceData(result.data.deviceData)
-    }
-    console.warn('API返回成功但没有deviceData字段')
     return getDefaultChartData()
   } catch (error) {
     console.error('获取设备数据失败:', error)
@@ -2136,26 +2122,6 @@ const processLightingData = (data) => {
         current: parseFloat(item.current !== undefined ? item.current : 0).toFixed(3),
         power: parseFloat(item.power !== undefined ? item.power : 0).toFixed(3),
         energy: parseFloat(item.energy !== undefined ? item.energy : 0).toFixed(3)
-      })
-    })
-  }
-  
-  return processedData.length > 0 ? processedData : getDefaultChartData()
-}
-
-// 处理后端返回的设备数据
-const processDeviceData = (data) => {
-  const processedData = []
-  
-  if (data && data.length > 0) {
-    data.forEach(item => {
-      const payload = item.payload || {}
-      processedData.push({
-        time: item.timestamp || item.created_at,
-        voltage: parseFloat(payload.voltage !== undefined ? payload.voltage : 0).toFixed(3),
-        current: parseFloat(payload.current !== undefined ? payload.current : 0).toFixed(3),
-        power: parseFloat(payload.power !== undefined ? payload.power : 0).toFixed(3),
-        energy: parseFloat(payload.energy !== undefined ? payload.energy : 0).toFixed(3)
       })
     })
   }
@@ -2521,34 +2487,7 @@ const getLatestDeviceData = async (deviceImei, retryCount = 0) => {
         }
       }
     } catch (lightingError) {
-      console.warn('照明数据API调用失败，回退到通用API:', lightingError)
-    }
-    
-    // 回退到通用数据API
-    const result = await dataAPI.getDeviceDataByImei(deviceImei, 'statistic')
-    
-    if (result.success && result.data && result.data.payload) {
-      const payload = result.data.payload
-      
-      const voltage = payload.voltage !== undefined ? parseFloat(payload.voltage) : 0
-      const current = payload.current !== undefined ? parseFloat(payload.current) : 0
-      const power = payload.power !== undefined ? parseFloat(payload.power) : 0
-      const energy = payload.energy !== undefined ? parseFloat(payload.energy) : 0
-      
-      const deviceResult = {
-        voltage: voltage.toFixed(3),
-        current: current.toFixed(3),
-        power: power.toFixed(3),
-        energy: energy.toFixed(3)
-      }
-      
-      // 缓存结果
-      deviceDataCache.set(cacheKey, {
-        data: deviceResult,
-        timestamp: Date.now()
-      })
-      
-      return deviceResult
+      console.warn('照明时序数据API调用失败:', lightingError)
     }
     
     // 如果没有获取到有效数据且还有重试次数，进行重试
