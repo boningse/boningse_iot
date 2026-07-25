@@ -1340,6 +1340,12 @@ const availablePermissions = [
     icon: 'Sunny'
   },
   {
+    value: 'alarms',
+    label: '告警管理',
+    description: '查看并处理设备告警',
+    icon: 'Warning'
+  },
+  {
     value: 'system-settings',
     label: '系统设置',
     description: '系统配置和管理',

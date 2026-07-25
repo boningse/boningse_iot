@@ -161,6 +161,7 @@ const authenticateToken = async (req, res, next) => {
       tenant_name: user.tenant_name,
       tenant_status: user.tenant_status,
       permissions: (user.profile && user.profile.permissions) || [],
+      profile: user.profile || {},
       created_at: user.created_at
     };
 

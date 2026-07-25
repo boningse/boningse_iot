@@ -842,6 +842,7 @@ router.put('/:id/permissions', authenticateToken, requireRole(['admin', 'tenant_
       'switch-control',
       'thermostat',
       'air-conditioner',
+      'alarms',
       'multi-unit-ac',
       'system-settings'
     ];

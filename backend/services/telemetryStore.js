@@ -1,5 +1,7 @@
 const { Pool } = require('pg');
 const { getPoolConfig } = require('../config/database');
+const logger = require('../utils/logger');
+const alarmService = require('./alarmService');
 
 const pool = new Pool({
   ...getPoolConfig(),
@@ -195,6 +197,18 @@ const saveStatus = async ({ device, moduleType, state, source = 'mqtt', rawPaylo
       JSON.stringify(rawPayload || {})
     ]
   );
+  await alarmService.evaluateStatus({
+    device,
+    moduleType,
+    state,
+    measuredAt
+  }).catch((error) => {
+    logger.error('状态数据告警评估失败', {
+      deviceId: identity.deviceId,
+      moduleType,
+      error: error.message
+    });
+  });
   return result.rows[0];
 };
 
@@ -232,6 +246,19 @@ const saveElectrical = async ({ device, moduleType, data, phaseType = 'single_ph
       JSON.stringify(data.raw_payload || data)
     ]
   );
+  await alarmService.evaluateElectrical({
+    device,
+    moduleType,
+    data,
+    phaseType,
+    measuredAt
+  }).catch((error) => {
+    logger.error('电气数据告警评估失败', {
+      deviceId: identity.deviceId,
+      moduleType,
+      error: error.message
+    });
+  });
   return result.rows[0];
 };
 

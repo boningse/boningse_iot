@@ -8,6 +8,7 @@ const { Pool } = require('pg');
 const { getPoolConfig } = require('../config/database');
 const { parseDa51kdUplink } = require('../utils/da51kdProtocol');
 const telemetryStore = require('./telemetryStore');
+const alarmService = require('./alarmService');
 require('dotenv').config();
 
 const persistVerboseDeviceLogs = process.env.PERSIST_VERBOSE_DEVICE_LOGS === 'true';
@@ -2600,6 +2601,14 @@ class MqttService {
               to: status
             }
           }
+        });
+
+        await alarmService.handleCommunicationStatus(device, status).catch((alarmError) => {
+          logger.error('设备通信状态告警处理失败', {
+            deviceId: device.id,
+            status,
+            error: alarmError.message
+          });
         });
       }
 

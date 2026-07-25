@@ -351,6 +351,7 @@ const hasPermission = (
       SwitchControl: "switch-control",
       ThermostatControl: "thermostat",
       AirConditionerControl: "air-conditioner",
+      AlarmManagement: "alarms",
       MultiUnitAcControl: "multi-unit-ac",
       SystemSettings: "system-settings",
       // 'ChangePassword': 不需要特殊权限，所有登录用户都可以修改密码

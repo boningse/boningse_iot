@@ -24,6 +24,7 @@ const mqttService = require('./services/mqttService');
 const websocketService = require('./services/websocketService');
 const schedulerService = require('./services/schedulerService');
 const MessageProcessingService = require('./services/messageProcessingService');
+const alarmService = require('./services/alarmService');
 
 // 导入路由
 const authRoutes = require('./routes/auth');
@@ -46,6 +47,7 @@ const userRoutes = require('./routes/users');
 const testRoutes = require('./routes/test');
 const thermostatRoutes = require('./routes/thermostat');
 const eqinfoRoutes = require('./routes/eqinfo');
+const alarmRoutes = require('./routes/alarms');
 
 
 const app = express();
@@ -115,6 +117,7 @@ if (!isProduction || enableTestRoutes) {
 }
 app.use('/api/thermostat', thermostatRoutes);
 app.use('/api/v1/eqinfo', eqinfoRoutes);
+app.use('/api/alarms', alarmRoutes);
 
 
 // 404处理
@@ -224,6 +227,8 @@ async function startServer() {
     await messageProcessingService.initialize();
     global.messageProcessingServiceInstance = messageProcessingService;
     logger.info('消息处理服务初始化成功');
+
+    await alarmService.bootstrapOfflineAlarms();
     
     // 优雅关闭 - 统一信号处理
     const gracefulShutdown = async (signal) => {

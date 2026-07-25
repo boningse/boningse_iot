@@ -1147,6 +1147,15 @@ const thermostatAPI = {
     get(`/thermostat/devices/${id}/protocol-config`),
 };
 
+const alarmAPI = {
+  getSummary: (params = {}) => get("/alarms/summary", params),
+  getList: (params = {}) => get("/alarms", params),
+  getDetail: (id) => get(`/alarms/${id}`),
+  getOptions: (params = {}) => get("/alarms/options", params),
+  performAction: (id, data) => post(`/alarms/${id}/actions`, data),
+  batchAction: (data) => post("/alarms/batch-actions", data),
+};
+
 // 默认导出所有API
 export default {
   authAPI,
@@ -1165,6 +1174,7 @@ export default {
   lightingDataAPI,
   protocolConfigAPI,
   thermostatAPI,
+  alarmAPI,
 };
 
 // 命名导出
@@ -1191,4 +1201,5 @@ export {
   lightingDataAPI,
   protocolConfigAPI,
   thermostatAPI,
+  alarmAPI,
 };

@@ -121,6 +121,12 @@ const routes = [
         meta: { title: "空调控制", icon: "Refrigerator", roles },
       },
       {
+        path: "/alarms",
+        name: "AlarmManagement",
+        component: () => import("../views/AlarmManagement.vue"),
+        meta: { title: "告警管理", icon: "Warning", roles },
+      },
+      {
         path: "/settings",
         name: "SystemSettings",
         component: () => import("@/views/SystemSettings.vue"),
@@ -152,6 +158,7 @@ const permissionMap = {
   SwitchControl: "switch-control",
   ThermostatControl: "thermostat",
   AirConditionerControl: "air-conditioner",
+  AlarmManagement: "alarms",
   MultiUnitAcControl: "multi-unit-ac",
   SystemSettings: "system-settings",
 };
