@@ -1,6 +1,6 @@
 {
   "name": "iot-device-management-backend",
-  "version": "1.94.0",
+  "version": "2.0.0",
   "description": "物联网设备管理系统后端API服务",
   "main": "app.js",
   "scripts": {
