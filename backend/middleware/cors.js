@@ -76,6 +76,7 @@ const corsOptions = {
     'Authorization',
     'X-API-Key',
     'X-Tenant-ID',
+    'X-Client-Type',
     'X-Request-ID',
     'Cache-Control',
     'Pragma'

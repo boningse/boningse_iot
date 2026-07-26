@@ -26,12 +26,18 @@ WebSocket: ws://192.168.10.155/ws
 
 ### 2.2 正式外部接入
 
-微信小程序不能以当前局域网 IP 作为正式生产地址。发布前应准备：
+当前系统正式域名：
 
-- 备案域名和有效 HTTPS 证书。
-- API 地址，例如 `https://iot.example.com/api`。
-- WebSocket 地址，例如 `wss://iot.example.com/ws`。
-- 在微信公众平台配置 `request`、`socket` 合法域名。
+```text
+Web:       https://bnyk.boningse.com
+HTTP API: https://bnyk.boningse.com/api
+WebSocket: wss://bnyk.boningse.com/ws
+健康检查: https://bnyk.boningse.com/api/system/health
+```
+
+微信小程序不能以当前局域网 IP 作为正式生产地址。发布前还需要：
+
+- 在微信公众平台配置 `request`、`uploadFile`、`downloadFile`、`socket` 合法域名。
 - 生产环境只开放 443，不直接暴露 PostgreSQL、MQTT 管理端口或 Node.js 端口。
 
 ## 3. 通用约定
@@ -699,7 +705,7 @@ real_name, phone, project_building_id, project_group_id, permissions
 ### 6.1 连接
 
 ```text
-wss://iot.example.com/ws
+wss://bnyk.boningse.com/ws
 Authorization: Bearer <accessToken>
 ```
 
@@ -755,7 +761,7 @@ Authorization: Bearer <accessToken>
 ### 7.2 小程序请求封装示例
 
 ```js
-const API_BASE = "https://iot.example.com/api";
+const API_BASE = "https://bnyk.boningse.com/api";
 
 function request(path, options = {}) {
   const token = wx.getStorageSync("accessToken");
