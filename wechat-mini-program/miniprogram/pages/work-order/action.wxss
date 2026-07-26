@@ -1,0 +1,132 @@
+.action-page {
+  padding-bottom: calc(44rpx + env(safe-area-inset-bottom));
+}
+
+.action-head {
+  margin-bottom: 34rpx;
+}
+
+.picker-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.picker-field image {
+  width: 28rpx;
+  height: 28rpx;
+}
+
+.picker-field--placeholder {
+  color: #a1aaa5;
+}
+
+.field-count {
+  display: block;
+  margin-top: 8rpx;
+  color: #969f9a;
+  font-size: 19rpx;
+  text-align: right;
+}
+
+.photo-label-row {
+  display: flex;
+  justify-content: space-between;
+  color: #8a938f;
+  font-size: 20rpx;
+}
+
+.photo-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12rpx;
+}
+
+.photo-item,
+.photo-add {
+  aspect-ratio: 1;
+  position: relative;
+  border-radius: 8rpx;
+  overflow: hidden;
+}
+
+.photo-item__image {
+  width: 100%;
+  height: 100%;
+}
+
+.photo-item__remove {
+  width: 42rpx;
+  height: 42rpx;
+  padding: 0;
+  position: absolute;
+  top: 7rpx;
+  right: 7rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.92);
+  border-radius: 7rpx;
+}
+
+.photo-item__remove image {
+  width: 24rpx;
+  height: 24rpx;
+}
+
+.photo-add {
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10rpx;
+  color: #68736d;
+  background: #eef2f0;
+  border: 1rpx dashed #bdc7c2;
+  font-size: 20rpx;
+}
+
+.photo-add image {
+  width: 40rpx;
+  height: 40rpx;
+}
+
+.location-row {
+  margin-bottom: 12rpx;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.location-row .field-label {
+  margin-bottom: 0;
+}
+
+.location-state {
+  display: block;
+  margin-top: 5rpx;
+  color: #8b9490;
+  font-size: 19rpx;
+}
+
+.location-button {
+  height: 60rpx;
+  padding: 0 16rpx;
+  display: flex;
+  align-items: center;
+  gap: 7rpx;
+  color: #456056;
+  background: #e8f0ed;
+  border-radius: 8rpx;
+  font-size: 21rpx;
+}
+
+.location-button image {
+  width: 26rpx;
+  height: 26rpx;
+}
+
+.submit-action {
+  margin-top: 38rpx;
+}

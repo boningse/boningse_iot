@@ -1,0 +1,45 @@
+<view class="page work-page">
+  <view class="summary-strip">
+    <view class="summary-item"><text class="summary-item__value numeric">{{summary.active}}</text><text class="summary-item__label">待确认</text></view>
+    <view class="summary-item"><text class="summary-item__value numeric">{{summary.assigned}}</text><text class="summary-item__label">待接单</text></view>
+    <view class="summary-item"><text class="summary-item__value numeric">{{summary.processing}}</text><text class="summary-item__label">处理中</text></view>
+    <view class="summary-item summary-item--alert"><text class="summary-item__value numeric">{{summary.critical}}</text><text class="summary-item__label">紧急</text></view>
+  </view>
+
+  <scroll-view class="order-tabs" scroll-x enhanced show-scrollbar="{{false}}">
+    <view class="order-tabs__inner">
+      <button wx:for="{{tabs}}" wx:key="key" class="order-tab {{activeTab === index ? 'order-tab--active' : ''}}" data-index="{{index}}" bindtap="selectTab">{{item.label}}</button>
+    </view>
+  </scroll-view>
+
+  <view class="toolbar">
+    <view class="search-box"><image src="/assets/icons/search.png" mode="aspectFit"></image><input class="search-input" value="{{keyword}}" placeholder="设备、告警内容" confirm-type="search" bindinput="onKeywordInput" bindconfirm="search" /></view>
+    <button class="icon-button" bindtap="search" aria-label="刷新"><image src="/assets/icons/refresh.png" mode="aspectFit"></image></button>
+  </view>
+  <scope-filter show-status="{{false}}" bind:change="onScopeChange"></scope-filter>
+
+  <view class="order-list">
+    <view wx:for="{{list}}" wx:key="id" class="order-card" data-id="{{item.id}}" bindtap="openDetail">
+      <view class="order-card__head">
+        <view class="order-card__severity order-card__severity--{{item.severity}}">{{item.severityText}}</view>
+        <text class="order-card__module">{{item.moduleText}}</text>
+        <status-badge status="{{item.status}}"></status-badge>
+      </view>
+      <text class="order-card__title">{{item.title}}</text>
+      <text class="order-card__message">{{item.message || "暂无补充说明"}}</text>
+      <view class="order-card__device">
+        <image src="/assets/icons/building.png" mode="aspectFit"></image>
+        <text>{{item.device_name}}</text>
+        <text class="order-card__location">{{item.building_name || "未分配建筑"}}</text>
+      </view>
+      <view class="order-card__footer">
+        <text>{{item.assigned_to_name ? "处理人：" + item.assigned_to_name : "暂未派单"}}</text>
+        <text>{{item.timeText}}</text>
+      </view>
+    </view>
+  </view>
+
+  <empty-state wx:if="{{!loading && !list.length}}" title="暂无工单" description="当前筛选范围内没有待处理任务"></empty-state>
+  <view wx:if="{{loading}}" class="load-footer">正在同步工单...</view>
+  <view wx:elif="{{list.length && page >= totalPages}}" class="load-footer">已显示全部工单</view>
+</view>

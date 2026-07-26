@@ -1,0 +1,51 @@
+<view class="page device-page">
+  <view class="toolbar">
+    <view class="search-box">
+      <image src="/assets/icons/search.png" mode="aspectFit"></image>
+      <input class="search-input" value="{{keyword}}" placeholder="名称、设备 ID" confirm-type="search" bindinput="onKeywordInput" bindconfirm="search" />
+    </view>
+    <button class="icon-button" bindtap="search" aria-label="刷新"><image src="/assets/icons/refresh.png" mode="aspectFit"></image></button>
+  </view>
+
+  <scope-filter bind:change="onScopeChange"></scope-filter>
+
+  <view class="device-summary">
+    <view>
+      <text class="page-title">温控控制</text>
+      <text class="page-subtitle">室温、模式与运行状态</text>
+    </view>
+    <view class="device-total"><text class="numeric">{{total}}</text>台</view>
+  </view>
+
+  <view class="device-list">
+    <view wx:for="{{devices}}" wx:key="routeId" class="device-card">
+      <view class="device-card__head">
+        <view class="device-card__identity">
+          <text class="device-card__name">{{item.viewName}}</text>
+          <text class="device-card__code">{{item.viewCode}}</text>
+        </view>
+        <status-badge status="{{item.viewStatus}}"></status-badge>
+      </view>
+      <view class="device-card__location">
+        <image src="/assets/icons/map.png" mode="aspectFit"></image>
+        <text>{{item.viewBuilding}}</text><view class="location-separator"></view><text>{{item.viewGroup}}</text>
+      </view>
+      <view class="device-card__footer">
+        <view class="state-pair">
+          <view class="state-pair__item"><text class="state-pair__label">当前</text><text class="state-pair__value numeric">{{item.currentTempText}}°</text></view>
+          <view class="state-pair__item"><text class="state-pair__label">设定</text><text class="state-pair__value numeric">{{item.targetTempText}}°</text></view>
+        </view>
+        <view class="card-actions">
+          <button class="power-control {{item.powerOn ? 'power-control--on' : ''}}" disabled="{{!item.online || controllingId}}" data-index="{{index}}" catchtap="togglePower">
+            <image src="/assets/icons/power.png" mode="aspectFit"></image><text>{{item.powerOn ? "运行中" : "已关机"}}</text>
+          </button>
+          <button class="detail-link" data-index="{{index}}" catchtap="openDetail"><image src="/assets/icons/arrow-right.png" mode="aspectFit"></image></button>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <empty-state wx:if="{{!loading && !devices.length}}" title="暂无温控设备" description="仅显示已加入模块的空调温控器"></empty-state>
+  <view wx:if="{{loading || loadingMore}}" class="load-footer">正在同步设备...</view>
+  <view wx:elif="{{devices.length && page >= totalPages}}" class="load-footer">已显示全部设备</view>
+</view>

@@ -1,0 +1,54 @@
+<view class="page action-page">
+  <view class="action-head">
+    <text class="page-title">{{title}}</text>
+    <text class="page-subtitle">工单处理记录将进入完整时间轴</text>
+  </view>
+
+  <view wx:if="{{action === 'assign'}}" class="field">
+    <text class="field-label">处理人</text>
+    <picker mode="selector" range="{{assigneeNames}}" value="{{assigneeIndex}}" bindchange="onAssigneeChange">
+      <view class="picker-field {{assigneeIndex < 0 ? 'picker-field--placeholder' : ''}}">
+        <text>{{assigneeIndex >= 0 ? assigneeNames[assigneeIndex] : "请选择处理人"}}</text>
+        <image src="/assets/icons/chevron-down.png" mode="aspectFit"></image>
+      </view>
+    </picker>
+  </view>
+
+  <view class="field">
+    <text class="field-label">处理说明{{noteRequired ? " *" : ""}}</text>
+    <textarea class="field-textarea" value="{{note}}" maxlength="1000" placeholder="填写现场情况、处理步骤或结果" placeholder-class="field-placeholder" bindinput="onNoteInput"></textarea>
+    <text class="field-count">{{note.length}} / 1000</text>
+  </view>
+
+  <view class="field">
+    <view class="photo-label-row">
+      <text class="field-label">现场照片{{photoRequired ? " *" : ""}}</text>
+      <text>{{photos.length}} / 10</text>
+    </view>
+    <view class="photo-grid">
+      <view wx:for="{{photos}}" wx:key="path" class="photo-item">
+        <image class="photo-item__image" src="{{item.path}}" mode="aspectFill" data-path="{{item.path}}" bindtap="previewPhoto"></image>
+        <button class="photo-item__remove" data-index="{{index}}" catchtap="removePhoto"><image src="/assets/icons/close.png" mode="aspectFit"></image></button>
+      </view>
+      <button wx:if="{{photos.length < 10}}" class="photo-add" bindtap="choosePhotos">
+        <image src="/assets/icons/image.png" mode="aspectFit"></image>
+        <text>拍照 / 相册</text>
+      </button>
+    </view>
+  </view>
+
+  <view class="field">
+    <view class="location-row">
+      <view>
+        <text class="field-label">现场位置</text>
+        <text class="location-state">{{latitude ? "坐标已记录" : "选填"}}</text>
+      </view>
+      <button class="location-button" loading="{{locating}}" bindtap="captureLocation">
+        <image src="/assets/icons/map.png" mode="aspectFit"></image><text>获取位置</text>
+      </button>
+    </view>
+    <input class="field-input" value="{{locationText}}" placeholder="位置说明，例如 1 号楼 3 层配电间" placeholder-class="field-placeholder" bindinput="onLocationTextInput" />
+  </view>
+
+  <button class="primary-button submit-action" loading="{{submitting}}" disabled="{{submitting}}" bindtap="submit">提交处理结果</button>
+</view>

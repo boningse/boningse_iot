@@ -1,0 +1,58 @@
+<view class="page detail-page">
+  <view class="device-hero air-hero">
+    <view class="device-hero__head">
+      <view class="device-hero__copy"><text class="device-hero__name">{{name}}</text><text class="device-hero__code">{{imei}}</text></view>
+      <status-badge status="{{status}}"></status-badge>
+    </view>
+    <view class="air-state">
+      <view><text class="air-state__label">当前温度</text><text class="air-state__value numeric">{{currentTemperature}}<text>°C</text></text></view>
+      <view class="air-state__secondary"><text>设定 {{targetTemperature}}°C</text><text>湿度 {{humidity}}%</text></view>
+    </view>
+    <view class="device-hero__meta"><image src="/assets/icons/map.png" mode="aspectFit"></image><text>{{building}} · {{group}}</text></view>
+  </view>
+
+  <view class="section-title">运行控制</view>
+  <view class="control-panel panel">
+    <view class="control-row">
+      <text class="control-row__label">电源</text>
+      <button class="power-control {{powerOn ? 'power-control--on' : ''}}" disabled="{{status !== 'online' || controlling}}" bindtap="togglePower">
+        <image src="/assets/icons/power.png" mode="aspectFit"></image><text>{{powerOn ? "运行中" : "已关机"}}</text>
+      </button>
+    </view>
+    <view class="control-row">
+      <text class="control-row__label">设定温度</text>
+      <view class="stepper">
+        <button class="stepper__button" disabled="{{status !== 'online' || controlling || targetTemperature <= 16}}" data-delta="-1" bindtap="adjustTemperature"><image src="/assets/icons/minus.png" mode="aspectFit"></image></button>
+        <text class="stepper__value numeric">{{targetTemperature}}°</text>
+        <button class="stepper__button" disabled="{{status !== 'online' || controlling || targetTemperature >= 30}}" data-delta="1" bindtap="adjustTemperature"><image src="/assets/icons/plus.png" mode="aspectFit"></image></button>
+      </view>
+    </view>
+    <view class="control-row control-row--stack">
+      <text class="control-row__label">模式</text>
+      <view class="segmented mode-segments">
+        <button class="segment {{mode === 'cool' ? 'segment--active' : ''}}" data-mode="cool" bindtap="setMode">制冷</button>
+        <button class="segment {{mode === 'heat' ? 'segment--active' : ''}}" data-mode="heat" bindtap="setMode">制热</button>
+        <button class="segment {{mode === 'dehumidify' ? 'segment--active' : ''}}" data-mode="dehumidify" bindtap="setMode">除湿</button>
+        <button class="segment {{mode === 'fan' ? 'segment--active' : ''}}" data-mode="fan" bindtap="setMode">送风</button>
+      </view>
+    </view>
+    <view class="control-row control-row--stack">
+      <text class="control-row__label">风速</text>
+      <view class="segmented mode-segments">
+        <button class="segment {{fanSpeed === 0 ? 'segment--active' : ''}}" data-speed="0" bindtap="setFan">自动</button>
+        <button class="segment {{fanSpeed === 1 ? 'segment--active' : ''}}" data-speed="1" bindtap="setFan">低</button>
+        <button class="segment {{fanSpeed === 2 ? 'segment--active' : ''}}" data-speed="2" bindtap="setFan">中</button>
+        <button class="segment {{fanSpeed === 3 ? 'segment--active' : ''}}" data-speed="3" bindtap="setFan">高</button>
+      </view>
+    </view>
+  </view>
+
+  <view class="section-title">协议上报数据</view>
+  <view class="metric-grid">
+    <view class="metric-cell"><view class="metric-cell__head"><image src="/assets/icons/activity.png" mode="aspectFit"></image><text>电压</text></view><text class="metric-cell__value numeric">{{voltage}}<text class="metric-cell__unit">V</text></text></view>
+    <view class="metric-cell"><view class="metric-cell__head"><image src="/assets/icons/activity.png" mode="aspectFit"></image><text>电流</text></view><text class="metric-cell__value numeric">{{current}}<text class="metric-cell__unit">A</text></text></view>
+    <view class="metric-cell"><view class="metric-cell__head"><image src="/assets/icons/energy.png" mode="aspectFit"></image><text>功率</text></view><text class="metric-cell__value numeric">{{power}}<text class="metric-cell__unit">W</text></text></view>
+    <view class="metric-cell"><view class="metric-cell__head"><image src="/assets/icons/frequency.png" mode="aspectFit"></image><text>电量</text></view><text class="metric-cell__value numeric">{{energy}}<text class="metric-cell__unit">kWh</text></text></view>
+  </view>
+  <view class="updated-at">状态更新于 {{updatedAt}}</view>
+</view>

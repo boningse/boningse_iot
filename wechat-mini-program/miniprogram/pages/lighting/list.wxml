@@ -1,0 +1,50 @@
+<view class="page device-page">
+  <view class="toolbar">
+    <view class="search-box">
+      <image src="/assets/icons/search.png" mode="aspectFit"></image>
+      <input class="search-input" value="{{keyword}}" placeholder="名称、设备 ID" confirm-type="search" bindinput="onKeywordInput" bindconfirm="search" />
+    </view>
+    <button class="icon-button" bindtap="search" aria-label="刷新">
+      <image src="/assets/icons/refresh.png" mode="aspectFit"></image>
+    </button>
+  </view>
+
+  <scope-filter bind:change="onScopeChange"></scope-filter>
+
+  <view class="device-summary">
+    <view>
+      <text class="page-title">照明控制</text>
+      <text class="page-subtitle">照明回路与实时状态</text>
+    </view>
+    <view class="device-total"><text class="numeric">{{total}}</text>台</view>
+  </view>
+
+  <view class="device-list">
+    <view wx:for="{{devices}}" wx:key="routeId" class="device-card" data-index="{{index}}" bindtap="openDetail">
+      <view class="device-card__head">
+        <view class="device-card__identity">
+          <text class="device-card__name">{{item.viewName}}</text>
+          <text class="device-card__code">{{item.viewCode}}</text>
+        </view>
+        <status-badge status="{{item.viewStatus}}"></status-badge>
+      </view>
+      <view class="device-card__location">
+        <image src="/assets/icons/map.png" mode="aspectFit"></image>
+        <text>{{item.viewBuilding}}</text>
+        <view class="location-separator"></view>
+        <text>{{item.viewGroup}}</text>
+      </view>
+      <view class="device-card__footer">
+        <view class="lighting-type">{{item.lighting_type === "triple" ? "三路" : item.lighting_type === "double" ? "双路" : "单路"}}照明</view>
+        <button class="detail-link" data-index="{{index}}" catchtap="openDetail">
+          <text>控制</text>
+          <image src="/assets/icons/arrow-right.png" mode="aspectFit"></image>
+        </button>
+      </view>
+    </view>
+  </view>
+
+  <empty-state wx:if="{{!loading && !devices.length}}" title="暂无照明设备" description="可在 PC 端设备管理中加入控制模块"></empty-state>
+  <view wx:if="{{loading || loadingMore}}" class="load-footer">正在同步设备...</view>
+  <view wx:elif="{{devices.length && page >= totalPages}}" class="load-footer">已显示全部设备</view>
+</view>

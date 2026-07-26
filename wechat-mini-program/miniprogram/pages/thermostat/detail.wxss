@@ -1,0 +1,125 @@
+@import "../../styles/device-detail.wxss";
+
+.thermostat-hero {
+  background: #1f3149;
+}
+
+.temperature-readout {
+  margin-top: 28rpx;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+}
+
+.temperature-readout__label,
+.temperature-readout__value {
+  display: block;
+}
+
+.temperature-readout__label {
+  color: #aebfd3;
+  font-size: 20rpx;
+}
+
+.temperature-readout__value {
+  margin-top: 7rpx;
+  font-size: 62rpx;
+  line-height: 1;
+  font-weight: 720;
+}
+
+.temperature-readout__value text {
+  margin-left: 5rpx;
+  font-size: 24rpx;
+  font-weight: 500;
+}
+
+.temperature-readout__target {
+  padding: 14rpx 18rpx;
+  background: #2a405f;
+  border-radius: 8rpx;
+  text-align: right;
+}
+
+.temperature-readout__target text {
+  display: block;
+  color: #b6c5d8;
+  font-size: 19rpx;
+}
+
+.temperature-readout__target text:last-child {
+  margin-top: 4rpx;
+  color: #ffffff;
+  font-size: 28rpx;
+  font-weight: 680;
+}
+
+.control-row--stack {
+  padding: 20rpx 0;
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 16rpx;
+}
+
+.segmented--wrap {
+  width: 100%;
+}
+
+.segmented--wrap .segment {
+  flex: 1;
+}
+
+.runtime-panel {
+  padding: 24rpx 20rpx 18rpx;
+}
+
+.runtime-chart {
+  height: 260rpx;
+  display: flex;
+  justify-content: space-around;
+  align-items: flex-end;
+}
+
+.runtime-bar {
+  width: 60rpx;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.runtime-bar__value {
+  height: 34rpx;
+  color: #65716b;
+  font-size: 18rpx;
+}
+
+.runtime-bar__track {
+  flex: 1;
+  width: 20rpx;
+  position: relative;
+  background: #edf1ef;
+  border-radius: 4rpx 4rpx 0 0;
+  overflow: hidden;
+}
+
+.runtime-bar__fill {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  background: #4d79b7;
+}
+
+.runtime-bar__label {
+  margin-top: 10rpx;
+  color: #87918c;
+  font-size: 17rpx;
+}
+
+.runtime-empty {
+  padding: 60rpx 0;
+  color: #8b9490;
+  text-align: center;
+  font-size: 22rpx;
+}

@@ -1,0 +1,7 @@
+{
+  "navigationBarTitleText": "控制",
+  "enablePullDownRefresh": true,
+  "usingComponents": {
+    "status-badge": "/components/status-badge/index"
+  }
+}

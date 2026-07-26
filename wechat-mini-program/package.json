@@ -1,0 +1,14 @@
+{
+  "name": "boningse-iot-mini-program",
+  "version": "0.1.0",
+  "private": true,
+  "description": "伯宁物联网微信小程序",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "check": "npm run typecheck"
+  },
+  "devDependencies": {
+    "miniprogram-api-typings": "^4.0.7",
+    "typescript": "^5.9.2"
+  }
+}

@@ -1,0 +1,124 @@
+.notification-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+}
+
+.read-all {
+  height: 58rpx;
+  padding: 0 16rpx;
+  color: #13795b;
+  background: #e8f3ef;
+  border-radius: 8rpx;
+  font-size: 21rpx;
+}
+
+.message-filter {
+  width: 236rpx;
+  margin: 28rpx 0 20rpx;
+  padding: 5rpx;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5rpx;
+  background: #e7ece9;
+  border-radius: 9rpx;
+}
+
+.message-filter button {
+  height: 52rpx;
+  color: #74807a;
+  background: transparent;
+  border-radius: 7rpx;
+  font-size: 21rpx;
+}
+
+.message-filter .message-filter__active {
+  color: #17211d;
+  background: #ffffff;
+}
+
+.message-list {
+  background: #ffffff;
+  border: 1rpx solid #e0e5e2;
+  border-radius: 12rpx;
+  overflow: hidden;
+}
+
+.message-row {
+  min-height: 142rpx;
+  padding: 22rpx 18rpx 22rpx 12rpx;
+  display: flex;
+  align-items: center;
+  border-top: 1rpx solid #edf0ee;
+}
+
+.message-row:first-child {
+  border-top: 0;
+}
+
+.message-row--unread {
+  background: #f5faf8;
+}
+
+.message-row__marker {
+  width: 28rpx;
+  display: flex;
+  justify-content: center;
+}
+
+.message-row--unread .message-row__marker view {
+  width: 10rpx;
+  height: 10rpx;
+  border-radius: 50%;
+  background: #13795b;
+}
+
+.message-row__content {
+  flex: 1;
+  min-width: 0;
+}
+
+.message-row__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12rpx;
+}
+
+.message-row__head text:first-child {
+  overflow: hidden;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-row__head text:last-child {
+  flex: 0 0 auto;
+  color: #929b97;
+  font-size: 18rpx;
+}
+
+.message-row__device,
+.message-row__text {
+  display: block;
+}
+
+.message-row__device {
+  margin-top: 7rpx;
+  color: #356bb3;
+  font-size: 20rpx;
+}
+
+.message-row__text {
+  margin-top: 6rpx;
+  overflow: hidden;
+  color: #77817c;
+  font-size: 20rpx;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-row > image {
+  width: 25rpx;
+  height: 25rpx;
+  margin-left: 10rpx;
+}

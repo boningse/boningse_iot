@@ -1,0 +1,9 @@
+{
+  "desc": "伯宁智控小程序页面索引",
+  "rules": [
+    {
+      "action": "disallow",
+      "page": "*"
+    }
+  ]
+}

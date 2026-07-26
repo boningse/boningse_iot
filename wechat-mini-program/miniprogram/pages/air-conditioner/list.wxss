@@ -1,0 +1,12 @@
+@import "../../styles/device-list.wxss";
+
+.card-actions {
+  display: flex;
+  gap: 10rpx;
+}
+
+.card-actions .detail-link {
+  width: 58rpx;
+  padding: 0;
+  justify-content: center;
+}

@@ -1,0 +1,7 @@
+{
+  "navigationBarTitleText": "工单详情",
+  "enablePullDownRefresh": true,
+  "usingComponents": {
+    "status-badge": "/components/status-badge/index"
+  }
+}

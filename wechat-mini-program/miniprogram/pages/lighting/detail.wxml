@@ -1,0 +1,58 @@
+<view class="page detail-page">
+  <view class="device-hero lighting-hero">
+    <view class="device-hero__head">
+      <view class="device-hero__copy">
+        <text class="device-hero__name">{{name}}</text>
+        <text class="device-hero__code">{{imei}}</text>
+      </view>
+      <status-badge status="{{status}}"></status-badge>
+    </view>
+    <view class="device-hero__meta">
+      <image src="/assets/icons/map.png" mode="aspectFit"></image>
+      <text>{{building}} · {{group}}</text>
+    </view>
+  </view>
+
+  <view class="section-title">实时电气数据</view>
+  <view class="metric-grid">
+    <view class="metric-cell">
+      <view class="metric-cell__head"><image src="/assets/icons/activity.png" mode="aspectFit"></image><text>电压</text></view>
+      <text class="metric-cell__value numeric">{{voltage}}<text class="metric-cell__unit">V</text></text>
+    </view>
+    <view class="metric-cell">
+      <view class="metric-cell__head"><image src="/assets/icons/activity.png" mode="aspectFit"></image><text>电流</text></view>
+      <text class="metric-cell__value numeric">{{current}}<text class="metric-cell__unit">A</text></text>
+    </view>
+    <view class="metric-cell">
+      <view class="metric-cell__head"><image src="/assets/icons/energy.png" mode="aspectFit"></image><text>功率</text></view>
+      <text class="metric-cell__value numeric">{{power}}<text class="metric-cell__unit">W</text></text>
+    </view>
+    <view class="metric-cell">
+      <view class="metric-cell__head"><image src="/assets/icons/frequency.png" mode="aspectFit"></image><text>电量</text></view>
+      <text class="metric-cell__value numeric">{{energy}}<text class="metric-cell__unit">kWh</text></text>
+    </view>
+  </view>
+
+  <view class="section-title">照明回路</view>
+  <view class="control-panel panel">
+    <view class="control-row">
+      <text class="control-row__label">1 路</text>
+      <button class="power-control {{switch1On ? 'power-control--on' : ''}}" disabled="{{status !== 'online' || controlling}}" data-channel="1" bindtap="toggleChannel">
+        <image src="/assets/icons/power.png" mode="aspectFit"></image><text>{{switch1On ? "已开启" : "已关闭"}}</text>
+      </button>
+    </view>
+    <view wx:if="{{channelCount >= 2}}" class="control-row">
+      <text class="control-row__label">2 路</text>
+      <button class="power-control {{switch2On ? 'power-control--on' : ''}}" disabled="{{status !== 'online' || controlling}}" data-channel="2" bindtap="toggleChannel">
+        <image src="/assets/icons/power.png" mode="aspectFit"></image><text>{{switch2On ? "已开启" : "已关闭"}}</text>
+      </button>
+    </view>
+    <view wx:if="{{channelCount >= 3}}" class="control-row">
+      <text class="control-row__label">3 路</text>
+      <button class="power-control {{switch3On ? 'power-control--on' : ''}}" disabled="{{status !== 'online' || controlling}}" data-channel="3" bindtap="toggleChannel">
+        <image src="/assets/icons/power.png" mode="aspectFit"></image><text>{{switch3On ? "已开启" : "已关闭"}}</text>
+      </button>
+    </view>
+  </view>
+  <view class="updated-at">数据更新于 {{updatedAt}}</view>
+</view>

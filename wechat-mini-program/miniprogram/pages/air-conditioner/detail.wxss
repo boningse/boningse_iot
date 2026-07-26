@@ -1,0 +1,58 @@
+@import "../../styles/device-detail.wxss";
+
+.air-hero {
+  background: #3b2926;
+}
+
+.air-state {
+  margin-top: 28rpx;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+}
+
+.air-state__label,
+.air-state__value,
+.air-state__secondary text {
+  display: block;
+}
+
+.air-state__label {
+  color: #d0b8b3;
+  font-size: 20rpx;
+}
+
+.air-state__value {
+  margin-top: 7rpx;
+  font-size: 58rpx;
+  line-height: 1;
+  font-weight: 720;
+}
+
+.air-state__value text {
+  margin-left: 5rpx;
+  font-size: 24rpx;
+  font-weight: 500;
+}
+
+.air-state__secondary {
+  color: #d8c8c4;
+  font-size: 21rpx;
+  line-height: 1.8;
+  text-align: right;
+}
+
+.control-row--stack {
+  padding: 20rpx 0;
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 16rpx;
+}
+
+.mode-segments {
+  width: 100%;
+}
+
+.mode-segments .segment {
+  flex: 1;
+}

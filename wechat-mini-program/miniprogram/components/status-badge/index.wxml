@@ -1,0 +1,4 @@
+<view class="badge badge--{{tone}}">
+  <view class="badge__dot"></view>
+  <text>{{label}}</text>
+</view>

@@ -1,0 +1,9 @@
+@import "../../styles/device-list.wxss";
+
+.lighting-type {
+  padding: 9rpx 12rpx;
+  color: #a45b15;
+  background: #fff1df;
+  border-radius: 7rpx;
+  font-size: 20rpx;
+}

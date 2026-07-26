@@ -1,0 +1,32 @@
+<view class="page notification-page">
+  <view class="notification-head">
+    <view>
+      <text class="page-title">消息</text>
+      <text class="page-subtitle">派单与工单状态变化</text>
+    </view>
+    <button class="read-all" bindtap="markAllRead">全部已读</button>
+  </view>
+
+  <view class="message-filter">
+    <button class="{{!unreadOnly ? 'message-filter__active' : ''}}" bindtap="toggleUnread">全部</button>
+    <button class="{{unreadOnly ? 'message-filter__active' : ''}}" bindtap="toggleUnread">未读</button>
+  </view>
+
+  <view class="message-list">
+    <view wx:for="{{list}}" wx:key="id" class="message-row {{!item.is_read ? 'message-row--unread' : ''}}" data-index="{{index}}" bindtap="openNotification">
+      <view class="message-row__marker"><view></view></view>
+      <view class="message-row__content">
+        <view class="message-row__head">
+          <text>{{item.title}}</text>
+          <text>{{item.timeText}}</text>
+        </view>
+        <text class="message-row__device">{{item.device_name}}</text>
+        <text class="message-row__text">{{item.message || "点击查看工单详情"}}</text>
+      </view>
+      <image src="/assets/icons/arrow-right.png" mode="aspectFit"></image>
+    </view>
+  </view>
+
+  <empty-state wx:if="{{!loading && !list.length}}" title="{{unreadOnly ? '没有未读消息' : '暂无消息'}}" description="新的派单与工单变化会显示在这里"></empty-state>
+  <view wx:if="{{loading}}" class="load-footer">正在同步消息...</view>
+</view>
