@@ -1,6 +1,6 @@
 # 伯宁云控 API 接口文档
 
-> 对应系统版本：v2.1
+> 对应系统版本：v2.2
 > 文档日期：2026-07-26  
 > 来源：生产后端实际挂载路由，而非仅依据前端调用代码  
 > 用途：Web 前端、第三方系统和微信小程序接入
@@ -9,11 +9,10 @@
 
 当前生产服务实际暴露：
 
-- 183 个唯一 `/api` HTTP 接口。
+- 169 个唯一 `/api` HTTP 接口。
 - 2 个根级运维接口：`/health`、`/metrics`。
 - 1 个 WebSocket 端点：`/ws`。
-- 4 组路由在源码中存在重复声明，本文按唯一 URL 记录，并在兼容性章节说明。
-- `test` 路由仅开发环境挂载；电表、Modbus、DTU、多联机等历史路由文件当前未挂载，不属于可调用 API。
+- 所有保留的路由文件均已挂载，无重复声明和测试接口。
 
 ## 2. 接入地址
 
@@ -231,11 +230,6 @@ isAirConditioner, excludeGateways
 | GET | `/api/devices/:id/logs` | 登录 | 获取设备日志；Query: `page,pageSize,eventType,startTime,endTime` |
 | POST | `/api/devices/:id/command` | 登录 | 通用设备命令；Body: `command,params,timestamp,mqttTopic` |
 | GET | `/api/devices/stats/overview` | 登录 | 设备在线、离线及分类统计 |
-| GET | `/api/devices/types` | 登录 | 旧设备类型入口；存在路由遮蔽风险，改用 `/api/device-types` |
-| GET | `/api/devices/tree` | 登录 | 设备层级树；存在路由遮蔽风险 |
-| GET | `/api/devices/:id/children` | 登录 | 获取网关子设备；Query: `page,pageSize` |
-| POST | `/api/devices/:id/children/batch` | 登录 | 批量创建子设备；Body: `{devices:[...]}` |
-| GET | `/api/devices/hierarchy/stats` | 登录 | 网关、独立设备和子设备数量统计 |
 
 设备创建常用字段：
 
@@ -508,7 +502,7 @@ start_time, end_time, repeat_days, devices_config
 
 | 方法 | 路径 | 用途/关键参数 |
 |---|---|---|
-| GET | `/api/thermostat/devices` | 温控设备列表；Query: `page,pageSize,keyword,status,groupId,buildingId,projectGroupId,tenantId` |
+| GET | `/api/thermostat/devices` | 温控设备列表；Query: `page,pageSize,keyword,status,buildingId,projectGroupId,tenantId` |
 | GET | `/api/thermostat/devices/:deviceId` | 温控设备详情 |
 | POST | `/api/thermostat/devices` | 加入温控模块；只允许空调温控器，禁止网关 |
 | DELETE | `/api/thermostat/devices/:deviceId` | 从温控模块移除 |
@@ -521,19 +515,6 @@ start_time, end_time, repeat_days, devices_config
 | GET | `/api/thermostat/devices/:deviceId/status` | 读取当前状态 |
 | POST | `/api/thermostat/devices/:deviceId/force-refresh` | 主动请求设备刷新状态 |
 | GET | `/api/thermostat/devices/:deviceId/protocol-config` | 获取设备协议能力 |
-
-#### 旧温控分组兼容接口
-
-| 方法 | 路径 | 用途/关键参数 |
-|---|---|---|
-| GET | `/api/thermostat/groups` | 旧温控分组列表 |
-| POST | `/api/thermostat/groups` | 创建旧温控分组；Body: `name,description` |
-| PUT | `/api/thermostat/groups/:groupId` | 更新旧温控分组 |
-| DELETE | `/api/thermostat/groups/:groupId` | 删除旧温控分组 |
-| POST | `/api/thermostat/groups/:groupId/devices` | 加设备；Body: `{deviceIds:[...]}` |
-| DELETE | `/api/thermostat/groups/:groupId/devices/:deviceId` | 移除设备 |
-
-新功能不要继续使用此组接口，统一使用项目管理分组。
 
 #### 计划
 
@@ -670,9 +651,6 @@ locationText: 1号楼3层配电间  可选
 | GET | `/api/users/:id/permissions` | 分级管理 | 获取页面权限 |
 | PUT | `/api/users/:id/permissions` | 分级管理 | 更新权限；Body: `{permissions:[...]}` |
 | DELETE | `/api/users/:id` | 分级管理 | 删除用户 |
-| PUT | `/api/users/change-password` | 登录 | 旧本人改密入口；存在路由遮蔽，改用 `/api/auth/password` |
-| GET | `/api/users/profile` | 登录 | 旧本人资料入口；存在路由遮蔽，改用 `/api/auth/me` |
-| PUT | `/api/users/profile` | 登录 | 旧资料更新入口；当前存在路由遮蔽，不建议接入 |
 
 创建用户 Body：
 
@@ -816,56 +794,9 @@ function request(path, options = {}) {
 4. 设备离线时提示用户，不自动无限重试控制命令。
 5. 每条控制请求生成客户端请求 ID，便于日志追踪。
 
-## 8. 当前兼容性与安全注意事项
+## 8. 安全注意事项
 
-### 8.1 重复路由声明
-
-源码中以下路径重复声明，Express 实际只会进入第一条匹配：
-
-```text
-GET /api/devices/gateways       声明 3 次
-GET /api/devices/tree           声明 2 次
-GET /api/devices/:id/children   声明 2 次
-GET /api/protocol-configs/template/example 声明 2 次
-```
-
-第三方只按本文唯一 URL 调用，不依赖后续重复实现。
-
-### 8.2 动态路由遮蔽
-
-以下静态路径定义在 `/:id` 之后，存在被动态路由优先匹配的问题：
-
-```text
-GET /api/devices/types
-GET /api/devices/tree
-GET /api/users/profile
-PUT /api/users/profile
-PUT /api/users/change-password
-```
-
-替代方案：
-
-- 设备类型：`GET /api/device-types`
-- 当前用户：`GET /api/auth/me`
-- 本人改密：`PUT /api/auth/password`
-
-### 8.3 当前未挂载模块
-
-下列文件仍在源码中，但 `backend/app.js` 未挂载，不可作为生产 API：
-
-```text
-backend/routes/data.js
-backend/routes/dtu.js
-backend/routes/electricMeterMqtt.js
-backend/routes/electricMeters.js
-backend/routes/messageProcessing.js
-backend/routes/modbus.js
-backend/routes/tenantElectricMeterData.js
-```
-
-`backend/routes/test.js` 仅在非生产环境挂载。
-
-### 8.4 不建议对外开放
+### 8.1 不建议对外开放
 
 - `/metrics`
 - `/api/system/cleanup`
@@ -883,14 +814,12 @@ backend/routes/tenantElectricMeterData.js
 为微信小程序正式发布，建议按顺序完成：
 
 1. 新增稳定的 `/api/v2` 版本前缀，保留当前接口作为兼容层。
-2. 修复重复路由和动态路由遮蔽。
-3. 禁止公开注册，改为管理员创建或微信身份绑定。
-4. 为小程序增加微信登录换取系统 Token 的专用接口。
-5. 统一列表返回结构、分页参数和时间字段。
-6. 为控制请求增加 `requestId`、幂等键和执行回执状态。
-7. 为公开回调增加 HMAC 签名、时间戳和重放保护。
-8. 自动生成并维护 OpenAPI 3.1 文档及测试集合。
-9. 增加接口级自动化测试，当前 Jest 尚无测试文件。
+2. 禁止公开注册，改为管理员创建或微信身份绑定。
+3. 为小程序增加微信登录换取系统 Token 的专用接口。
+4. 统一列表返回结构、分页参数和时间字段。
+5. 为控制请求增加 `requestId`、幂等键和执行回执状态。
+6. 为公开回调增加 HMAC 签名、时间戳和重放保护。
+7. 自动生成并维护 OpenAPI 3.1 文档。
 
 ## 10. 文档维护规则
 
@@ -898,4 +827,4 @@ backend/routes/tenantElectricMeterData.js
 - 路由以 `backend/app.js` 的实际挂载为准。
 - 控制参数以设备绑定的协议配置为准。
 - 文档中的示例不包含真实密码、Token、MQTT 密钥或设备隐私数据。
-- 每次正式版本发布前，对接口数量、权限、重复路径和未挂载模块重新扫描。
+- 每次正式版本发布前，对接口数量、权限、重复路径和路由挂载状态重新扫描。

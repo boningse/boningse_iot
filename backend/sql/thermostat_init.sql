@@ -245,29 +245,7 @@ CREATE TRIGGER update_thermostat_scenes_updated_at
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- ============================================
--- 8. 初始化数据
--- ============================================
-
--- 插入默认分组
-INSERT INTO thermostat_groups (name, description, tenant_id) VALUES
-('客厅设备', '客厅区域的温控设备', 'c749c9ae-3298-4d39-9060-49938f354684'),
-('卧室设备', '卧室区域的温控设备', 'c749c9ae-3298-4d39-9060-49938f354684'),
-('办公区域', '办公区域的温控设备', 'c749c9ae-3298-4d39-9060-49938f354684'),
-('会议室', '会议室的温控设备', 'c749c9ae-3298-4d39-9060-49938f354684')
-ON CONFLICT (name, tenant_id) DO NOTHING;
-
--- 插入系统预设情景模式
-INSERT INTO thermostat_scenes (name, description, tenant_id, scene_type, settings) VALUES
-('一键开机', '开启所有温控器', 'c749c9ae-3298-4d39-9060-49938f354684', 'system', '{"action": "power_on", "apply_to": "all"}'),
-('一键关机', '关闭所有温控器', 'c749c9ae-3298-4d39-9060-49938f354684', 'system', '{"action": "power_off", "apply_to": "all"}'),
-('舒适模式', '设置为24°C舒适温度', 'c749c9ae-3298-4d39-9060-49938f354684', 'system', '{"action": "set_temp", "target_temp": 24, "ac_mode": "cool", "apply_to": "all"}'),
-('夏季模式', '设置为22°C制冷模式', 'c749c9ae-3298-4d39-9060-49938f354684', 'system', '{"action": "set_temp", "target_temp": 22, "ac_mode": "cool", "apply_to": "all"}'),
-('冬季模式', '设置为26°C制热模式', 'c749c9ae-3298-4d39-9060-49938f354684', 'system', '{"action": "set_temp", "target_temp": 26, "ac_mode": "heat", "apply_to": "all"}'),
-('一键锁定', '锁定所有温度设置', 'c749c9ae-3298-4d39-9060-49938f354684', 'system', '{"action": "temp_lock", "apply_to": "all"}')
-ON CONFLICT (name, tenant_id) DO NOTHING;
-
--- ============================================
--- 9. 权限设置
+-- 8. 权限设置
 -- ============================================
 
 -- 为postgres用户授权

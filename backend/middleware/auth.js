@@ -748,15 +748,14 @@ const createRateLimit = (options = {}) => {
 };
 
 /**
- * 登录速率限制（测试期间完全禁用）
+ * 登录速率限制
  */
 const loginRateLimit = createRateLimit({
   windowMs: 15 * 60 * 1000, // 15分钟
-  max: 1000, // 大幅增加限制以支持测试
+  max: 20,
   message: '登录尝试过于频繁，请15分钟后再试',
   keyGenerator: (req) => `login:${req.ip}`,
-  skipSuccessfulRequests: true,
-  skip: () => true // 测试期间完全跳过限流
+  skipSuccessfulRequests: true
 });
 
 /**

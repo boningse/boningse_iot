@@ -69,18 +69,8 @@ cp backend/.env.example backend/.env
 cp frontend/.env.example frontend/.env
 ```
 
-4. 初始化数据库
+4. 启动服务
 ```bash
-cd backend
-# 数据库初始化脚本已删除
-```
-
-5. 启动服务
-```bash
-# 使用启动脚本
-./start_app.sh
-
-# 或者分别启动
 # 启动后端
 cd backend && npm start
 
@@ -109,9 +99,8 @@ iot/
 │   │   ├── api/            # API接口
 │   │   └── utils/          # 工具函数
 │   └── dist/               # 构建输出
-├── database/               # 数据库脚本
-├── mosquitto/              # MQTT配置
-├── logs/                   # 日志文件
+├── docs/                   # 正式接口文档
+├── ecosystem.config.js     # PM2配置
 
 ```
 
@@ -131,10 +120,6 @@ iot/
 - `POST /api/devices` - 创建设备
 - `PUT /api/devices/:id` - 更新设备
 - `DELETE /api/devices/:id` - 删除设备
-
-### 数据接口
-- `GET /api/data/devices/:id` - 获取设备数据
-- `GET /api/data/statistics` - 获取统计数据
 
 ## 配置说明
 
@@ -156,19 +141,8 @@ iot/
 
 ## 部署指南
 
-### 本地部署
-使用 `./local-deploy.sh` 脚本进行本地部署。
-
-
-
 ### 生产环境部署
-使用系统脚本进行部署配置。
-
-## 开发工具
-
-- `./dev-tools.sh` - 开发工具脚本
-- `./status.sh` - 查看服务状态
-- `./stop.sh` - 停止所有服务
+生产环境使用 PM2 运行后端、Nginx 托管前端静态文件，并由 MQTT 服务接收设备数据。
 
 ## 贡献指南
 

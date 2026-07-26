@@ -221,8 +221,8 @@ const authAPI = {
    * @returns {Promise} 修改结果
    */
   changePassword: (passwordData) =>
-    put("/users/change-password", {
-      currentPassword: passwordData.oldPassword,
+    put("/auth/password", {
+      oldPassword: passwordData.oldPassword,
       newPassword: passwordData.newPassword,
     }),
 
@@ -318,93 +318,6 @@ const deviceAPI = {
    */
   getGateways: () => get("/devices/gateways"),
 
-  /**
-   * 获取设备树结构
-   * @returns {Promise} 设备树结构
-   */
-  getDeviceTree: () => get("/devices/tree"),
-
-  /**
-   * 获取设备的子设备列表
-   * @param {string} deviceId - 设备ID
-   * @param {object} params - 查询参数
-   * @returns {Promise} 子设备列表
-   */
-  getDeviceChildren: (deviceId, params = {}) =>
-    get(`/devices/${deviceId}/children`, params),
-
-  /**
-   * 批量创建子设备
-   * @param {string} parentDeviceId - 父设备ID
-   * @param {array} subDevicesData - 子设备数据数组
-   * @returns {Promise} 创建结果
-   */
-  createSubDevicesBatch: (parentDeviceId, subDevicesData) =>
-    post(`/devices/${parentDeviceId}/children/batch`, {
-      subDevices: subDevicesData,
-    }),
-
-  /**
-   * 获取设备层级统计
-   * @returns {Promise} 层级统计
-   */
-  getHierarchyStats: () => get("/devices/hierarchy/stats"),
-};
-
-// 数据相关API
-const dataAPI = {
-  /**
-   * 获取设备数据
-   * @param {string} deviceId - 设备ID
-   * @param {string} startTime - 开始时间
-   * @param {string} endTime - 结束时间
-   * @param {number} limit - 限制数量
-   * @returns {Promise} 设备数据
-   */
-  getDeviceData: (deviceId, startTime, endTime, limit) => {
-    const params = { start: startTime, end: endTime };
-    if (limit) params.limit = limit;
-    return get(`/data/devices/${deviceId}`, params);
-  },
-
-  /**
-   * 获取设备最新数据
-   * @param {string} deviceId - 设备ID
-   * @param {string} dataType - 数据类型
-   * @returns {Promise} 设备最新数据
-   */
-  getLatestDeviceData: (deviceId, dataType) =>
-    get(`/data/devices/${deviceId}/latest`, { dataType }),
-
-  /**
-   * 获取数据趋势
-   * @param {object} params - 查询参数
-   * @returns {Promise} 数据趋势
-   */
-  getDataTrends: (params) => get("/data/trends", params),
-
-  /**
-   * 根据IMEI获取设备最新payload数据
-   * @param {string} imei - 设备IMEI
-   * @param {string} dataType - 数据类型，默认为'statistic'
-   * @returns {Promise} 设备最新payload数据
-   */
-  getDeviceDataByImei: (imei, dataType = "statistic") =>
-    get(`/data/devices/imei/${imei}/latest`, { dataType }),
-
-  /**
-   * 根据IMEI获取设备历史数据
-   * @param {string} imei - 设备IMEI
-   * @param {string} startTime - 开始时间
-   * @param {string} endTime - 结束时间
-   * @param {number} limit - 限制数量
-   * @returns {Promise} 设备历史数据
-   */
-  getDeviceHistoryDataByImei: (imei, startTime, endTime, limit) => {
-    const params = { start: startTime, end: endTime, dataType: "statistic" };
-    if (limit) params.limit = limit;
-    return get(`/data/devices/imei/${imei}`, params);
-  },
 };
 
 // 租户管理API
@@ -652,19 +565,6 @@ const userAPI = {
    * @returns {Promise} 更新结果
    */
   toggleUserStatus: (id, status) => put(`/users/${id}/status`, { status }),
-
-  /**
-   * 获取当前用户信息
-   * @returns {Promise} 当前用户信息
-   */
-  getCurrentUser: () => get("/users/profile"),
-
-  /**
-   * 更新当前用户信息
-   * @param {Object} userData - 用户数据
-   * @returns {Promise} 更新结果
-   */
-  updateCurrentUser: (userData) => put("/users/profile", userData),
 
   /**
    * 获取用户权限
@@ -955,13 +855,6 @@ const protocolConfigAPI = {
    */
   getTemplate: () => get("/protocol-configs/template/example"),
 
-  /**
-   * 根据厂商获取设备类型列表
-   * @param {string} manufacturerCode - 厂商代码
-   * @returns {Promise} 设备类型列表
-   */
-  getDeviceTypesByManufacturer: (manufacturerCode) =>
-    get(`/protocol-configs/manufacturer/${manufacturerCode}/device-types`),
 };
 
 // 温控器管理API
@@ -986,14 +879,6 @@ const thermostatAPI = {
    * @returns {Promise} 添加结果
    */
   addThermostat: (data) => post("/thermostat/devices", data),
-
-  /**
-   * 更新温控器
-   * @param {string} id - 温控器ID
-   * @param {object} data - 温控器数据
-   * @returns {Promise} 更新结果
-   */
-  updateThermostat: (id, data) => put(`/thermostat/devices/${id}`, data),
 
   /**
    * 删除温控器
@@ -1113,27 +998,6 @@ const thermostatAPI = {
     post(`/thermostat/schedules/${scheduleId}/toggle`, { enabled }),
 
   /**
-   * 获取分组列表
-   * @param {Object} params - 查询参数
-   * @returns {Promise} 分组列表
-   */
-  getGroups: (params = {}) => get("/thermostat/groups", params),
-
-  /**
-   * 获取温控器实时数据
-   * @param {string} id - 温控器ID
-   * @returns {Promise} 实时数据
-   */
-  getRealtimeData: (id) => get(`/thermostat/devices/${id}/realtime`),
-
-  /**
-   * 重启温控器设备
-   * @param {string} id - 温控器ID
-   * @returns {Promise} 重启结果
-   */
-  restartDevice: (id) => post(`/thermostat/devices/${id}/restart`),
-
-  /**
    * 读取设备状态
    * @param {string} id - 温控器ID
    * @returns {Promise} 设备状态查询结果
@@ -1185,7 +1049,6 @@ const alarmAPI = {
 export default {
   authAPI,
   deviceAPI,
-  dataAPI,
   tenantAPI,
   projectManagementAPI,
   manufacturerAPI,
@@ -1212,7 +1075,6 @@ export {
   patch,
   authAPI,
   deviceAPI,
-  dataAPI,
   tenantAPI,
   projectManagementAPI,
   manufacturerAPI,

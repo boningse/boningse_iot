@@ -159,7 +159,6 @@ const permissionMap = {
   ThermostatControl: "thermostat",
   AirConditionerControl: "air-conditioner",
   AlarmManagement: "alarms",
-  MultiUnitAcControl: "multi-unit-ac",
   SystemSettings: "system-settings",
 };
 

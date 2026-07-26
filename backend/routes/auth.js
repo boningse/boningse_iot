@@ -18,30 +18,29 @@ const logger = require('../utils/logger');
 
 const router = express.Router();
 
-// 登录速率限制 - 测试期间完全禁用
+// 登录速率限制
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15分钟
-  max: 10000, // 极大增加限制
+  max: 20,
   message: {
     success: false,
     message: '登录尝试次数过多，请15分钟后再试'
   },
   standardHeaders: true,
   legacyHeaders: false,
-  skip: () => true // 测试期间完全跳过限流
+  skipSuccessfulRequests: true
 });
 
-// 注册速率限制 - 测试期间完全禁用
+// 注册速率限制
 const registerLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1小时
-  max: 10000, // 极大增加限制以支持测试
+  max: 10,
   message: {
     success: false,
     message: '注册尝试次数过多，请1小时后再试'
   },
   standardHeaders: true,
-  legacyHeaders: false,
-  skip: () => true // 测试期间完全跳过限流
+  legacyHeaders: false
 });
 
 /**

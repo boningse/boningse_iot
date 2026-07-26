@@ -1,7 +1,5 @@
 const express = require('express');
 const http = require('http');
-const fs = require('fs');
-const path = require('path');
 const { corsMiddleware } = require('./middleware/cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
@@ -44,7 +42,6 @@ const lightingTimerRoutes = require('./routes/lightingTimer');
 
 const systemRoutes = require('./routes/system');
 const userRoutes = require('./routes/users');
-const testRoutes = require('./routes/test');
 const thermostatRoutes = require('./routes/thermostat');
 const eqinfoRoutes = require('./routes/eqinfo');
 const alarmRoutes = require('./routes/alarms');
@@ -53,17 +50,15 @@ const alarmRoutes = require('./routes/alarms');
 const app = express();
 const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || '0.0.0.0';
-const isProduction = process.env.NODE_ENV === 'production';
-const enableTestRoutes = process.env.ENABLE_TEST_ROUTES === 'true';
 const syncDatabaseOnStartup = process.env.DB_SYNC_ON_STARTUP === 'true';
 
 // 服务只经过本机 Nginx 一层代理。
 app.set('trust proxy', 1);
 
-// 照明数据API的专用速率限制（测试期间放宽）
+// 照明数据接口请求频率较高，使用独立限流额度。
 const lightingDataLimiter = rateLimit({
   windowMs: 1 * 60 * 1000, // 1分钟
-  max: 1000, // 大幅增加限制以支持测试
+  max: 1000,
   message: '照明数据请求过于频繁，请稍后再试'
 });
 // 中间件配置
@@ -110,11 +105,6 @@ app.use('/api/lighting-timer', lightingTimerRoutes);
 
 app.use('/api/system', systemRoutes);
 app.use('/api/users', userRoutes);
-if (!isProduction || enableTestRoutes) {
-  app.use('/api/test', testRoutes);
-} else {
-  logger.info('生产环境未启用测试路由', { route: '/api/test' });
-}
 app.use('/api/thermostat', thermostatRoutes);
 app.use('/api/v1/eqinfo', eqinfoRoutes);
 app.use('/api/alarms', alarmRoutes);

@@ -1,7 +1,0 @@
--- 插入温控器测试数据
-INSERT INTO device_data (id, device_id, data_type, payload, quality, timestamp, created_at, received_at, updated_at) VALUES 
-(gen_random_uuid(), 'd39c0657-dc60-48a1-b78d-70d345b857e1', 'sensor', '{"temperature": 25.5, "humidity": 60.2, "mode": "auto", "target_temperature": 26.0, "status": "online", "imei": "869861065084704", "type": "thermostat_data"}', 100, NOW() - INTERVAL '1 minute', NOW(), NOW(), NOW()),
-(gen_random_uuid(), 'd39c0657-dc60-48a1-b78d-70d345b857e1', 'sensor', '{"temperature": 24.8, "humidity": 58.5, "mode": "heat", "target_temperature": 25.0, "status": "online", "imei": "869861065084704", "type": "thermostat_data"}', 100, NOW() - INTERVAL '2 minutes', NOW(), NOW(), NOW()),
-(gen_random_uuid(), 'd39c0657-dc60-48a1-b78d-70d345b857e1', 'sensor', '{"temperature": 26.2, "humidity": 62.1, "mode": "cool", "target_temperature": 24.0, "status": "online", "imei": "869861065084704", "type": "thermostat_data"}', 100, NOW() - INTERVAL '3 minutes', NOW(), NOW(), NOW()),
-(gen_random_uuid(), 'd39c0657-dc60-48a1-b78d-70d345b857e1', 'sensor', '{"temperature": 23.9, "humidity": 55.8, "mode": "auto", "target_temperature": 24.5, "status": "online", "imei": "869861065084704", "type": "thermostat_data"}', 100, NOW() - INTERVAL '4 minutes', NOW(), NOW(), NOW()),
-(gen_random_uuid(), 'd39c0657-dc60-48a1-b78d-70d345b857e1', 'sensor', '{"temperature": 27.1, "humidity": 64.3, "mode": "cool", "target_temperature": 26.5, "status": "online", "imei": "869861065084704", "type": "thermostat_data"}', 100, NOW() - INTERVAL '5 minutes', NOW(), NOW(), NOW());

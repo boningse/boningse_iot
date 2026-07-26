@@ -370,63 +370,6 @@ router.delete('/:id', authenticateToken, requireProtocolManager, async (req, res
   }
 });
 
-// 获取协议配置模板示例
-router.get('/template/example', authenticateToken, async (req, res) => {
-  try {
-    const template = {
-      data_parsing_config: {
-        "fields": [
-          {
-            "name": "temperature",
-            "type": "float",
-            "unit": "°C",
-            "description": "温度值",
-            "path": "data.temperature"
-          },
-          {
-            "name": "humidity",
-            "type": "float",
-            "unit": "%",
-            "description": "湿度值",
-            "path": "data.humidity"
-          }
-        ],
-        "format": "json"
-      },
-      command_config: {
-        "commands": [
-          {
-            "name": "turn_on",
-            "description": "开启设备",
-            "payload": {
-              "action": "on"
-            }
-          },
-          {
-            "name": "turn_off",
-            "description": "关闭设备",
-            "payload": {
-              "action": "off"
-            }
-          }
-        ]
-      },
-      validation_rules: {
-        "required_fields": ["device_id", "timestamp"],
-        "data_types": {
-          "temperature": "number",
-          "humidity": "number"
-        }
-      }
-    };
-
-    res.json({ success: true, data: template });
-  } catch (error) {
-    console.error('获取协议配置模板失败:', error);
-    res.status(500).json({ success: false, message: '获取协议配置模板失败', error: error.message });
-  }
-});
-
 /**
  * 触发协议配置热更新
  * @param {string} protocolConfigId - 协议配置ID

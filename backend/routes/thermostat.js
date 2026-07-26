@@ -57,28 +57,6 @@ router.post('/devices/:deviceId/force-refresh', checkThermostatAccess, thermosta
 router.get('/devices/:deviceId/protocol-config', checkThermostatAccess, thermostatController.getDeviceProtocolConfig);
 
 // ============================================
-// 温控器分组管理路由
-// ============================================
-
-// 获取分组列表
-router.get('/groups', thermostatController.getGroups);
-
-// 创建分组
-router.post('/groups', thermostatController.createGroup);
-
-// 更新分组
-router.put('/groups/:groupId', thermostatController.updateGroup);
-
-// 删除分组
-router.delete('/groups/:groupId', thermostatController.deleteGroup);
-
-// 将设备添加到分组
-router.post('/groups/:groupId/devices', thermostatController.addDeviceToGroup);
-
-// 从分组中移除设备
-router.delete('/groups/:groupId/devices/:deviceId', thermostatController.removeDeviceFromGroup);
-
-// ============================================
 // 开关机计划管理路由
 // ============================================
 
