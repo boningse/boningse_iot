@@ -8,7 +8,7 @@ const pool = new Pool({
   min: 0
 });
 
-const ACTIVE_STATUSES = ['active', 'acknowledged', 'processing'];
+const ACTIVE_STATUSES = ['active', 'acknowledged', 'assigned', 'processing'];
 const MODULE_LABELS = {
   switch: '开关控制',
   lighting: '照明控制',

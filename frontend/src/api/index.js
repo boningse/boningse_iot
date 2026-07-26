@@ -1154,6 +1154,10 @@ const alarmAPI = {
   getOptions: (params = {}) => get("/alarms/options", params),
   performAction: (id, data) => post(`/alarms/${id}/actions`, data),
   batchAction: (data) => post("/alarms/batch-actions", data),
+  getNotifications: (params = {}) => get("/alarms/notifications", params),
+  getUnreadCount: () => get("/alarms/notifications/unread-count"),
+  markNotificationRead: (id) => post(`/alarms/notifications/${id}/read`),
+  markAllNotificationsRead: () => post("/alarms/notifications/read-all"),
 };
 
 // 默认导出所有API

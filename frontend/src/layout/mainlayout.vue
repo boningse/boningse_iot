@@ -99,6 +99,46 @@
           </div>
 
           <div class="header-right">
+            <el-popover
+              v-if="canUseAlarmNotifications"
+              placement="bottom-end"
+              :width="360"
+              trigger="click"
+              popper-class="alarm-notification-popover"
+              @show="loadAlarmNotifications"
+            >
+              <template #reference>
+                <el-badge :value="unreadAlarmCount" :hidden="unreadAlarmCount === 0" :max="99">
+                  <button class="header-action" type="button" title="告警消息">
+                    <el-icon><component :is="getIconComponent('Bell')" /></el-icon>
+                  </button>
+                </el-badge>
+              </template>
+              <div class="notification-panel">
+                <div class="notification-head">
+                  <strong>告警消息</strong>
+                  <button v-if="unreadAlarmCount" type="button" @click="markAllAlarmNotificationsRead">全部已读</button>
+                </div>
+                <div v-loading="notificationsLoading" class="notification-list">
+                  <button
+                    v-for="item in alarmNotifications"
+                    :key="item.id"
+                    type="button"
+                    class="notification-item"
+                    :class="{ unread: !item.is_read }"
+                    @click="openAlarmNotification(item)"
+                  >
+                    <i :class="item.severity"></i>
+                    <span>
+                      <strong>{{ item.title }}</strong>
+                      <small>{{ item.message || item.device_name }}</small>
+                      <time>{{ getRelativeTime(item.created_at) }}</time>
+                    </span>
+                  </button>
+                  <el-empty v-if="!notificationsLoading && !alarmNotifications.length" description="暂无告警消息" :image-size="54" />
+                </div>
+              </div>
+            </el-popover>
             <el-tooltip :content="isDark ? '切换为白天模式' : '切换为暗夜模式'" placement="bottom">
               <button class="header-action" type="button" @click="toggleTheme">
                 <el-icon><component :is="getIconComponent(isDark ? 'Sunny' : 'Moon')" /></el-icon>
@@ -150,6 +190,8 @@ import { useRoute, useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 import * as ElementPlusIconsVue from "@element-plus/icons-vue";
 import Breadcrumb from "@/components/Breadcrumb.vue";
+import { alarmAPI } from "@/api";
+import { getRelativeTime } from "@/utils/date";
 
 // 注册所有图标组件
 for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
@@ -188,6 +230,58 @@ const isCollapse = ref(false);
 const isMobile = ref(false);
 const mobileMenuOpen = ref(false);
 const isDark = ref(false);
+const unreadAlarmCount = ref(0);
+const alarmNotifications = ref([]);
+const notificationsLoading = ref(false);
+let notificationTimer = null;
+
+const canUseAlarmNotifications = computed(() => {
+  const role = userInfo.value.role;
+  const permissions = userInfo.value.profile?.permissions || [];
+  return ["admin", "tenant_admin"].includes(role) || permissions.includes("alarms");
+});
+
+const loadUnreadAlarmCount = async () => {
+  if (!canUseAlarmNotifications.value) return;
+  try {
+    const result = await alarmAPI.getUnreadCount();
+    if (result.success) unreadAlarmCount.value = Number(result.data?.count || 0);
+  } catch {
+    // Header polling should stay silent when the session is ending.
+  }
+};
+
+const loadAlarmNotifications = async () => {
+  if (!canUseAlarmNotifications.value) return;
+  notificationsLoading.value = true;
+  try {
+    const result = await alarmAPI.getNotifications({ limit: 20 });
+    if (result.success) alarmNotifications.value = result.data?.list || [];
+  } finally {
+    notificationsLoading.value = false;
+  }
+};
+
+const openAlarmNotification = async (notification) => {
+  if (!notification.is_read) {
+    const result = await alarmAPI.markNotificationRead(notification.id);
+    if (result.success) {
+      notification.is_read = true;
+      unreadAlarmCount.value = Math.max(0, unreadAlarmCount.value - 1);
+    }
+  }
+  router.push(notification.link || `/alarms?alarmId=${notification.alarm_id}&mine=true`);
+};
+
+const markAllAlarmNotificationsRead = async () => {
+  const result = await alarmAPI.markAllNotificationsRead();
+  if (result.success) {
+    unreadAlarmCount.value = 0;
+    alarmNotifications.value.forEach((item) => {
+      item.is_read = true;
+    });
+  }
+};
 
 const toggleSidebar = () => {
   if (isMobile.value) {
@@ -247,6 +341,7 @@ const handleResize = () => {
 // 添加和移除窗口大小变化的事件监听器
 onUnmounted(() => {
   window.removeEventListener("resize", handleResize);
+  window.clearInterval(notificationTimer);
 });
 
 /**
@@ -427,6 +522,8 @@ onMounted(() => {
   // 初始化侧边栏状态
   autoHideSidebar();
   window.addEventListener("resize", handleResize);
+  loadUnreadAlarmCount();
+  notificationTimer = window.setInterval(loadUnreadAlarmCount, 30000);
 });
 </script>
 
@@ -661,6 +758,89 @@ onMounted(() => {
   &:hover {
     color: var(--primary-color);
     background: var(--fill-light);
+  }
+}
+
+:global(.alarm-notification-popover) {
+  padding: 0 !important;
+  overflow: hidden;
+}
+
+.notification-panel {
+  max-height: min(520px, 72vh);
+  color: var(--text-primary);
+}
+
+.notification-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 48px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--border-light);
+
+  button {
+    border: 0;
+    color: var(--primary-color);
+    background: transparent;
+    cursor: pointer;
+  }
+}
+
+.notification-list {
+  max-height: min(470px, 64vh);
+  overflow: auto;
+}
+
+.notification-item {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr);
+  gap: 10px;
+  width: 100%;
+  padding: 12px 14px;
+  border: 0;
+  border-bottom: 1px solid var(--border-lighter);
+  color: inherit;
+  background: var(--surface-color);
+  text-align: left;
+  cursor: pointer;
+
+  &:hover,
+  &.unread {
+    background: var(--fill-lighter);
+  }
+
+  > i {
+    width: 7px;
+    height: 7px;
+    margin-top: 6px;
+    border-radius: 50%;
+    background: #64748b;
+  }
+
+  > i.critical { background: #dc2626; }
+  > i.high { background: #ea580c; }
+  > i.medium { background: #d97706; }
+  > i.low { background: #0284c7; }
+
+  span {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  strong,
+  small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  strong { font-size: 14px; }
+  small,
+  time {
+    color: var(--text-secondary);
+    font-size: 12px;
   }
 }
 

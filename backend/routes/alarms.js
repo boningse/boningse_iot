@@ -14,7 +14,9 @@ const pool = new Pool({
 const ROLES = ['admin', 'tenant_admin', 'user', 'building_user', 'group_user'];
 const MODULE_TYPES = ['switch', 'lighting', 'thermostat', 'air_conditioner'];
 const SEVERITIES = ['critical', 'high', 'medium', 'low'];
-const STATUSES = ['active', 'acknowledged', 'processing', 'resolved', 'closed'];
+const STATUSES = ['active', 'acknowledged', 'assigned', 'processing', 'resolved', 'closed'];
+const MANAGER_ROLES = ['admin', 'tenant_admin'];
+const DISPATCH_ROLES = ['admin', 'tenant_admin', 'building_user', 'group_user'];
 const ACTION_CONFIG = {
   acknowledge: {
     action: 'acknowledged',
@@ -24,12 +26,25 @@ const ACTION_CONFIG = {
   assign: {
     action: 'assigned',
     allowed: ['active', 'acknowledged', 'processing'],
-    toStatus: 'processing',
+    toStatus: 'assigned',
     requireAssignee: true
+  },
+  accept: {
+    action: 'accepted',
+    allowed: ['assigned'],
+    toStatus: 'processing',
+    assigneeOnly: true
+  },
+  reject: {
+    action: 'rejected',
+    allowed: ['assigned'],
+    toStatus: 'acknowledged',
+    assigneeOnly: true,
+    requireNote: true
   },
   process: {
     action: 'processing',
-    allowed: ['active', 'acknowledged', 'processing'],
+    allowed: ['processing'],
     toStatus: 'processing'
   },
   comment: {
@@ -40,7 +55,7 @@ const ACTION_CONFIG = {
   },
   resolve: {
     action: 'resolved',
-    allowed: ['active', 'acknowledged', 'processing'],
+    allowed: ['processing'],
     toStatus: 'resolved',
     requireNote: true
   },
@@ -129,7 +144,7 @@ const buildAlarmQuery = (req, { includeFilters = true } = {}) => {
       conditions.push(`a.severity = $${params.length}`);
     }
     if (status === 'open') {
-      conditions.push(`a.status IN ('active', 'acknowledged', 'processing')`);
+      conditions.push(`a.status IN ('active', 'acknowledged', 'assigned', 'processing')`);
     } else if (status && STATUSES.includes(status)) {
       params.push(status);
       conditions.push(`a.status = $${params.length}`);
@@ -153,6 +168,10 @@ const buildAlarmQuery = (req, { includeFilters = true } = {}) => {
     if (endAt) {
       params.push(endAt);
       conditions.push(`a.last_occurred_at <= $${params.length}::timestamptz`);
+    }
+    if (req.query.mine === 'true') {
+      params.push(req.user.id);
+      conditions.push(`a.assigned_to = $${params.length}`);
     }
   }
 
@@ -180,11 +199,12 @@ router.get('/summary', authenticateToken, requireRole(ROLES), async (req, res) =
          count(*)::integer AS total,
          count(*) FILTER (WHERE a.status = 'active')::integer AS active,
          count(*) FILTER (WHERE a.status = 'acknowledged')::integer AS acknowledged,
+         count(*) FILTER (WHERE a.status = 'assigned')::integer AS assigned,
          count(*) FILTER (WHERE a.status = 'processing')::integer AS processing,
          count(*) FILTER (WHERE a.status = 'resolved')::integer AS resolved,
          count(*) FILTER (WHERE a.status = 'closed')::integer AS closed,
-         count(*) FILTER (WHERE a.severity = 'critical' AND a.status IN ('active', 'acknowledged', 'processing'))::integer AS critical,
-         count(*) FILTER (WHERE a.severity = 'high' AND a.status IN ('active', 'acknowledged', 'processing'))::integer AS high
+         count(*) FILTER (WHERE a.severity = 'critical' AND a.status IN ('active', 'acknowledged', 'assigned', 'processing'))::integer AS critical,
+         count(*) FILTER (WHERE a.severity = 'high' AND a.status IN ('active', 'acknowledged', 'assigned', 'processing'))::integer AS high
        ${joins}
        ${where}`,
       params
@@ -194,7 +214,7 @@ router.get('/summary', authenticateToken, requireRole(ROLES), async (req, res) =
       `SELECT a.module_type, count(*)::integer AS count
        ${joins}
        ${where}
-         ${where ? 'AND' : 'WHERE'} a.status IN ('active', 'acknowledged', 'processing')
+         ${where ? 'AND' : 'WHERE'} a.status IN ('active', 'acknowledged', 'assigned', 'processing')
        GROUP BY a.module_type`,
       params
     );
@@ -203,7 +223,7 @@ router.get('/summary', authenticateToken, requireRole(ROLES), async (req, res) =
       `SELECT a.severity, count(*)::integer AS count
        ${joins}
        ${where}
-         ${where ? 'AND' : 'WHERE'} a.status IN ('active', 'acknowledged', 'processing')
+         ${where ? 'AND' : 'WHERE'} a.status IN ('active', 'acknowledged', 'assigned', 'processing')
        GROUP BY a.severity`,
       params
     );
@@ -246,7 +266,10 @@ router.get('/summary', authenticateToken, requireRole(ROLES), async (req, res) =
 router.get('/options', authenticateToken, requireRole(ROLES), async (req, res) => {
   try {
     const params = [];
-    const conditions = [`u.status = 'active'`];
+    const conditions = [
+      `u.status = 'active'`,
+      `(u.role IN ('admin', 'tenant_admin') OR COALESCE(u.profile->'permissions', '[]'::jsonb) ? 'alarms')`
+    ];
     if (req.user.role !== 'admin') {
       params.push(req.user.tenant_id);
       conditions.push(`u.tenant_id = $${params.length}`);
@@ -288,7 +311,7 @@ router.get('/', authenticateToken, requireRole(ROLES), async (req, res) => {
        ${joins}
        ${where}
        ORDER BY
-         CASE a.status WHEN 'active' THEN 1 WHEN 'acknowledged' THEN 2 WHEN 'processing' THEN 3 WHEN 'resolved' THEN 4 ELSE 5 END,
+         CASE a.status WHEN 'active' THEN 1 WHEN 'acknowledged' THEN 2 WHEN 'assigned' THEN 3 WHEN 'processing' THEN 4 WHEN 'resolved' THEN 5 ELSE 6 END,
          CASE a.severity WHEN 'critical' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 ELSE 4 END,
          a.last_occurred_at DESC
        LIMIT $${listParams.length - 1} OFFSET $${listParams.length}`,
@@ -329,6 +352,74 @@ const getScopedAlarm = async (req, alarmId, client = pool) => {
   return result.rows[0] || null;
 };
 
+router.get('/notifications/unread-count', authenticateToken, requireRole(ROLES), async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT count(*)::integer AS count
+       FROM user_alarm_notifications
+       WHERE user_id = $1 AND is_read = false`,
+      [req.user.id]
+    );
+    res.json({ success: true, data: { count: result.rows[0].count } });
+  } catch (error) {
+    logger.error('获取告警未读消息数量失败', { userId: req.user.id, error: error.message });
+    res.status(500).json({ success: false, message: '获取未读消息数量失败' });
+  }
+});
+
+router.get('/notifications', authenticateToken, requireRole(ROLES), async (req, res) => {
+  try {
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 100);
+    const unreadCondition = req.query.unreadOnly === 'true' ? 'AND n.is_read = false' : '';
+    const result = await pool.query(
+      `SELECT n.*, a.severity, a.status AS alarm_status, d.name AS device_name
+       FROM user_alarm_notifications n
+       JOIN device_alarms a ON a.id = n.alarm_id
+       JOIN devices d ON d.id = a.device_id
+       WHERE n.user_id = $1 ${unreadCondition}
+       ORDER BY n.created_at DESC
+       LIMIT $2`,
+      [req.user.id, limit]
+    );
+    res.json({ success: true, data: { list: result.rows } });
+  } catch (error) {
+    logger.error('获取告警站内消息失败', { userId: req.user.id, error: error.message });
+    res.status(500).json({ success: false, message: '获取告警消息失败' });
+  }
+});
+
+router.post('/notifications/read-all', authenticateToken, requireRole(ROLES), async (req, res) => {
+  try {
+    await pool.query(
+      `UPDATE user_alarm_notifications
+       SET is_read = true, read_at = COALESCE(read_at, now())
+       WHERE user_id = $1 AND is_read = false`,
+      [req.user.id]
+    );
+    res.json({ success: true, message: '告警消息已全部标记为已读' });
+  } catch (error) {
+    logger.error('标记全部告警消息已读失败', { userId: req.user.id, error: error.message });
+    res.status(500).json({ success: false, message: '更新消息状态失败' });
+  }
+});
+
+router.post('/notifications/:id/read', authenticateToken, requireRole(ROLES), async (req, res) => {
+  try {
+    const result = await pool.query(
+      `UPDATE user_alarm_notifications
+       SET is_read = true, read_at = COALESCE(read_at, now())
+       WHERE id = $1 AND user_id = $2
+       RETURNING *`,
+      [req.params.id, req.user.id]
+    );
+    if (result.rowCount === 0) return reject(res, 404, '消息不存在');
+    res.json({ success: true, data: result.rows[0] });
+  } catch (error) {
+    logger.error('标记告警消息已读失败', { notificationId: req.params.id, error: error.message });
+    res.status(500).json({ success: false, message: '更新消息状态失败' });
+  }
+});
+
 router.get('/:id', authenticateToken, requireRole(ROLES), async (req, res) => {
   try {
     const alarm = await getScopedAlarm(req, req.params.id);
@@ -359,6 +450,20 @@ const performAction = async (client, req, alarm, actionName, payload = {}) => {
   const assignedTo = payload.assignedTo || payload.assigned_to || null;
   if (config.requireNote && !note) throw new Error('请填写处理说明');
   if (config.requireAssignee && !assignedTo) throw new Error('请选择处理人');
+  if (actionName === 'assign' && !DISPATCH_ROLES.includes(req.user.role)) {
+    throw new Error('当前用户无派单权限');
+  }
+  if (config.assigneeOnly && String(alarm.assigned_to || '') !== String(req.user.id)) {
+    throw new Error('只有当前处理人可以接单或退回');
+  }
+  if (
+    ['process', 'resolve'].includes(actionName)
+    && alarm.assigned_to
+    && String(alarm.assigned_to) !== String(req.user.id)
+    && !MANAGER_ROLES.includes(req.user.role)
+  ) {
+    throw new Error('该工单已分配给其他处理人');
+  }
 
   if (assignedTo) {
     const assignee = await client.query(
@@ -382,7 +487,19 @@ const performAction = async (client, req, alarm, actionName, payload = {}) => {
   }
   if (actionName === 'assign') {
     set('assigned_to', assignedTo);
+    updates.push('assigned_at = now()', 'accepted_by = NULL', 'accepted_at = NULL');
     if (note) set('processing_note', note);
+  }
+  if (actionName === 'accept') {
+    set('accepted_by', req.user.id);
+    updates.push('accepted_at = now()');
+  }
+  if (actionName === 'reject') {
+    updates.push(
+      'assigned_to = NULL', 'assigned_at = NULL',
+      'accepted_by = NULL', 'accepted_at = NULL'
+    );
+    set('processing_note', note);
   }
   if (actionName === 'process' && note) set('processing_note', note);
   if (actionName === 'resolve') {
@@ -422,6 +539,39 @@ const performAction = async (client, req, alarm, actionName, payload = {}) => {
       note || null
     ]
   );
+
+  if (actionName === 'assign') {
+    const notificationType = alarm.assigned_to ? 'reassignment' : 'assignment';
+    await client.query(
+      `UPDATE user_alarm_notifications
+       SET is_read = true, read_at = COALESCE(read_at, now())
+       WHERE alarm_id = $1 AND is_read = false`,
+      [alarm.id]
+    );
+    await client.query(
+      `INSERT INTO user_alarm_notifications (
+         tenant_id, user_id, alarm_id, notification_type, title, message, link
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [
+        alarm.tenant_id,
+        assignedTo,
+        alarm.id,
+        notificationType,
+        `${alarm.severity === 'critical' ? '紧急' : '告警'}工单待接单：${alarm.device_name}`,
+        note || alarm.message || alarm.title,
+        `/alarms?alarmId=${alarm.id}&mine=true`
+      ]
+    );
+  }
+  if (['accept', 'reject'].includes(actionName)) {
+    await client.query(
+      `UPDATE user_alarm_notifications
+       SET is_read = true, read_at = COALESCE(read_at, now())
+       WHERE alarm_id = $1 AND user_id = $2 AND is_read = false`,
+      [alarm.id, req.user.id]
+    );
+  }
+
   return updated.rows[0];
 };
 

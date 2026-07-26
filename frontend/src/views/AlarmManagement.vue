@@ -72,6 +72,7 @@
         >
           {{ item.label }}
         </button>
+        <el-checkbox v-model="filters.mine" class="mine-toggle" @change="applyFilters">只看我的工单</el-checkbox>
       </div>
 
       <div class="filter-grid">
@@ -262,9 +263,11 @@
 
           <footer class="detail-actions">
             <el-button v-if="currentAlarm.status === 'active'" type="primary" :icon="Check" @click="quickAcknowledge(currentAlarm)">确认</el-button>
-            <el-button v-if="isOpenStatus(currentAlarm.status)" :icon="UserRoundCheck" @click="openAction(currentAlarm, 'assign')">派单</el-button>
-            <el-button v-if="isOpenStatus(currentAlarm.status)" :icon="Wrench" @click="openAction(currentAlarm, 'process')">记录处理</el-button>
-            <el-button v-if="isOpenStatus(currentAlarm.status)" type="success" :icon="ShieldCheck" @click="openAction(currentAlarm, 'resolve')">解决</el-button>
+            <el-button v-if="canDispatch && ['active', 'acknowledged', 'processing'].includes(currentAlarm.status)" :icon="UserRoundCheck" @click="openAction(currentAlarm, 'assign')">派单</el-button>
+            <el-button v-if="currentAlarm.status === 'assigned' && isCurrentAssignee(currentAlarm)" type="primary" :icon="ClipboardCheck" @click="openAction(currentAlarm, 'accept')">接单</el-button>
+            <el-button v-if="currentAlarm.status === 'assigned' && isCurrentAssignee(currentAlarm)" :icon="Undo2" @click="openAction(currentAlarm, 'reject')">退回</el-button>
+            <el-button v-if="currentAlarm.status === 'processing' && canHandle(currentAlarm)" :icon="Wrench" @click="openAction(currentAlarm, 'process')">记录处理</el-button>
+            <el-button v-if="currentAlarm.status === 'processing' && canHandle(currentAlarm)" type="success" :icon="ShieldCheck" @click="openAction(currentAlarm, 'resolve')">解决</el-button>
             <el-button v-if="currentAlarm.status === 'resolved'" :icon="Archive" @click="openAction(currentAlarm, 'close')">关闭</el-button>
             <el-button v-if="['resolved', 'closed'].includes(currentAlarm.status)" :icon="RotateCcw" @click="openAction(currentAlarm, 'reopen')">重开</el-button>
             <el-button :icon="MessageSquareText" @click="openAction(currentAlarm, 'comment')">备注</el-button>
@@ -280,7 +283,7 @@
             <el-option v-for="item in assignees" :key="item.id" :label="`${item.username} · ${roleLabel(item.role)}`" :value="item.id" />
           </el-select>
         </el-form-item>
-        <el-form-item v-if="actionNeedsNote" :label="actionForm.action === 'resolve' ? '解决说明' : '处理说明'" :required="['resolve', 'reopen', 'comment'].includes(actionForm.action)">
+        <el-form-item v-if="actionNeedsNote" :label="actionForm.action === 'resolve' ? '解决说明' : '处理说明'" :required="['reject', 'resolve', 'reopen', 'comment'].includes(actionForm.action)">
           <el-input v-model="actionForm.note" type="textarea" :rows="4" maxlength="500" show-word-limit placeholder="记录检查情况、处理措施或补充说明" />
         </el-form-item>
       </el-form>
@@ -293,7 +296,8 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
+import { useRoute } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 import {
   Activity,
@@ -302,6 +306,7 @@ import {
   CheckCheck,
   CircleAlert,
   CircleCheck,
+  ClipboardCheck,
   Clock3,
   Eye,
   MessageSquareText,
@@ -310,6 +315,7 @@ import {
   Search,
   ShieldCheck,
   TriangleAlert,
+  Undo2,
   UserRoundCheck,
   Wrench,
   X,
@@ -331,6 +337,7 @@ const severityOptions = [
 ];
 const statusTabs = [
   { value: "open", label: "未闭环" },
+  { value: "assigned", label: "待接单" },
   { value: "", label: "全部" },
   { value: "resolved", label: "已解决" },
   { value: "closed", label: "已关闭" },
@@ -338,6 +345,7 @@ const statusTabs = [
 const statusLabels = {
   active: "待确认",
   acknowledged: "已确认",
+  assigned: "待接单",
   processing: "处理中",
   resolved: "已解决",
   closed: "已关闭",
@@ -346,6 +354,8 @@ const actionLabels = {
   created: "告警产生",
   acknowledged: "确认告警",
   assigned: "分配处理人",
+  accepted: "处理人接单",
+  rejected: "处理人退回",
   processing: "记录处理",
   commented: "添加备注",
   resolved: "解决告警",
@@ -355,7 +365,9 @@ const actionLabels = {
 };
 
 const userInfo = JSON.parse(localStorage.getItem("userInfo") || "{}");
+const route = useRoute();
 const isAdmin = computed(() => userInfo.role === "admin");
+const canDispatch = computed(() => ["admin", "tenant_admin", "building_user", "group_user"].includes(userInfo.role));
 const loading = ref(false);
 const detailLoading = ref(false);
 const detailVisible = ref(false);
@@ -380,6 +392,7 @@ const filters = reactive({
   moduleType: "",
   severity: "",
   status: "open",
+  mine: route.query.mine === "true",
 });
 const pagination = reactive({ page: 1, pageSize: 20, total: 0 });
 const actionForm = reactive({
@@ -391,7 +404,7 @@ const actionForm = reactive({
 });
 
 const metrics = computed(() => [
-  { key: "open", label: "未闭环告警", value: Number(summary.value.totals.active || 0) + Number(summary.value.totals.acknowledged || 0) + Number(summary.value.totals.processing || 0), icon: Activity, tone: "teal", filter: "open" },
+  { key: "open", label: "未闭环告警", value: Number(summary.value.totals.active || 0) + Number(summary.value.totals.acknowledged || 0) + Number(summary.value.totals.assigned || 0) + Number(summary.value.totals.processing || 0), icon: Activity, tone: "teal", filter: "open" },
   { key: "critical", label: "紧急告警", value: summary.value.totals.critical || 0, icon: TriangleAlert, tone: "red", filter: "open", severity: "critical" },
   { key: "processing", label: "处理中", value: summary.value.totals.processing || 0, icon: Clock3, tone: "amber", filter: "processing" },
   { key: "resolved", label: "已解决", value: summary.value.totals.resolved || 0, icon: ShieldCheck, tone: "green", filter: "resolved" },
@@ -416,9 +429,11 @@ const severitySummary = computed(() => {
 
 const filteredGroups = computed(() => groups.value.filter((item) => !filters.buildingId || item.building_id === filters.buildingId));
 const selectedActiveIds = computed(() => alarms.value.filter((item) => selectedIds.value.includes(item.id) && item.status === "active").map((item) => item.id));
-const actionNeedsNote = computed(() => ["assign", "process", "resolve", "reopen", "comment"].includes(actionForm.action));
+const actionNeedsNote = computed(() => ["assign", "reject", "process", "resolve", "reopen", "comment"].includes(actionForm.action));
 const actionDialogTitle = computed(() => ({
   assign: "分配处理人",
+  accept: "确认接单",
+  reject: "退回工单",
   process: "记录处理进展",
   resolve: "解决告警",
   close: "关闭告警",
@@ -497,6 +512,7 @@ const resetFilters = () => {
     moduleType: "",
     severity: "",
     status: "open",
+    mine: false,
   });
   pagination.page = 1;
   loadOptions();
@@ -588,7 +604,7 @@ const openBatchAssign = () => {
 
 const submitAction = async () => {
   if (actionForm.action === "assign" && !actionForm.assignedTo) return ElMessage.warning("请选择处理人");
-  if (["resolve", "reopen", "comment"].includes(actionForm.action) && !actionForm.note.trim()) return ElMessage.warning("请填写处理说明");
+  if (["reject", "resolve", "reopen", "comment"].includes(actionForm.action) && !actionForm.note.trim()) return ElMessage.warning("请填写处理说明");
   actionSubmitting.value = true;
   try {
     const payload = { action: actionForm.action, assignedTo: actionForm.assignedTo || null, note: actionForm.note.trim() };
@@ -612,16 +628,29 @@ const severityLabel = (value) => severityOptions.find((item) => item.value === v
 const statusLabel = (value) => statusLabels[value] || value;
 const actionLabel = (value) => actionLabels[value] || value;
 const roleLabel = (value) => ({ admin: "管理员", tenant_admin: "租户管理员", user: "普通用户", building_user: "建筑用户", group_user: "分组用户" }[value] || value);
-const isOpenStatus = (value) => ["active", "acknowledged", "processing"].includes(value);
-const timelineType = (action) => ({ created: "danger", resolved: "success", auto_resolved: "success", closed: "info", reopened: "warning" }[action] || "primary");
+const isOpenStatus = (value) => ["active", "acknowledged", "assigned", "processing"].includes(value);
+const isCurrentAssignee = (alarm) => String(alarm?.assigned_to || "") === String(userInfo.id || "");
+const canHandle = (alarm) => isCurrentAssignee(alarm) || ["admin", "tenant_admin"].includes(userInfo.role);
+const timelineType = (action) => ({ created: "danger", accepted: "success", rejected: "warning", resolved: "success", auto_resolved: "success", closed: "info", reopened: "warning" }[action] || "primary");
 const metricDisplay = (alarm) => `${alarm.metric_key}: ${alarm.metric_value ?? "--"}${alarm.threshold_value !== null ? `（阈值 ${alarm.threshold_value}）` : ""}`;
 
 onMounted(async () => {
   await loadOptions();
   await refreshAll();
+  if (route.query.alarmId) await openDetail({ id: route.query.alarmId });
   refreshTimer = window.setInterval(refreshAll, 30000);
 });
 onUnmounted(() => window.clearInterval(refreshTimer));
+
+watch(
+  () => route.query.alarmId,
+  async (alarmId, previousAlarmId) => {
+    if (alarmId && alarmId !== previousAlarmId) {
+      filters.mine = route.query.mine === "true";
+      await openDetail({ id: alarmId });
+    }
+  },
+);
 </script>
 
 <style lang="scss" scoped>
@@ -794,6 +823,7 @@ onUnmounted(() => window.clearInterval(refreshTimer));
 
 .status-tabs {
   display: flex;
+  align-items: center;
   gap: 4px;
   margin-bottom: 14px;
   border-bottom: 1px solid var(--border-light);
@@ -820,6 +850,11 @@ onUnmounted(() => window.clearInterval(refreshTimer));
     height: 2px;
     content: "";
     background: var(--primary-color);
+  }
+
+  .mine-toggle {
+    margin-left: auto;
+    margin-right: 4px;
   }
 }
 
@@ -880,6 +915,7 @@ onUnmounted(() => window.clearInterval(refreshTimer));
 
   &.active { color: #b91c1c; background: rgba(220, 38, 38, 0.1); }
   &.acknowledged { color: #a16207; background: rgba(217, 119, 6, 0.12); }
+  &.assigned { color: #7c3aed; background: rgba(124, 58, 237, 0.11); }
   &.processing { color: #0369a1; background: rgba(2, 132, 199, 0.12); }
   &.resolved { color: #15803d; background: rgba(22, 163, 74, 0.11); }
 }
