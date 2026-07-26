@@ -255,6 +255,17 @@
                   <span>{{ item.operator_username || item.operator_name || "系统" }}</span>
                   <p v-if="item.note">{{ item.note }}</p>
                   <small v-if="item.assigned_to_name">处理人：{{ item.assigned_to_name }}</small>
+                  <div v-if="item.photos?.length" class="timeline-photos">
+                    <el-image
+                      v-for="photo in item.photos.filter((entry) => entry.preview_url)"
+                      :key="photo.id"
+                      :src="photo.preview_url"
+                      :preview-src-list="alarmPhotoPreviewUrls"
+                      :initial-index="photoPreviewIndex(photo.id)"
+                      fit="cover"
+                      preview-teleported
+                    />
+                  </div>
                 </div>
               </el-timeline-item>
             </el-timeline>
@@ -286,11 +297,34 @@
         <el-form-item v-if="actionNeedsNote" :label="actionForm.action === 'resolve' ? '解决说明' : '处理说明'" :required="['reject', 'resolve', 'reopen', 'comment'].includes(actionForm.action)">
           <el-input v-model="actionForm.note" type="textarea" :rows="4" maxlength="500" show-word-limit placeholder="记录检查情况、处理措施或补充说明" />
         </el-form-item>
+        <el-form-item v-if="actionSupportsPhotos" label="现场照片（PC端选填）">
+          <el-upload
+            v-model:file-list="actionPhotoFiles"
+            action="#"
+            accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+            list-type="picture-card"
+            multiple
+            :auto-upload="false"
+            :limit="10"
+            :on-change="validatePhotoSelection"
+            :on-preview="previewLocalPhoto"
+            :on-exceed="photoLimitExceeded"
+          >
+            <el-icon><Plus /></el-icon>
+            <template #tip>
+              <div class="photo-upload-tip">最多 10 张，单张不超过 8MB；支持拍摄照片或选择本地图片</div>
+            </template>
+          </el-upload>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="actionVisible = false">取消</el-button>
         <el-button type="primary" :loading="actionSubmitting" @click="submitAction">确认</el-button>
       </template>
+    </el-dialog>
+
+    <el-dialog v-model="localPhotoPreviewVisible" title="照片预览" width="min(720px, 94vw)" append-to-body>
+      <img class="local-photo-preview" :src="localPhotoPreviewUrl" alt="现场照片预览" />
     </el-dialog>
   </div>
 </template>
@@ -310,6 +344,7 @@ import {
   Clock3,
   Eye,
   MessageSquareText,
+  Plus,
   RefreshCw,
   RotateCcw,
   Search,
@@ -373,16 +408,21 @@ const detailLoading = ref(false);
 const detailVisible = ref(false);
 const actionVisible = ref(false);
 const actionSubmitting = ref(false);
+const actionPhotoFiles = ref([]);
+const localPhotoPreviewVisible = ref(false);
+const localPhotoPreviewUrl = ref("");
 const alarms = ref([]);
 const selectedIds = ref([]);
 const currentAlarm = ref(null);
 const alarmActions = ref([]);
+const alarmPhotos = ref([]);
 const summary = ref({ totals: {}, modules: [], severities: [], trend: [] });
 const tenants = ref([]);
 const buildings = ref([]);
 const groups = ref([]);
 const assignees = ref([]);
 let refreshTimer = null;
+const photoObjectUrls = new Map();
 
 const filters = reactive({
   keyword: "",
@@ -430,6 +470,8 @@ const severitySummary = computed(() => {
 const filteredGroups = computed(() => groups.value.filter((item) => !filters.buildingId || item.building_id === filters.buildingId));
 const selectedActiveIds = computed(() => alarms.value.filter((item) => selectedIds.value.includes(item.id) && item.status === "active").map((item) => item.id));
 const actionNeedsNote = computed(() => ["assign", "reject", "process", "resolve", "reopen", "comment"].includes(actionForm.action));
+const actionSupportsPhotos = computed(() => ["accept", "process", "resolve", "comment"].includes(actionForm.action));
+const alarmPhotoPreviewUrls = computed(() => alarmPhotos.value.map((photo) => photo.preview_url).filter(Boolean));
 const actionDialogTitle = computed(() => ({
   assign: "分配处理人",
   accept: "确认接单",
@@ -561,7 +603,25 @@ const openDetail = async (row) => {
     const result = await alarmAPI.getDetail(row.id);
     if (!result.success) throw new Error(result.message || "获取告警详情失败");
     currentAlarm.value = result.data.alarm;
-    alarmActions.value = result.data.actions || [];
+    revokeAlarmPhotoUrls();
+    const hydratedPhotos = await Promise.all(
+      (result.data.photos || []).map(async (photo) => {
+        try {
+          const blob = await alarmAPI.getPhotoBlob(result.data.alarm.id, photo.id);
+          const previewUrl = URL.createObjectURL(blob);
+          photoObjectUrls.set(photo.id, previewUrl);
+          return { ...photo, preview_url: previewUrl };
+        } catch {
+          return { ...photo, preview_url: "" };
+        }
+      }),
+    );
+    alarmPhotos.value = hydratedPhotos;
+    const photosById = new Map(hydratedPhotos.map((photo) => [photo.id, photo]));
+    alarmActions.value = (result.data.actions || []).map((action) => ({
+      ...action,
+      photos: (action.photos || []).map((photo) => photosById.get(photo.id) || photo),
+    }));
   } catch (error) {
     ElMessage.error(error.message);
   } finally {
@@ -595,11 +655,33 @@ const batchAcknowledge = async () => {
 
 const openAction = (alarm, action) => {
   Object.assign(actionForm, { action, alarmId: alarm.id, alarmIds: [], assignedTo: alarm.assigned_to || "", note: "" });
+  actionPhotoFiles.value = [];
   actionVisible.value = true;
 };
 const openBatchAssign = () => {
   Object.assign(actionForm, { action: "assign", alarmId: "", alarmIds: [...selectedIds.value], assignedTo: "", note: "" });
+  actionPhotoFiles.value = [];
   actionVisible.value = true;
+};
+
+const previewLocalPhoto = (file) => {
+  localPhotoPreviewUrl.value = file.url || "";
+  localPhotoPreviewVisible.value = Boolean(localPhotoPreviewUrl.value);
+};
+
+const validatePhotoSelection = (file) => {
+  const raw = file.raw;
+  if (!raw) return;
+  const allowedTypes = ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"];
+  const invalidType = !allowedTypes.includes(raw.type);
+  const tooLarge = raw.size > 8 * 1024 * 1024;
+  if (!invalidType && !tooLarge) return;
+  actionPhotoFiles.value = actionPhotoFiles.value.filter((item) => item.uid !== file.uid);
+  ElMessage.warning(invalidType ? "仅支持 JPG、PNG、WEBP、HEIC、HEIF 图片" : "单张照片不能超过 8MB");
+};
+
+const photoLimitExceeded = () => {
+  ElMessage.warning("一次最多上传 10 张现场照片");
 };
 
 const submitAction = async () => {
@@ -608,9 +690,22 @@ const submitAction = async () => {
   actionSubmitting.value = true;
   try {
     const payload = { action: actionForm.action, assignedTo: actionForm.assignedTo || null, note: actionForm.note.trim() };
-    const result = actionForm.alarmIds.length
-      ? await alarmAPI.batchAction({ ...payload, alarmIds: actionForm.alarmIds })
-      : await alarmAPI.performAction(actionForm.alarmId, payload);
+    let result;
+    if (actionForm.alarmIds.length) {
+      result = await alarmAPI.batchAction({ ...payload, alarmIds: actionForm.alarmIds });
+    } else if (actionPhotoFiles.value.length) {
+      const formData = new FormData();
+      formData.append("action", payload.action);
+      formData.append("note", payload.note);
+      formData.append("clientType", "pc");
+      if (payload.assignedTo) formData.append("assignedTo", payload.assignedTo);
+      for (const file of actionPhotoFiles.value) {
+        if (file.raw) formData.append("photos", file.raw, file.name);
+      }
+      result = await alarmAPI.performActionWithPhotos(actionForm.alarmId, formData);
+    } else {
+      result = await alarmAPI.performAction(actionForm.alarmId, { ...payload, clientType: "pc" });
+    }
     if (!result.success) throw new Error(result.message || "处理失败");
     ElMessage.success(result.message || "处理成功");
     actionVisible.value = false;
@@ -631,8 +726,14 @@ const roleLabel = (value) => ({ admin: "管理员", tenant_admin: "租户管理�
 const isOpenStatus = (value) => ["active", "acknowledged", "assigned", "processing"].includes(value);
 const isCurrentAssignee = (alarm) => String(alarm?.assigned_to || "") === String(userInfo.id || "");
 const canHandle = (alarm) => isCurrentAssignee(alarm) || ["admin", "tenant_admin"].includes(userInfo.role);
+const photoPreviewIndex = (photoId) => Math.max(alarmPhotos.value.findIndex((photo) => photo.id === photoId), 0);
 const timelineType = (action) => ({ created: "danger", accepted: "success", rejected: "warning", resolved: "success", auto_resolved: "success", closed: "info", reopened: "warning" }[action] || "primary");
 const metricDisplay = (alarm) => `${alarm.metric_key}: ${alarm.metric_value ?? "--"}${alarm.threshold_value !== null ? `（阈值 ${alarm.threshold_value}）` : ""}`;
+const revokeAlarmPhotoUrls = () => {
+  for (const url of photoObjectUrls.values()) URL.revokeObjectURL(url);
+  photoObjectUrls.clear();
+  alarmPhotos.value = [];
+};
 
 onMounted(async () => {
   await loadOptions();
@@ -640,7 +741,10 @@ onMounted(async () => {
   if (route.query.alarmId) await openDetail({ id: route.query.alarmId });
   refreshTimer = window.setInterval(refreshAll, 30000);
 });
-onUnmounted(() => window.clearInterval(refreshTimer));
+onUnmounted(() => {
+  window.clearInterval(refreshTimer);
+  revokeAlarmPhotoUrls();
+});
 
 watch(
   () => route.query.alarmId,
@@ -981,6 +1085,35 @@ watch(
 
   span, small { color: var(--text-secondary); }
   p { margin: 4px 0 0; line-height: 1.6; }
+}
+.timeline-photos {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, 78px);
+  gap: 8px;
+  margin-top: 8px;
+
+  :deep(.el-image) {
+    width: 78px;
+    height: 78px;
+    overflow: hidden;
+    border: 1px solid var(--border-light);
+    border-radius: 5px;
+    background: var(--fill-light);
+    cursor: zoom-in;
+  }
+}
+.photo-upload-tip {
+  max-width: 520px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.local-photo-preview {
+  display: block;
+  max-width: 100%;
+  max-height: 72vh;
+  margin: 0 auto;
+  object-fit: contain;
 }
 .detail-actions {
   position: sticky;

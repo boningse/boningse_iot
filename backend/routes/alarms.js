@@ -2,6 +2,13 @@ const express = require('express');
 const { Pool } = require('pg');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { getPoolConfig } = require('../config/database');
+const {
+  insertPhotoRecords,
+  normalizeClientType,
+  removeFiles,
+  resolveStoragePath,
+  uploadAlarmPhotos
+} = require('../services/alarmPhotoService');
 const logger = require('../utils/logger');
 
 const router = express.Router();
@@ -73,6 +80,9 @@ const ACTION_CONFIG = {
 };
 
 const reject = (res, status, message) => res.status(status).json({ success: false, message });
+const getClientType = (req, payload = {}) => normalizeClientType(
+  req.get('X-Client-Type') || payload.clientType || payload.client_type || 'pc'
+);
 
 const profileValue = (user, key) => {
   const profile = user?.profile || {};
@@ -420,6 +430,82 @@ router.post('/notifications/:id/read', authenticateToken, requireRole(ROLES), as
   }
 });
 
+router.get('/:id/photos/:photoId/content', authenticateToken, requireRole(ROLES), async (req, res) => {
+  try {
+    const alarm = await getScopedAlarm(req, req.params.id);
+    if (!alarm) return reject(res, 404, '告警不存在或无权访问');
+    const result = await pool.query(
+      `SELECT id, original_name, storage_path, mime_type
+       FROM device_alarm_photos
+       WHERE id = $1 AND alarm_id = $2`,
+      [req.params.photoId, alarm.id]
+    );
+    if (result.rowCount === 0) return reject(res, 404, '照片不存在');
+    const photo = result.rows[0];
+    res.set({
+      'Content-Type': photo.mime_type,
+      'Content-Disposition': `inline; filename="alarm-photo-${photo.id}"`,
+      'Cache-Control': 'private, max-age=300'
+    });
+    res.sendFile(resolveStoragePath(photo.storage_path), (error) => {
+      if (error && !res.headersSent) {
+        res.status(error.code === 'ENOENT' ? 404 : 500).json({
+          success: false,
+          message: error.code === 'ENOENT' ? '照片文件不存在' : '读取照片失败'
+        });
+      }
+    });
+  } catch (error) {
+    logger.error('读取工单照片失败', { photoId: req.params.photoId, error: error.message });
+    res.status(500).json({ success: false, message: '读取照片失败' });
+  }
+});
+
+router.delete('/:id/photos/:photoId', authenticateToken, requireRole(ROLES), async (req, res) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const alarm = await getScopedAlarm(req, req.params.id, client);
+    if (!alarm) {
+      await client.query('ROLLBACK');
+      return reject(res, 404, '告警不存在或无权访问');
+    }
+    const result = await client.query(
+      `SELECT * FROM device_alarm_photos WHERE id = $1 AND alarm_id = $2 FOR UPDATE`,
+      [req.params.photoId, alarm.id]
+    );
+    if (result.rowCount === 0) {
+      await client.query('ROLLBACK');
+      return reject(res, 404, '照片不存在');
+    }
+    const photo = result.rows[0];
+    if (
+      String(photo.uploaded_by || '') !== String(req.user.id)
+      && !MANAGER_ROLES.includes(req.user.role)
+    ) {
+      await client.query('ROLLBACK');
+      return reject(res, 403, '只能删除本人上传的照片');
+    }
+    await client.query('DELETE FROM device_alarm_photos WHERE id = $1', [photo.id]);
+    await client.query('COMMIT');
+    try {
+      await removeFiles([photo]);
+    } catch (cleanupError) {
+      logger.error('工单照片记录已删除，但文件清理失败', {
+        photoId: photo.id,
+        error: cleanupError.message
+      });
+    }
+    res.json({ success: true, message: '照片已删除' });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    logger.error('删除工单照片失败', { photoId: req.params.photoId, error: error.message });
+    res.status(500).json({ success: false, message: '删除照片失败' });
+  } finally {
+    client.release();
+  }
+});
+
 router.get('/:id', authenticateToken, requireRole(ROLES), async (req, res) => {
   try {
     const alarm = await getScopedAlarm(req, req.params.id);
@@ -433,7 +519,26 @@ router.get('/:id', authenticateToken, requireRole(ROLES), async (req, res) => {
        ORDER BY aa.created_at DESC`,
       [alarm.id]
     );
-    res.json({ success: true, data: { alarm, actions: actions.rows } });
+    const photos = await pool.query(
+      `SELECT p.id, p.alarm_id, p.action_id, p.original_name, p.mime_type,
+              p.file_size, p.category, p.client_type, p.captured_at,
+              p.latitude, p.longitude, p.location_text, p.created_at,
+              u.username AS uploaded_by_name
+       FROM device_alarm_photos p
+       LEFT JOIN users u ON u.id = p.uploaded_by
+       WHERE p.alarm_id = $1
+       ORDER BY p.created_at ASC`,
+      [alarm.id]
+    );
+    const photoRows = photos.rows.map((photo) => ({
+      ...photo,
+      content_url: `/api/alarms/${alarm.id}/photos/${photo.id}/content`
+    }));
+    const actionRows = actions.rows.map((action) => ({
+      ...action,
+      photos: photoRows.filter((photo) => String(photo.action_id || '') === String(action.id))
+    }));
+    res.json({ success: true, data: { alarm, actions: actionRows, photos: photoRows } });
   } catch (error) {
     logger.error('获取告警详情失败', { alarmId: req.params.id, error: error.message });
     res.status(500).json({ success: false, message: '获取告警详情失败', error: error.message });
@@ -448,8 +553,17 @@ const performAction = async (client, req, alarm, actionName, payload = {}) => {
   }
   const note = String(payload.note || '').trim();
   const assignedTo = payload.assignedTo || payload.assigned_to || null;
+  const clientType = getClientType(req, payload);
+  const uploadedPhotoCount = Number(payload._uploadedPhotoCount || 0);
   if (config.requireNote && !note) throw new Error('请填写处理说明');
   if (config.requireAssignee && !assignedTo) throw new Error('请选择处理人');
+  if (
+    clientType === 'mini_program'
+    && ['process', 'resolve'].includes(actionName)
+    && uploadedPhotoCount < 1
+  ) {
+    throw new Error('微信小程序处理工单时必须上传至少一张现场照片');
+  }
   if (actionName === 'assign' && !DISPATCH_ROLES.includes(req.user.role)) {
     throw new Error('当前用户无派单权限');
   }
@@ -522,11 +636,12 @@ const performAction = async (client, req, alarm, actionName, payload = {}) => {
     `UPDATE device_alarms SET ${updates.join(', ')} WHERE id = $1 RETURNING *`,
     values
   );
-  await client.query(
+  const actionResult = await client.query(
     `INSERT INTO device_alarm_actions (
        alarm_id, tenant_id, action, from_status, to_status,
        operator_id, operator_name, assigned_to, note
-     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+     RETURNING id`,
     [
       alarm.id,
       alarm.tenant_id,
@@ -572,7 +687,10 @@ const performAction = async (client, req, alarm, actionName, payload = {}) => {
     );
   }
 
-  return updated.rows[0];
+  return {
+    ...updated.rows[0],
+    workflow_action_id: actionResult.rows[0].id
+  };
 };
 
 router.post('/batch-actions', authenticateToken, requireRole(ROLES), async (req, res) => {
@@ -586,7 +704,10 @@ router.post('/batch-actions', authenticateToken, requireRole(ROLES), async (req,
     for (const alarmId of alarmIds) {
       const alarm = await getScopedAlarm(req, alarmId, client);
       if (!alarm) throw new Error('包含不存在或无权访问的告警');
-      results.push(await performAction(client, req, alarm, action, payload));
+      results.push(await performAction(client, req, alarm, action, {
+        ...payload,
+        _uploadedPhotoCount: 0
+      }));
     }
     await client.query('COMMIT');
     res.json({ success: true, message: `已处理 ${results.length} 条告警`, data: results });
@@ -599,6 +720,69 @@ router.post('/batch-actions', authenticateToken, requireRole(ROLES), async (req,
   }
 });
 
+router.post(
+  '/:id/actions-with-photos',
+  authenticateToken,
+  requireRole(ROLES),
+  uploadAlarmPhotos,
+  async (req, res) => {
+    const client = await pool.connect();
+    const files = req.files || [];
+    try {
+      await client.query('BEGIN');
+      const alarm = await getScopedAlarm(req, req.params.id, client);
+      if (!alarm) throw new Error('告警不存在或无权访问');
+      const action = String(req.body.action || '').trim();
+      const updated = await performAction(client, req, alarm, action, {
+        ...req.body,
+        _uploadedPhotoCount: files.length
+      });
+      const photos = await insertPhotoRecords({
+        client,
+        files,
+        alarm,
+        actionId: updated.workflow_action_id,
+        userId: req.user.id,
+        action,
+        clientType: getClientType(req, req.body),
+        category: req.body.category,
+        capturedAt: req.body.capturedAt || req.body.captured_at,
+        latitude: req.body.latitude,
+        longitude: req.body.longitude,
+        locationText: req.body.locationText || req.body.location_text
+      });
+      if (photos.length > 0) {
+        await client.query(
+          `UPDATE device_alarm_actions
+           SET metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb
+           WHERE id = $1`,
+          [updated.workflow_action_id, JSON.stringify({ photo_count: photos.length })]
+        );
+      }
+      await client.query('COMMIT');
+      res.json({
+        success: true,
+        message: photos.length ? `告警处理成功，已上传 ${photos.length} 张照片` : '告警处理成功',
+        data: { alarm: updated, photos }
+      });
+    } catch (error) {
+      await client.query('ROLLBACK');
+      try {
+        await removeFiles(files);
+      } catch (cleanupError) {
+        logger.error('回滚工单照片文件失败', { error: cleanupError.message });
+      }
+      logger.error('带照片处理告警失败', { alarmId: req.params.id, error: error.message });
+      res.status(error.message.includes('不存在') ? 404 : 400).json({
+        success: false,
+        message: error.message
+      });
+    } finally {
+      client.release();
+    }
+  }
+);
+
 router.post('/:id/actions', authenticateToken, requireRole(ROLES), async (req, res) => {
   const client = await pool.connect();
   try {
@@ -608,7 +792,10 @@ router.post('/:id/actions', authenticateToken, requireRole(ROLES), async (req, r
       await client.query('ROLLBACK');
       return reject(res, 404, '告警不存在或无权访问');
     }
-    const updated = await performAction(client, req, alarm, req.body.action, req.body);
+    const updated = await performAction(client, req, alarm, req.body.action, {
+      ...req.body,
+      _uploadedPhotoCount: 0
+    });
     await client.query('COMMIT');
     res.json({ success: true, message: '告警处理成功', data: updated });
   } catch (error) {

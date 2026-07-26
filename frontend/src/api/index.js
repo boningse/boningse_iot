@@ -16,6 +16,8 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "/api";
  */
 const request = async (url, options = {}) => {
   const token = localStorage.getItem("token");
+  const isFormData =
+    typeof FormData !== "undefined" && options.body instanceof FormData;
 
   // 调试信息：检查token状态
   console.log("API请求调试信息:", {
@@ -28,7 +30,7 @@ const request = async (url, options = {}) => {
   const defaultOptions = {
     credentials: "include", // 允许跨域请求携带cookies和认证信息
     headers: {
-      "Content-Type": "application/json",
+      ...(!isFormData && { "Content-Type": "application/json" }),
       ...(token && { Authorization: `Bearer ${token}` }),
     },
   };
@@ -1153,11 +1155,30 @@ const alarmAPI = {
   getDetail: (id) => get(`/alarms/${id}`),
   getOptions: (params = {}) => get("/alarms/options", params),
   performAction: (id, data) => post(`/alarms/${id}/actions`, data),
+  performActionWithPhotos: (id, formData) =>
+    request(`/alarms/${id}/actions-with-photos`, {
+      method: "POST",
+      body: formData,
+    }),
   batchAction: (data) => post("/alarms/batch-actions", data),
   getNotifications: (params = {}) => get("/alarms/notifications", params),
   getUnreadCount: () => get("/alarms/notifications/unread-count"),
   markNotificationRead: (id) => post(`/alarms/notifications/${id}/read`),
   markAllNotificationsRead: () => post("/alarms/notifications/read-all"),
+  getPhotoBlob: async (alarmId, photoId) => {
+    const token = localStorage.getItem("token");
+    const response = await fetch(
+      `${API_BASE_URL}/alarms/${alarmId}/photos/${photoId}/content`,
+      {
+        credentials: "include",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      },
+    );
+    if (!response.ok) throw new Error("读取工单照片失败");
+    return response.blob();
+  },
+  deletePhoto: (alarmId, photoId) =>
+    del(`/alarms/${alarmId}/photos/${photoId}`),
 };
 
 // 默认导出所有API

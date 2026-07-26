@@ -1,6 +1,6 @@
 {
   "name": "iot-device-management-backend",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "物联网设备管理系统后端API服务",
   "main": "app.js",
   "scripts": {
@@ -30,6 +30,7 @@
     "modbus-serial": "^8.0.25",
     "morgan": "^1.11.0",
     "mqtt": "^5.15.1",
+    "multer": "^2.2.0",
     "node-cron": "^4.5.0",
     "pg": "^8.22.0",
     "rate-limit-redis": "^4.3.1",

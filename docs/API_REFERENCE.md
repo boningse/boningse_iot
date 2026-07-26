@@ -1,6 +1,6 @@
 # 伯宁云控 API 接口文档
 
-> 对应系统版本：v2.0  
+> 对应系统版本：v2.1
 > 文档日期：2026-07-26  
 > 来源：生产后端实际挂载路由，而非仅依据前端调用代码  
 > 用途：Web 前端、第三方系统和微信小程序接入
@@ -9,7 +9,7 @@
 
 当前生产服务实际暴露：
 
-- 180 个唯一 `/api` HTTP 接口。
+- 183 个唯一 `/api` HTTP 接口。
 - 2 个根级运维接口：`/health`、`/metrics`。
 - 1 个 WebSocket 端点：`/ws`。
 - 4 组路由在源码中存在重复声明，本文按唯一 URL 记录，并在兼容性章节说明。
@@ -597,6 +597,9 @@ status: active | acknowledged | assigned | processing | resolved | closed | open
 | GET | `/api/alarms` | 登录+范围 | 告警分页列表 |
 | GET | `/api/alarms/:id` | 登录+范围 | 告警详情和完整处理时间轴 |
 | POST | `/api/alarms/:id/actions` | 登录+流程权限 | 单条告警流转 |
+| POST | `/api/alarms/:id/actions-with-photos` | 登录+流程权限 | 单条告警流转并上传现场照片 |
+| GET | `/api/alarms/:id/photos/:photoId/content` | 登录+范围 | 读取现场照片二进制内容 |
+| DELETE | `/api/alarms/:id/photos/:photoId` | 上传人/管理员 | 删除现场照片 |
 | POST | `/api/alarms/batch-actions` | 登录+流程权限 | 批量流转，最多 100 条 |
 | GET | `/api/alarms/notifications/unread-count` | 登录+本人 | 当前用户未读派单数 |
 | GET | `/api/alarms/notifications` | 登录+本人 | 站内告警消息；Query: `limit,unreadOnly` |
@@ -612,6 +615,23 @@ status: active | acknowledged | assigned | processing | resolved | closed | open
   "note": "请检查现场线路"
 }
 ```
+
+带现场照片的流程使用 `multipart/form-data`：
+
+```text
+action: process
+note: 已检查线路并重新紧固接线端子
+clientType: pc | mini_program
+photos: <image file>  可重复提交，最多 10 张
+capturedAt: 2026-07-26T10:30:00+08:00  可选
+latitude: 36.6512000  可选
+longitude: 117.1201000  可选
+locationText: 1号楼3层配电间  可选
+```
+
+照片支持 JPG、PNG、WEBP、HEIC、HEIF，单张不超过 8MB。Web/PC 端照片选填；微信小程序应发送请求头
+`X-Client-Type: mini_program`，且执行 `process` 或 `resolve` 时必须在当前请求上传至少一张现场照片。
+照片读取接口需要登录凭证，详情接口返回的 `photos` 数组及每条 `action.photos` 可用于处理时间轴展示。
 
 批量流程 Body：
 
