@@ -117,6 +117,10 @@ iot/
 
 ## API文档
 
+完整接口清单、认证约定、权限范围、控制参数和微信小程序接入建议见：
+
+- [伯宁云控 API 接口文档](docs/API_REFERENCE.md)
+
 ### 认证接口
 - `POST /api/auth/login` - 用户登录
 - `POST /api/auth/register` - 用户注册
