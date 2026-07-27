@@ -1,0 +1,66 @@
+\set ON_ERROR_STOP on
+
+BEGIN;
+DO $$
+DECLARE
+  control_row record;
+BEGIN
+  SELECT lc.id, lc.device_id INTO control_row
+  FROM lighting_control lc
+  WHERE lc.is_active = true
+  LIMIT 1;
+
+  IF control_row.id IS NULL THEN
+    RAISE EXCEPTION 'No active lighting control row available for verification';
+  END IF;
+
+  UPDATE lighting_control SET is_active = false WHERE id = control_row.id;
+  IF (SELECT is_lighting FROM devices WHERE id = control_row.device_id) THEN
+    RAISE EXCEPTION 'Lighting flag did not follow the control record';
+  END IF;
+  RAISE NOTICE 'Lighting flag synchronization verified';
+END;
+$$;
+ROLLBACK;
+
+BEGIN;
+DO $$
+DECLARE
+  gateway_id uuid;
+BEGIN
+  SELECT id INTO gateway_id FROM devices WHERE device_category = 'gateway' LIMIT 1;
+  UPDATE devices SET is_thermostat = true, is_lighting = true WHERE id = gateway_id;
+  IF EXISTS (
+    SELECT 1 FROM devices
+    WHERE id = gateway_id AND (is_thermostat OR is_lighting OR is_switch OR is_air_conditioner)
+  ) THEN
+    RAISE EXCEPTION 'Gateway flags were not forced to false';
+  END IF;
+  RAISE NOTICE 'Gateway device flags are forced to false';
+END;
+$$;
+ROLLBACK;
+
+BEGIN;
+DO $$
+BEGIN
+  BEGIN
+    INSERT INTO lighting_control (tenant_id, device_id, lighting_type, is_active, created_by)
+    SELECT d.tenant_id, d.id, 'single', true, u.id
+    FROM devices d
+    CROSS JOIN LATERAL (SELECT id FROM users WHERE role = 'admin' LIMIT 1) u
+    WHERE d.device_category = 'gateway'
+    LIMIT 1;
+    RAISE EXCEPTION 'Gateway control insertion unexpectedly succeeded';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM = 'Gateway control insertion unexpectedly succeeded' THEN
+      RAISE;
+    END IF;
+    IF POSITION('网关设备不能加入控制管理' IN SQLERRM) = 0 THEN
+      RAISE;
+    END IF;
+    RAISE NOTICE 'Gateway control insertion rejected';
+  END;
+END;
+$$;
+ROLLBACK;

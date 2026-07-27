@@ -1,0 +1,319 @@
+{
+  "name": "温控器数据解析配置",
+  "version": "1.0.0",
+  "description": "温控器设备数据解析和属性映射配置",
+  "device_type": "空调温控器",
+  "protocol_type": "mqtt_json",
+  "encoding": "utf-8",
+  "message_format": "json",
+  "params_mapping": {
+    "lock": {
+      "type": "integer",
+      "field": "lock",
+      "access": "r/w",
+      "values": {
+        "0": "解锁",
+        "1": "锁定"
+      },
+      "description": "童锁控制"
+    },
+    "runOn": {
+      "type": "integer",
+      "field": "runOn",
+      "access": "r",
+      "values": {
+        "16": "关机",
+        "17": "开机"
+      },
+      "description": "运行开关"
+    },
+    "setOn": {
+      "type": "integer",
+      "field": "setOn",
+      "access": "r/w",
+      "values": {
+        "0": "关机",
+        "1": "开机"
+      },
+      "description": "设置开关机"
+    },
+    "runMode": {
+      "type": "integer",
+      "field": "runMode",
+      "access": "r",
+      "values": {
+        "0": "送风",
+        "1": "制热",
+        "2": "制冷",
+        "3": "除湿"
+      },
+      "description": "运行模式"
+    },
+    "setMode": {
+      "type": "integer",
+      "field": "setMode",
+      "access": "r/w",
+      "values": {
+        "0": "送风",
+        "1": "制热",
+        "2": "制冷",
+        "3": "除湿"
+      },
+      "description": "设定模式"
+    },
+    "runFanSpeed": {
+      "type": "integer",
+      "field": "runFanSpeed",
+      "access": "r",
+      "values": {
+        "0": "自动",
+        "1": "低风",
+        "2": "中风",
+        "3": "高风"
+      },
+      "description": "运行风速"
+    },
+    "setFanSpeed": {
+      "type": "integer",
+      "field": "setFanSpeed",
+      "access": "r/w",
+      "values": {
+        "0": "自动",
+        "1": "低风",
+        "2": "中风",
+        "3": "高风"
+      },
+      "description": "设置风速"
+    },
+    "runTemp": {
+      "type": "integer",
+      "unit": "最小单位0.1℃",
+      "field": "runTemp",
+      "scale": 10,
+      "access": "r",
+      "description": "运行温度"
+    },
+    "setTemp": {
+      "type": "integer",
+      "unit": "最小单位0.1℃",
+      "field": "setTemp",
+      "scale": 10,
+      "access": "r/w",
+      "description": "设定温度"
+    },
+    "roomTemp": {
+      "type": "integer",
+      "unit": "最小单位0.1℃",
+      "field": "roomTemp",
+      "scale": 10,
+      "access": "r",
+      "description": "室内温度"
+    },
+    "deadTemp": {
+      "type": "integer",
+      "unit": "最小单位0.1℃",
+      "field": "deadTemp",
+      "scale": 10,
+      "access": "r/w",
+      "description": "死区温度"
+    },
+    "maxSetTemp": {
+      "type": "integer",
+      "unit": "最小单位0.1℃",
+      "field": "maxSetTemp",
+      "scale": 10,
+      "access": "r/w",
+      "description": "最大设定温度设置"
+    },
+    "minSetTemp": {
+      "type": "integer",
+      "unit": "最小单位0.1℃",
+      "field": "minSetTemp",
+      "scale": 10,
+      "access": "r/w",
+      "description": "最小设定温度设置"
+    },
+    "lowTempDiff": {
+      "type": "integer",
+      "unit": "最小单位0.1℃",
+      "field": "lowTempDiff",
+      "scale": 10,
+      "access": "r/w",
+      "description": "低温温差"
+    },
+    "highTempDiff": {
+      "type": "integer",
+      "unit": "最小单位0.1℃",
+      "field": "highTempDiff",
+      "scale": 10,
+      "access": "r/w",
+      "description": "高温温差"
+    },
+    "midlleTempDiff": {
+      "type": "integer",
+      "unit": "最小单位0.1℃",
+      "field": "midlleTempDiff",
+      "scale": 10,
+      "access": "r/w",
+      "description": "中温温差"
+    },
+    "remote": {
+      "type": "integer",
+      "field": "remote",
+      "access": "r/w",
+      "note": "bit0:开关机，bit1:模式，bit2:风速,bit3:设置温度",
+      "description": "远程控制位"
+    },
+    "valve": {
+      "type": "integer",
+      "field": "valve",
+      "access": "r/w",
+      "values": {
+        "0": "无总阀",
+        "1": "有总阀"
+      },
+      "description": "总阀设置"
+    },
+    "stBits": {
+      "type": "integer",
+      "field": "stBits",
+      "access": "r",
+      "description": "刷新上传记录位"
+    },
+    "setBits": {
+      "type": "integer",
+      "field": "setBits",
+      "access": "r",
+      "description": "设置记录刷新位"
+    }
+  },
+  "time_mapping": {
+    "FanLow": {
+      "type": "integer",
+      "unit": "单位秒",
+      "field": "FanLow",
+      "access": "r/w",
+      "description": "送风低挡开启时间"
+    },
+    "FanMiddle": {
+      "type": "integer",
+      "unit": "单位秒",
+      "field": "FanMiddle",
+      "access": "r/w",
+      "description": "送风中挡开启时间"
+    },
+    "FanHigh": {
+      "type": "integer",
+      "unit": "单位秒",
+      "field": "FanHigh",
+      "access": "r/w",
+      "description": "送风高挡开启时间"
+    },
+    "CoolLow": {
+      "type": "integer",
+      "unit": "单位秒",
+      "field": "CoolLow",
+      "access": "r/w",
+      "description": "制冷低挡开启时间"
+    },
+    "CoolMiddle": {
+      "type": "integer",
+      "unit": "单位秒",
+      "field": "CoolMiddle",
+      "access": "r/w",
+      "description": "制冷中挡开启时间"
+    },
+    "CoolHigh": {
+      "type": "integer",
+      "unit": "单位秒",
+      "field": "CoolHigh",
+      "access": "r/w",
+      "description": "制冷高挡开启时间"
+    },
+    "HeatLow": {
+      "type": "integer",
+      "unit": "单位秒",
+      "field": "HeatLow",
+      "access": "r/w",
+      "description": "制热低挡开启时间"
+    },
+    "HeatMiddle": {
+      "type": "integer",
+      "unit": "单位秒",
+      "field": "HeatMiddle",
+      "access": "r/w",
+      "description": "制热中挡开启时间"
+    },
+    "HeatHigh": {
+      "type": "integer",
+      "unit": "单位秒",
+      "field": "HeatHigh",
+      "access": "r/w",
+      "description": "制热高挡开启时间"
+    }
+  },
+  "property_mapping": {
+    "addr": {
+      "type": "integer",
+      "field": "addr",
+      "access": "r/w",
+      "description": "地址"
+    },
+    "time": {
+      "type": "integer",
+      "unit": "UTC时间",
+      "field": "time",
+      "access": "r",
+      "description": "时间"
+    },
+    "imei": {
+      "type": "string",
+      "field": "imei",
+      "access": "r",
+      "description": "4G的IMEI号"
+    },
+    "iccid": {
+      "type": "string",
+      "field": "iccid",
+      "access": "r",
+      "description": "SIM卡号"
+    },
+    "model": {
+      "type": "string",
+      "field": "model",
+      "access": "r",
+      "description": "产品内部名称"
+    },
+    "units": {
+      "type": "integer",
+      "field": "units",
+      "access": "r",
+      "description": "内机数"
+    },
+    "signal": {
+      "type": "integer",
+      "field": "signal",
+      "range": "0~4级数",
+      "access": "r",
+      "description": "信号强度"
+    },
+    "remarks": {
+      "type": "string",
+      "field": "remarks",
+      "access": "r",
+      "description": "产品标识"
+    },
+    "hardVersion": {
+      "type": "string",
+      "field": "hardVersion",
+      "access": "r",
+      "description": "硬件版本"
+    },
+    "softVersion": {
+      "type": "string",
+      "field": "softVersion",
+      "access": "r",
+      "description": "软件版本"
+    }
+  }
+}

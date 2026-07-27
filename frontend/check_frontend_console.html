@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>前端WebSocket连接测试</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        .status.connected {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .status.disconnected {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .log-container {
+            height: 400px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            padding: 10px;
+            background-color: #f8f9fa;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .log-entry {
+            margin: 2px 0;
+            padding: 2px 5px;
+        }
+        .log-entry.info {
+            color: #0066cc;
+        }
+        .log-entry.success {
+            color: #28a745;
+        }
+        .log-entry.error {
+            color: #dc3545;
+        }
+        .log-entry.data {
+            color: #6f42c1;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #6c757d;
+            cursor: not-allowed;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+        .stat-card {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 6px;
+            text-align: center;
+        }
+        .stat-number {
+            font-size: 24px;
+            font-weight: bold;
+            color: #007bff;
+        }
+        .stat-label {
+            color: #6c757d;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>前端WebSocket连接测试</h1>
+        
+        <div id="connectionStatus" class="status disconnected">
+            连接状态: 未连接
+        </div>
+        
+        <div>
+            <button id="connectBtn" onclick="connectWebSocket()">连接WebSocket</button>
+            <button id="disconnectBtn" onclick="disconnectWebSocket()" disabled>断开连接</button>
+            <button onclick="clearLogs()">清空日志</button>
+            <button onclick="testLogin()">测试登录</button>
+        </div>
+        
+        <div class="stats">
+            <div class="stat-card">
+                <div class="stat-number" id="totalMessages">0</div>
+                <div class="stat-label">总消息数</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="deviceDataCount">0</div>
+                <div class="stat-label">设备数据消息</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="statusUpdateCount">0</div>
+                <div class="stat-label">状态更新消息</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="connectionTime">-</div>
+                <div class="stat-label">连接时长</div>
+            </div>
+        </div>
+        
+        <h3>WebSocket日志</h3>
+        <div id="logContainer" class="log-container"></div>
+    </div>
+
+    <script>
+        let ws = null;
+        let messageCount = 0;
+        let deviceDataCount = 0;
+        let statusUpdateCount = 0;
+        let connectionStartTime = null;
+        let connectionTimeInterval = null;
+
+        function log(message, type = 'info') {
+            const logContainer = document.getElementById('logContainer');
+            const logEntry = document.createElement('div');
+            logEntry.className = `log-entry ${type}`;
+            logEntry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logContainer.appendChild(logEntry);
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+
+        function updateConnectionStatus(connected) {
+            const statusDiv = document.getElementById('connectionStatus');
+            const connectBtn = document.getElementById('connectBtn');
+            const disconnectBtn = document.getElementById('disconnectBtn');
+            
+            if (connected) {
+                statusDiv.className = 'status connected';
+                statusDiv.textContent = '连接状态: 已连接';
+                connectBtn.disabled = true;
+                disconnectBtn.disabled = false;
+                connectionStartTime = Date.now();
+                startConnectionTimer();
+            } else {
+                statusDiv.className = 'status disconnected';
+                statusDiv.textContent = '连接状态: 未连接';
+                connectBtn.disabled = false;
+                disconnectBtn.disabled = true;
+                stopConnectionTimer();
+            }
+        }
+
+        function startConnectionTimer() {
+            connectionTimeInterval = setInterval(() => {
+                if (connectionStartTime) {
+                    const elapsed = Math.floor((Date.now() - connectionStartTime) / 1000);
+                    const minutes = Math.floor(elapsed / 60);
+                    const seconds = elapsed % 60;
+                    document.getElementById('connectionTime').textContent = 
+                        `${minutes}:${seconds.toString().padStart(2, '0')}`;
+                }
+            }, 1000);
+        }
+
+        function stopConnectionTimer() {
+            if (connectionTimeInterval) {
+                clearInterval(connectionTimeInterval);
+                connectionTimeInterval = null;
+            }
+            document.getElementById('connectionTime').textContent = '-';
+        }
+
+        function updateStats() {
+            document.getElementById('totalMessages').textContent = messageCount;
+            document.getElementById('deviceDataCount').textContent = deviceDataCount;
+            document.getElementById('statusUpdateCount').textContent = statusUpdateCount;
+        }
+
+        // 测试登录
+        async function testLogin() {
+            try {
+                console.log('开始测试登录...');
+                
+                const response = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        username: 'apple',
+                        password: '225788'
+                    })
+                });
+                
+                const data = await response.json();
+                console.log('登录响应:', data);
+                
+                if (data.success) {
+                    localStorage.setItem('token', data.data.token);
+                    console.log('✅ 登录成功，token已保存');
+                    console.log('新token:', data.data.token);
+                    
+                    // 检查token过期时间
+                    try {
+                        const tokenPayload = JSON.parse(atob(data.data.token.split('.')[1]));
+                        const expTime = new Date(tokenPayload.exp * 1000);
+                        console.log('Token过期时间:', expTime.toLocaleString());
+                        console.log('当前时间:', new Date().toLocaleString());
+                        console.log('Token是否有效:', expTime > new Date());
+                    } catch (e) {
+                        console.log('无法解析token过期时间');
+                    }
+                    
+                    return data.data.token;
+                } else {
+                    console.error('❌ 登录失败:', data.message);
+                }
+            } catch (error) {
+                console.error('登录请求失败:', error);
+            }
+            return null;
+        }
+
+        function connectWebSocket() {
+            const token = localStorage.getItem('token');
+            if (!token) {
+                log('未找到认证token，请先登录', 'error');
+                return;
+            }
+
+            const wsUrl = `ws://localhost:3005/ws?token=${encodeURIComponent(token)}`;
+            log(`尝试连接WebSocket: ${wsUrl}`, 'info');
+
+            ws = new WebSocket(wsUrl);
+
+            ws.onopen = function() {
+                log('WebSocket连接已建立', 'success');
+                updateConnectionStatus(true);
+
+                // 订阅设备相关主题
+                const subscribeMessage = {
+                    type: 'subscribe',
+                    topics: [
+                        'device_status_update',
+                        'device_data',
+                        'device_response',
+                        'device_event'
+                    ]
+                };
+
+                ws.send(JSON.stringify(subscribeMessage));
+                log('已发送订阅消息', 'info');
+            };
+
+            ws.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    messageCount++;
+                    
+                    if (data.type === 'device_data' || data.type === 'data') {
+                        deviceDataCount++;
+                        log(`收到设备数据: ${data.deviceId || data.device_id} - ${JSON.stringify(data.payload || data.data).substring(0, 100)}...`, 'data');
+                    } else if (data.type === 'device_status_update') {
+                        statusUpdateCount++;
+                        log(`收到状态更新: ${data.device_id} - ${data.status}`, 'data');
+                    } else {
+                        log(`收到消息: ${data.type} - ${JSON.stringify(data).substring(0, 100)}...`, 'info');
+                    }
+                    
+                    updateStats();
+                } catch (error) {
+                    log(`解析消息失败: ${error.message}`, 'error');
+                }
+            };
+
+            ws.onerror = function(error) {
+                log(`WebSocket错误: ${error}`, 'error');
+            };
+
+            ws.onclose = function(event) {
+                log(`WebSocket连接已关闭: ${event.code} - ${event.reason}`, 'info');
+                updateConnectionStatus(false);
+            };
+        }
+
+        function disconnectWebSocket() {
+            if (ws) {
+                ws.close();
+                ws = null;
+            }
+        }
+
+        function clearLogs() {
+            document.getElementById('logContainer').innerHTML = '';
+            messageCount = 0;
+            deviceDataCount = 0;
+            statusUpdateCount = 0;
+            updateStats();
+        }
+
+        // 页面加载时自动尝试登录和连接
+        window.onload = async function() {
+            log('页面已加载，准备测试WebSocket连接', 'info');
+            
+            // 自动执行登录
+            const token = await testLogin();
+            if (token) {
+                // 等待1秒后连接WebSocket
+                setTimeout(() => {
+                    connectWebSocket();
+                }, 1000);
+            }
+        };
+    </script>
+</body>
+</html>

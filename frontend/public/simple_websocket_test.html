@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>简单WebSocket测试</title>
+</head>
+<body>
+    <h1>WebSocket连接测试</h1>
+    <button onclick="testConnection()">测试连接</button>
+    <div id="log"></div>
+    
+    <script>
+        function log(message) {
+            const logDiv = document.getElementById('log');
+            logDiv.innerHTML += '<p>' + new Date().toLocaleTimeString() + ': ' + message + '</p>';
+        }
+        
+        function testConnection() {
+            log('开始测试WebSocket连接...');
+            
+            // 使用用户apple的token
+            const token = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6ImQyYjNlZTI4LTA1M2MtNGQ5ZS04ZjNmLWRmMWNiYTM0OGQ3NCIsInVzZXJuYW1lIjoiYXBwbGUiLCJlbWFpbCI6IjMxODUwNTE2QHFxLmNvbSIsInJvbGUiOiJ0ZW5hbnRfYWRtaW4iLCJ0ZW5hbnRfaWQiOiJhNTk0NDAxYS0yYjE2LTRjMGUtOTUxNS1hZGFkMWI1YjgwYTQiLCJpYXQiOjE3NTk1MzgzMDcsImV4cCI6MTc1OTYyNDcwN30.HQd9IzMj3-ufaYGVUikAvVLKYhZfwJhW9A-7cmSywzE';
+            const wsUrl = `ws://localhost:3003/ws?token=${encodeURIComponent(token)}`;
+            
+            log('连接URL: ' + wsUrl);
+            
+            const ws = new WebSocket(wsUrl);
+            
+            ws.onopen = function(event) {
+                log('✅ WebSocket连接成功!');
+                
+                // 发送订阅消息
+                const subscribeMessage = {
+                    type: 'subscribe',
+                    topics: ['device_data', 'device_status_update']
+                };
+                ws.send(JSON.stringify(subscribeMessage));
+                log('📡 已发送订阅消息');
+            };
+            
+            ws.onmessage = function(event) {
+                log('📨 收到消息: ' + event.data);
+            };
+            
+            ws.onerror = function(error) {
+                log('❌ WebSocket错误: ' + error);
+                console.error('WebSocket错误详情:', error);
+            };
+            
+            ws.onclose = function(event) {
+                log('🔌 WebSocket连接关闭: ' + event.code + ' - ' + event.reason);
+            };
+        }
+    </script>
+</body>
+</html>

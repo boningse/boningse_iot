@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>风速控制测试</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+        }
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin: 10px 0;
+        }
+        button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        .btn-primary {
+            background-color: #007bff;
+            color: white;
+        }
+        .btn-success {
+            background-color: #28a745;
+            color: white;
+        }
+        .btn-warning {
+            background-color: #ffc107;
+            color: black;
+        }
+        .btn-danger {
+            background-color: #dc3545;
+            color: white;
+        }
+        .log {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 10px;
+            margin: 10px 0;
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 14px;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        .status.success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .status.error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+    </style>
+</head>
+<body>
+    <h1>温控器风速控制测试</h1>
+    
+    <div class="test-section">
+        <h2>设备控制</h2>
+        <div class="button-group">
+            <button class="btn-success" onclick="powerOn()">开机</button>
+            <button class="btn-danger" onclick="powerOff()">关机</button>
+        </div>
+    </div>
+    
+    <div class="test-section">
+        <h2>风速控制测试</h2>
+        <p>根据协议文档：0=自动，1=低风，2=中风，3=高风</p>
+        <div class="button-group">
+            <button class="btn-primary" onclick="setFanSpeed(0)">A (自动)</button>
+            <button class="btn-primary" onclick="setFanSpeed(1)">1档</button>
+            <button class="btn-primary" onclick="setFanSpeed(2)">2档</button>
+            <button class="btn-primary" onclick="setFanSpeed(3)">3档</button>
+        </div>
+    </div>
+    
+    <div class="test-section">
+        <h2>测试配置</h2>
+        <div>
+            <label>设备ID: </label>
+            <input type="text" id="deviceId" value="1" style="padding: 5px; margin: 5px;">
+        </div>
+        <div>
+            <label>API Base URL: </label>
+            <input type="text" id="apiUrl" value="https://mqttapi.boningse.com/api" style="padding: 5px; margin: 5px; width: 300px;">
+        </div>
+        <div>
+            <label>Token: </label>
+            <input type="text" id="token" placeholder="请输入有效的JWT token" style="padding: 5px; margin: 5px; width: 400px;">
+        </div>
+    </div>
+    
+    <div class="test-section">
+        <h2>测试结果</h2>
+        <div id="status"></div>
+        <div class="log" id="log"></div>
+        <button class="btn-warning" onclick="clearLog()">清空日志</button>
+    </div>
+
+    <script>
+        function log(message) {
+            const logElement = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            logElement.innerHTML += `[${timestamp}] ${message}\n`;
+            logElement.scrollTop = logElement.scrollHeight;
+        }
+        
+        function showStatus(message, isError = false) {
+            const statusElement = document.getElementById('status');
+            statusElement.className = `status ${isError ? 'error' : 'success'}`;
+            statusElement.textContent = message;
+        }
+        
+        function clearLog() {
+            document.getElementById('log').innerHTML = '';
+            document.getElementById('status').innerHTML = '';
+        }
+        
+        async function makeRequest(endpoint, data = null) {
+            const deviceId = document.getElementById('deviceId').value;
+            const apiUrl = document.getElementById('apiUrl').value;
+            const token = document.getElementById('token').value;
+            
+            if (!token) {
+                showStatus('请先输入有效的JWT token', true);
+                log('错误: 缺少JWT token');
+                return;
+            }
+            
+            const url = `${apiUrl}/thermostat/devices/${deviceId}${endpoint}`;
+            const options = {
+                method: data ? 'POST' : 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                }
+            };
+            
+            if (data) {
+                options.body = JSON.stringify(data);
+            }
+            
+            try {
+                log(`发送请求: ${options.method} ${url}`);
+                if (data) {
+                    log(`请求数据: ${JSON.stringify(data)}`);
+                }
+                
+                const response = await fetch(url, options);
+                const result = await response.json();
+                
+                if (response.ok && result.success) {
+                    showStatus(`操作成功: ${result.message}`);
+                    log(`✅ 成功: ${JSON.stringify(result)}`);
+                } else {
+                    showStatus(`操作失败: ${result.message || '未知错误'}`, true);
+                    log(`❌ 失败: ${JSON.stringify(result)}`);
+                }
+            } catch (error) {
+                showStatus(`网络错误: ${error.message}`, true);
+                log(`💥 网络错误: ${error.message}`);
+            }
+        }
+        
+        async function powerOn() {
+            await makeRequest('/power-on');
+        }
+        
+        async function powerOff() {
+            await makeRequest('/power-off');
+        }
+        
+        async function setFanSpeed(speed) {
+            log(`设置风速为: ${speed} (${speed === 0 ? '自动' : speed + '档'})`);
+            await makeRequest('/fan-speed', { fan_speed: speed });
+        }
+        
+        // 页面加载时的提示
+        window.onload = function() {
+            log('页面已加载，请配置设备ID、API URL和JWT token后开始测试');
+            log('测试步骤：');
+            log('1. 先点击"开机"按钮');
+            log('2. 然后测试各个风速档位');
+            log('3. 观察后端日志中的MQTT消息发布情况');
+        };
+    </script>
+</body>
+</html>

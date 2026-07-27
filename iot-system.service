@@ -1,0 +1,33 @@
+[Unit]
+Description=IoT Device Management System
+After=network.target redis-server.service
+Wants=redis-server.service
+
+[Service]
+Type=forking
+User=bnse
+Group=bnse
+WorkingDirectory=/mnt/mydisk/iot
+ExecStart=/mnt/mydisk/iot/quick-start.sh start
+ExecStop=/mnt/mydisk/iot/quick-start.sh stop
+ExecReload=/mnt/mydisk/iot/quick-start.sh restart
+PIDFile=/mnt/mydisk/iot/pids/backend.pid
+Restart=always
+RestartSec=10
+TimeoutStartSec=60
+TimeoutStopSec=30
+
+# 环境变量
+Environment=NODE_ENV=production
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+
+# 资源限制
+LimitNOFILE=65536
+LimitNPROC=4096
+
+# 日志配置
+StandardOutput=append:/mnt/mydisk/iot/logs/system.log
+StandardError=append:/mnt/mydisk/iot/logs/system-error.log
+
+[Install]
+WantedBy=multi-user.target

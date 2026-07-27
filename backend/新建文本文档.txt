@@ -1,0 +1,175 @@
+1.2.1 json  K|V对应表：
+区分	键值	描述	可操作性	数值类型	取值
+roperty					
+属性	addr	地址	r/w	整数	
+	imei	4G的IMEI号	r	字符串	
+	iccid	SIM卡号	r	字符串	
+	signal	信号强度	r	整数	0~4级数
+	hardVersion	硬件版本	r	字符串	
+	softVersion	软件版本	r	字符串	
+	model	产品内部名称	r	字符串	
+	remarks	产品标识	r	字符串	
+	units	内机数	r	整数	
+	time	时间	r	整数	UTC时间
+	periodToUploadSet	设置类参数的自动上传周期设置	r/w	整数	
+	periodToUploadRunSt	运行类参数的自动上传周期设置	r/w	整数	
+	periodToUploadTime	运行时间类参数的自动上传周期设置	r/w	整数	
+	periodToSave	自动保存时间周期	r/w	整数	
+	resetFactory	回复出厂设置	r/w	整数	1恢复出厂设置
+	trigger	触发器	r/w	对象	
+	holdRegs	设置类参数立即上传一次	r/w	整数	
+	inputRegs	运行类参数立即上传一次	r/w	整数	
+	timeRegs	运行时间类参数立即上传一次	r/w	整数	
+params					
+参数	valve	总阀设置	r/w	整数	1有总阀，0无总阀
+	setOn	设置开关机	r/w	整数	1开机，0关机
+	runOn	运行开关	r	整数	1开机，0关机
+	setMode	设定模式	r/w	整数	0送风，1制热，2制冷，3除湿
+	runMode	运行模式	r	整数	0送风，1制热，2制冷，3除湿
+	setTemp	设定温度	r/w	整数	最小单位0.1℃
+	runTemp	运行温度	r	整数	最小单位0.1℃
+	lock	童锁控制	r/w	整数	1锁定，0解锁
+	roomTemp	室内温度	r	整数	最小单位0.1℃
+	setFanSpeed	设置风速	r/w	整数	0自动，1低风，2中风，3高风
+	runFanSpeed	运行风速	r	整数	0自动，1低风，2中风，3高风
+	setFanDirect	设置风向	r/w	整数	保留
+	runFanDirect	运行风向	r	整数	保留
+	minSetTemp	最小设定温度设置	r/w	整数	最小单位0.1℃
+	maxSetTemp	最大设定温度设置	r/w	整数	最小单位0.1℃
+	addr	内机地址	r	整数	
+	remote	远程控制位	r/w	整数	bit0:开关机，bit1:模式，bit2:风速,bit3:设置温度
+	lowTempDiff	低温温差	r/w	整数	最小单位0.1℃
+	midlleTempDiff	中温温差	r/w	整数	最小单位0.1℃
+	highTempDiff	高温温差	r/w	整数	最小单位0.1℃
+	deadTemp	死区温度	r/w	整数	最小单位0.1℃
+	setBits	设置记录刷新位	r	整数	
+	stBits	刷新上传记录位	r	整数	
+time					
+参数	FanLow	送风低挡开启时间	r/w	整数	单位秒
+	FanMiddle	送风中挡开启时间	r/w	整数	单位秒
+	FanHigh	送风高挡开启时间	r/w	整数	单位秒
+	HeatLow	制热低挡开启时间	r/w	整数	单位秒
+	HeatMiddle	制热中挡开启时间	r/w	整数	单位秒
+	HeatHigh	制热高挡开启时间	r/w	整数	单位秒
+	CoolLow	制冷低挡开启时间	r/w	整数	单位秒
+	CoolMiddle	制冷中挡开启时间	r/w	整数	单位秒
+	CoolHigh	制冷高挡开启时间	r/w	整数	单位秒
+
+1.2.2 Readme：详细说明：
+温控器相当于集中器与一个内机的整体
+
+"imei"      模组的imei号码，所有的id均为imei号
+"iccid"     SIM卡号，用于充值维护
+"model"     产品型号，同类型的产品一个接口维护，不同型号的不同接口维护，可通过"pType"区分，默认水系统
+"remarks"   设备注释，有汉字的话统一"UTF-8"格式
+
+为节省流量以及以后扩展，采用以下这种结构
+"body":{
+    "id":[],
+    "items":[],   //每一次都带着，可不依靠上下文直接解析
+    "data":[]
+}
+"data"中的数据为"id"中地址的顺序，数据的"key"值为"items"指明的值
+如果"id"，"items"为空，则代表全部。
+读取操作时，无"data"
+
+举例
+"body":{
+    "id":["866250069669624","866250069669625"],
+    "items":["imei","iccid","model","remarks"],
+    "data":[
+        ["111111111","131311313232","xxx_xx","1-2-3-4"],
+        ["111111111","131311313232","xxx_xx","A办公室"]
+    ]
+}
+等价于
+"body":{
+    "data":[
+        {
+            "id":"866250069669624",
+            "imei":"111111111",
+            "iccid":"131311313232",
+            "model":"xxx_xx",
+            "remarks":"1-2-3-4"
+        },
+        {
+            "id":"866250069669625",
+            "imei":"111111111",
+            "iccid":"131311313232",
+            "model":"xxx_xx",
+            "remarks":"A办公室"
+        }         
+    ]
+}
+1.2.3  params JSON详细说明：
+温控器相当于集中器与一个内机的整体
+读取指定内机指定属性的值：如果id为空，则读取全部内机，如果items为空则读取全部属性
+读取所有内机，所有参数值 
+下发：
+{"uuid":"869861065076312","pType":"params","func":"read","body":{"id":[],"items":[]}}
+回复：
+{"eCode":0,"uuid":"869861065076312","pType":"params","func":"read","body":{"id":[1],"items":["setOn","midlleTempDiff","runOn","runFanDirect","setMode","setTemp","setFanSpeed","valve","maxSetTemp","highTempDiff","lock","roomTemp","stBits","runMode","deadTemp","runFanSpeed","minSetTemp","addr","remote","setFanDirect","setBits","runTemp","lowTempDiff"],"data":[[1,20,17,0,1,220,2,1,300,30,0,210,0,1,10,2,160,1,0,0,0,220,10]]}} 
+读取内机地址1，设定温度与室内温度
+下发：
+{"uuid":"869861065076312","pType":"params","func":"read","body":{"id":[1],"items":["setTemp","roomTemp"]}} 
+回复：
+{"eCode":0,"uuid":"869861065076312","pType":"params","func":"read","body":{"id":[1],"items":["setTemp","roomTemp"],"data":[[220,209]]}} 
+
+
+控制内机地址1，设定温度25.0度，模式制热，高风速
+下发：
+{"uuid":"869861065076312","pType":"params","func":"write","body":{"id":[1],"setTemp":250,"setMode":1,"setFanSpeed":3}}
+cc
+{"eCode":0,"uuid":"869861065076312","pType":"params","func":"write","body":{"id":[1],"setMode":1,"setTemp":250,"setFanSpeed":3}} 
+
+也可以下发：
+{"uuid":"869861065076312","pType":"params","func":"write","body":{"id":[1],"items":["setTemp","setMode","setFanSpeed"],"data":[[250,1,3]]}} 
+回复：
+{"eCode":0,"uuid":"869861065076312","pType":"params","func":"write","body":{"id":[1],"items":["setTemp","setMode","setFanSpeed"],"data":[[250,1,3]]}} 
+
+温控器默认只有一个内机，地址为1
+群控所有内机，设定温度25.0度，模式制热，高风速 
+下发：
+{"uuid":"869861065076312","pType":"params","func":"write","body":{"id":[],"setTemp":250,"setMode":1,"setFanSpeed":3}} 
+回复：会填上所有内机地址
+{"eCode":0,"uuid":"869861065076312","pType":"params","func":"write","body":{"id":[1],"setMode":1,"setTemp":250,"setFanSpeed":3}} 
+ 
+1.2.4 property json例子：
+温控器相当于集中器与一个内机的整体
+读取属性分为读取集中器属性与读取内机属性
+如果body体内没有id项，则读取集中器属性，否则读取指定内机的属性
+读取集中器属性
+下发：
+{"uuid":"869861065076312","pType":"property","eCode":0,"func":"read","body":{"items":[]}} 
+回复：
+{"eCode":0,"uuid":"869861065076312","pType":"property","func":"read","body":{"data":{"signal":3,"hardVersion":"1.0.4","model":"RCtrler_780E","error":"","remarks":"1-1-1-1","periodToUploadSet":600,"imei":"869861065076312","iccid":"898604A8102540004539","reboot":0,"addr":0,"softVersion":"1.0.5","resetFactory":0,"units":1,"time":1746716072,"periodToUploadRunSt":300,"periodToSave":600,"periodToUploadTime":0,"trigger":{"inputRegs":0,"timeRegs":0,"holdRegs":0}},"items":{}}} 
+
+读取内机地址1的属性
+下发：
+{"uuid":"869861065076312","pType":"property","eCode":0,"func":"read","body":{"id":[1],"items":[]}} 
+回复：
+{"eCode":0,"uuid":"869861065076312","pType":"property","func":"read","body":{"id":[1],"items":["remarks"],"data":[["1-1-1-1"]]}} 
+
+写操作
+集中器复位
+下发：
+{"uuid":"869861065076312","pType":"property","func":"write","body":{"reboot":1}} 
+回复：
+{"eCode":0,"uuid":"869861065076312","pType":"property","func":"write","body":{"reboot":1}} 
+            
+1.2.5 time json例子：
+读操作
+温控器相当于集中器与一个内机的整体
+读操作
+读取所有内机，所有时间类参数值
+下发：
+{"uuid":"869861065076312","pType":"time","func":"read","body":{"id":[],"items":[]}}
+回复：
+{"eCode":0,"uuid":"869861065076312","pType":"time","func":"read","body":{"id":[1],"items":["FanLow","FanMiddle","FanHigh","HeatLow","HeatMiddle","HeatHigh","CoolLow","CoolMiddle","CoolHigh"],"data":[[0,85,0,0,4109,2844,0,215,9]]}} 
+
+写操作
+清零指定id的指定时间参数
+下发：
+{"uuid":"869861065076312","pType":"time","func":"write","body":{"id":[1],"FanLow":0,"FanMiddle":0,"FanHigh":0,"HeatLow":0,"HeatMiddle":0,"HeatHigh":0,"CoolLow":0,"CoolMiddle":0,"CoolHigh":0}} 
+回复：
+{"eCode":0,"uuid":"869861065076312","pType":"time","func":"write","body":{"HeatLow":0,"CoolHigh":0,"CoolMiddle":0,"HeatMiddle":0,"CoolLow":0,"FanHigh":0,"FanMiddle":0,"HeatHigh":0,"id":[1],"FanLow":0}} 

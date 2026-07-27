@@ -1,0 +1,344 @@
+{
+  "generatedAt": "2025-08-09T11:29:45.946Z",
+  "monitoringDuration": 60010,
+  "summary": {
+    "dataPoints": 6,
+    "memory": {
+      "avgHeapUsed": "3.26MB",
+      "avgRss": "52.75MB",
+      "maxHeapUsed": "3.90MB",
+      "maxRss": "53.89MB"
+    },
+    "cpu": {
+      "avgLoad": "1.11",
+      "maxLoad": "1.62"
+    }
+  },
+  "metrics": {
+    "memory": [
+      {
+        "timestamp": 1754738925945,
+        "process": {
+          "rss": 50143232,
+          "heapTotal": 8155136,
+          "heapUsed": 4090096,
+          "external": 1569862,
+          "arrayBuffers": 10442
+        },
+        "system": {
+          "total": 16420577280,
+          "free": 11154669568,
+          "used": 5265907712
+        },
+        "usage": {
+          "processPercent": 0.30536826534761147,
+          "systemPercent": 32.06895605560586
+        }
+      },
+      {
+        "timestamp": 1754738935950,
+        "process": {
+          "rss": 56111104,
+          "heapTotal": 4485120,
+          "heapUsed": 2656240,
+          "external": 1535649,
+          "arrayBuffers": 10482
+        },
+        "system": {
+          "total": 16420577280,
+          "free": 11150176256,
+          "used": 5270401024
+        },
+        "usage": {
+          "processPercent": 0.34171212767496567,
+          "systemPercent": 32.09631996567663
+        }
+      },
+      {
+        "timestamp": 1754738945950,
+        "process": {
+          "rss": 56373248,
+          "heapTotal": 4485120,
+          "heapUsed": 3044792,
+          "external": 1548109,
+          "arrayBuffers": 22942
+        },
+        "system": {
+          "total": 16420577280,
+          "free": 11150352384,
+          "used": 5270224896
+        },
+        "usage": {
+          "processPercent": 0.34330856363169227,
+          "systemPercent": 32.0952473602682
+        }
+      },
+      {
+        "timestamp": 1754738955951,
+        "process": {
+          "rss": 56373248,
+          "heapTotal": 4485120,
+          "heapUsed": 3394760,
+          "external": 1560569,
+          "arrayBuffers": 35402
+        },
+        "system": {
+          "total": 16420577280,
+          "free": 11163869184,
+          "used": 5256708096
+        },
+        "usage": {
+          "processPercent": 0.34330856363169227,
+          "systemPercent": 32.01293113124948
+        }
+      },
+      {
+        "timestamp": 1754738965951,
+        "process": {
+          "rss": 56373248,
+          "heapTotal": 4485120,
+          "heapUsed": 3573616,
+          "external": 1573029,
+          "arrayBuffers": 47862
+        },
+        "system": {
+          "total": 16420577280,
+          "free": 11163062272,
+          "used": 5257515008
+        },
+        "usage": {
+          "processPercent": 0.34330856363169227,
+          "systemPercent": 32.01784516067879
+        }
+      },
+      {
+        "timestamp": 1754738975952,
+        "process": {
+          "rss": 56504320,
+          "heapTotal": 4485120,
+          "heapUsed": 3751800,
+          "external": 1585489,
+          "arrayBuffers": 60322
+        },
+        "system": {
+          "total": 16420577280,
+          "free": 11164401664,
+          "used": 5256175616
+        },
+        "usage": {
+          "processPercent": 0.34410678161005553,
+          "systemPercent": 32.00968837071238
+        }
+      }
+    ],
+    "cpu": [
+      {
+        "timestamp": 1754738925945,
+        "process": {
+          "user": 226870,
+          "system": 22988
+        },
+        "system": {
+          "loadAvg1": 1.62,
+          "loadAvg5": 1.18,
+          "loadAvg15": 0.92,
+          "cores": 8
+        },
+        "uptime": 0.212911842
+      },
+      {
+        "timestamp": 1754738935950,
+        "process": {
+          "user": 316199,
+          "system": 61114
+        },
+        "system": {
+          "loadAvg1": 1.37,
+          "loadAvg5": 1.15,
+          "loadAvg15": 0.91,
+          "cores": 8
+        },
+        "uptime": 10.217806122
+      },
+      {
+        "timestamp": 1754738945950,
+        "process": {
+          "user": 322240,
+          "system": 89681
+        },
+        "system": {
+          "loadAvg1": 1.16,
+          "loadAvg5": 1.11,
+          "loadAvg15": 0.9,
+          "cores": 8
+        },
+        "uptime": 20.218200193
+      },
+      {
+        "timestamp": 1754738955951,
+        "process": {
+          "user": 328822,
+          "system": 116876
+        },
+        "system": {
+          "loadAvg1": 0.98,
+          "loadAvg5": 1.07,
+          "loadAvg15": 0.89,
+          "cores": 8
+        },
+        "uptime": 30.218909491
+      },
+      {
+        "timestamp": 1754738965951,
+        "process": {
+          "user": 337145,
+          "system": 136238
+        },
+        "system": {
+          "loadAvg1": 0.83,
+          "loadAvg5": 1.03,
+          "loadAvg15": 0.88,
+          "cores": 8
+        },
+        "uptime": 40.219745961
+      },
+      {
+        "timestamp": 1754738975952,
+        "process": {
+          "user": 345447,
+          "system": 161704
+        },
+        "system": {
+          "loadAvg1": 0.7,
+          "loadAvg5": 1,
+          "loadAvg15": 0.87,
+          "cores": 8
+        },
+        "uptime": 50.220381774
+      }
+    ],
+    "database": [
+      {
+        "timestamp": 1754738925946,
+        "status": "connected",
+        "activeConnections": 0,
+        "waitingConnections": 0,
+        "totalConnections": 0
+      },
+      {
+        "timestamp": 1754738935951,
+        "status": "connected",
+        "activeConnections": 0,
+        "waitingConnections": 0,
+        "totalConnections": 0
+      },
+      {
+        "timestamp": 1754738945951,
+        "status": "connected",
+        "activeConnections": 0,
+        "waitingConnections": 0,
+        "totalConnections": 0
+      },
+      {
+        "timestamp": 1754738955953,
+        "status": "connected",
+        "activeConnections": 0,
+        "waitingConnections": 0,
+        "totalConnections": 0
+      },
+      {
+        "timestamp": 1754738965953,
+        "status": "connected",
+        "activeConnections": 0,
+        "waitingConnections": 0,
+        "totalConnections": 0
+      },
+      {
+        "timestamp": 1754738975954,
+        "status": "connected",
+        "activeConnections": 0,
+        "waitingConnections": 0,
+        "totalConnections": 0
+      }
+    ],
+    "mqtt": [
+      {
+        "timestamp": 1754738925990,
+        "status": "connected",
+        "processId": 2653908,
+        "memory": 0.8
+      },
+      {
+        "timestamp": 1754738935980,
+        "status": "connected",
+        "processId": 2653908,
+        "memory": 0.8
+      },
+      {
+        "timestamp": 1754738945985,
+        "status": "connected",
+        "processId": 2653908,
+        "memory": 0.7
+      },
+      {
+        "timestamp": 1754738955984,
+        "status": "connected",
+        "processId": 2653908,
+        "memory": 0.7
+      },
+      {
+        "timestamp": 1754738965991,
+        "status": "connected",
+        "processId": 2653908,
+        "memory": 0.7
+      },
+      {
+        "timestamp": 1754738975989,
+        "status": "connected",
+        "processId": 2653908,
+        "memory": 0.7
+      }
+    ],
+    "websocket": [
+      {
+        "timestamp": 1754738926028,
+        "status": "running",
+        "processId": 2653908,
+        "connections": 0
+      },
+      {
+        "timestamp": 1754738936018,
+        "status": "running",
+        "processId": 2653908,
+        "connections": 0
+      },
+      {
+        "timestamp": 1754738946019,
+        "status": "running",
+        "processId": 2653908,
+        "connections": 0
+      },
+      {
+        "timestamp": 1754738956019,
+        "status": "running",
+        "processId": 2653908,
+        "connections": 0
+      },
+      {
+        "timestamp": 1754738966025,
+        "status": "running",
+        "processId": 2653908,
+        "connections": 0
+      },
+      {
+        "timestamp": 1754738976017,
+        "status": "running",
+        "processId": 2653908,
+        "connections": 0
+      }
+    ]
+  },
+  "recommendations": [
+    "CPU负载较高，建议优化算法或增加服务器资源"
+  ]
+}

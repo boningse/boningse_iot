@@ -1,0 +1,72 @@
+# ===== 依赖 =====
+node_modules/
+.pnp
+.pnp.js
+
+# ===== 环境变量（含敏感信息） =====
+.env
+.env.*
+!.env.example
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# ===== 日志文件 =====
+*.log
+logs/
+
+# ===== PID 文件 =====
+pids/
+
+# ===== 备份目录 =====
+backups/
+releases/
+verification/
+*_backups/
+*.backup.*
+frontend-source-recovery-*/
+
+# ===== 构建产物 =====
+build/
+frontend/dist/
+frontend/dist.*/
+frontend-build-*/
+
+# ===== 归档压缩包 =====
+*.tar.gz
+*.zip
+*.rar
+*.7z
+
+# ===== SSL 证书 =====
+ssl/
+
+# ===== IDE 配置 =====
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ===== OS 文件 =====
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+ehthumbs.db
+
+# ===== Trae IDE =====
+.trae/
+
+# ===== 测试文件 =====
+backend/test/
+**/*.test.*
+**/*.spec.*
+*_test*.js
+test-*.js
+debug_*.js
+
+# ===== 临时/运行时文件 =====
+.last_backup_path
+._VERSION

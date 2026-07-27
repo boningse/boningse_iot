@@ -1,0 +1,123 @@
+const field = (name, label, source, target, unit = "", scale = 1, type = "number") => ({
+  name,
+  label,
+  source,
+  target,
+  type,
+  unit,
+  scale,
+  description: label,
+});
+
+const command = (name, description, action, extra = {}, meta = {}) => ({
+  name,
+  description,
+  topic: "{publish_topic}",
+  payload: { action, deviceId: "{device_id}", ...extra },
+  action_values: meta.values || "",
+  action_range: meta.range || "",
+});
+
+export const protocolTemplates = [
+  {
+    key: "lighting",
+    title: "照明控制",
+    deviceType: "照明开关",
+    description: "照明开关数据采集、分路开关和定时控制协议",
+    fields: [
+      field("power_state", "总开关状态", "data.power", "power_state", "", 1, "boolean"),
+      field("channel_1", "回路1状态", "data.channel1", "key1", "", 1, "boolean"),
+      field("channel_2", "回路2状态", "data.channel2", "key2", "", 1, "boolean"),
+      field("channel_3", "回路3状态", "data.channel3", "key3", "", 1, "boolean"),
+      field("voltage", "电压", "data.voltage", "voltage", "V"),
+      field("current", "电流", "data.current", "current", "A"),
+      field("power", "功率", "data.powerValue", "power", "W"),
+      field("energy", "累计电量", "data.energy", "energy", "kWh"),
+    ],
+    commands: [
+      command("turn_on", "全部开灯", "on"),
+      command("turn_off", "全部关灯", "off"),
+      command("set_channel", "控制指定回路", "channel", { channel: "{channel}", value: "{value}" }, { values: "0=关闭；1=开启", range: "回路编号由设备决定" }),
+      command("set_timer", "设置照明定时", "timer", { timer: "{timer}" }),
+    ],
+  },
+  {
+    key: "switch",
+    title: "开关控制",
+    deviceType: "定时开关",
+    description: "定时开关状态、电气参数、分合闸和定时控制协议",
+    fields: [
+      field("power_state", "开关状态", "data.power", "power_state", "", 1, "boolean"),
+      field("channel_1", "回路1状态", "data.channel1", "key1", "", 1, "boolean"),
+      field("channel_2", "回路2状态", "data.channel2", "key2", "", 1, "boolean"),
+      field("channel_3", "回路3状态", "data.channel3", "key3", "", 1, "boolean"),
+      field("energy", "累计电量", "data.energy", "energy", "kWh"),
+      field("power", "总功率", "data.powerValue", "power", "W"),
+      field("leakage_current", "漏电电流", "data.leakage", "leakage_current", "mA"),
+      field("frequency", "频率", "data.frequency", "frequency", "Hz"),
+      field("voltage_a", "A相电压", "data.voltageA", "voltage_a", "V"),
+      field("voltage_b", "B相电压", "data.voltageB", "voltage_b", "V"),
+      field("voltage_c", "C相电压", "data.voltageC", "voltage_c", "V"),
+      field("current_a", "A相电流", "data.currentA", "current_a", "A"),
+      field("current_b", "B相电流", "data.currentB", "current_b", "A"),
+      field("current_c", "C相电流", "data.currentC", "current_c", "A"),
+      field("temperature_a", "A相温度", "data.tempA", "temperature_a", "°C"),
+      field("temperature_b", "B相温度", "data.tempB", "temperature_b", "°C"),
+      field("temperature_c", "C相温度", "data.tempC", "temperature_c", "°C"),
+    ],
+    commands: [
+      command("turn_on", "合闸", "on"),
+      command("turn_off", "分闸", "off"),
+      command("read_status", "读取实时状态", "status"),
+      command("set_timer", "设置开关定时", "timer", { timer: "{timer}" }),
+    ],
+  },
+  {
+    key: "thermostat",
+    title: "温控控制",
+    deviceType: "空调温控器",
+    description: "空调温控器温度、模式、风速和开关控制协议",
+    fields: [
+      field("power_state", "开关状态", "data.power", "power_state", "", 1, "boolean"),
+      field("current_temperature", "当前温度", "data.currentTemp", "current_temperature", "°C"),
+      field("target_temperature", "设定温度", "data.targetTemp", "target_temperature", "°C"),
+      field("mode", "运行模式", "data.mode", "mode"),
+      field("fan_speed", "风速", "data.fanSpeed", "fan_speed"),
+      field("humidity", "湿度", "data.humidity", "humidity", "%"),
+      field("temp_locked", "童锁状态", "data.lock", "temp_locked", "", 1, "boolean"),
+    ],
+    commands: [
+      command("turn_on", "开机", "on"),
+      command("turn_off", "关机", "off"),
+      command("set_temperature", "设置温度", "temperature", { value: "{temperature}" }, { range: "16-30°C，步长0.1°C" }),
+      command("set_mode", "设置模式", "mode", { value: "{mode}" }, { values: "0=送风；1=制热；2=制冷；3=除湿" }),
+      command("set_fan_speed", "设置风速", "fan", { value: "{fan_speed}" }, { values: "0=自动；1=低风；2=中风；3=高风" }),
+    ],
+  },
+  {
+    key: "air_conditioner",
+    title: "空调控制",
+    deviceType: "分散空调控制器",
+    description: "分散空调控制器状态、温度、模式、风速和策略控制协议",
+    fields: [
+      field("power_state", "开关状态", "data.power", "power_state", "", 1, "boolean"),
+      field("current_temperature", "室内温度", "data.roomTemp", "current_temperature", "°C"),
+      field("target_temperature", "设定温度", "data.targetTemp", "target_temperature", "°C"),
+      field("mode", "运行模式", "data.mode", "mode"),
+      field("fan_speed", "风速", "data.fanSpeed", "fan_speed"),
+      field("alarm_code", "故障代码", "data.alarm", "alarm_code"),
+      field("status", "在线状态", "data.status", "status", "", 1, "string"),
+    ],
+    commands: [
+      command("turn_on", "开机", "on"),
+      command("turn_off", "关机", "off"),
+      command("set_temperature", "设置温度", "temperature", { value: "{temperature}" }, { range: "16-30°C，步长0.1°C" }),
+      command("set_mode", "设置模式", "mode", { value: "{mode}" }, { values: "制冷；制热；送风；除湿；自动（以厂家编码为准）" }),
+      command("set_fan_speed", "设置风速", "fan", { value: "{fan_speed}" }, { values: "自动；低风；中风；高风（以厂家编码为准）" }),
+      command("read_status", "读取实时状态", "status"),
+    ],
+  },
+];
+
+export const getProtocolTemplate = (key) =>
+  protocolTemplates.find((template) => template.key === key);
