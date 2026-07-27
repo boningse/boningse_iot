@@ -1223,9 +1223,9 @@ const getDeviceList = async () => {
         tenantId: device.tenant_id,
         tenantName: device.tenant?.name || "未知租户",
         projectBuildingId: device.project_building_id || "",
-        projectBuildingName: device.project_building?.name || "",
+        projectBuildingName: device.project_building_name || "",
         projectGroupId: device.project_group_id || "",
-        projectGroupName: device.project_group?.name || "",
+        projectGroupName: device.project_group_name || "",
         type: device.device_type?.name || "未知类型",
         deviceTypeId: device.device_type_id,
         device_category: device.device_category || "standalone", // 设备分类
