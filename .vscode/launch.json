@@ -1,0 +1,48 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "调试后端 (Debug Backend)",
+      "program": "${workspaceFolder}/backend/app.js",
+      "cwd": "${workspaceFolder}/backend",
+      "env": {
+        "PORT": "4003",
+        "NODE_ENV": "development"
+      },
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "type": "chrome",
+      "request": "launch",
+      "name": "调试前端 (Debug Frontend - Chrome)",
+      "url": "http://localhost:4000",
+      "webRoot": "${workspaceFolder}/frontend",
+      "preLaunchTask": "Start Frontend",
+      "postDebugTask": "Stop Frontend"
+    },
+    {
+      "type": "msedge",
+      "request": "launch",
+      "name": "调试前端 (Debug Frontend - Edge)",
+      "url": "http://localhost:4000",
+      "webRoot": "${workspaceFolder}/frontend",
+      "preLaunchTask": "Start Frontend",
+      "postDebugTask": "Stop Frontend"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "全栈调试 (Chrome)",
+      "configurations": ["调试后端 (Debug Backend)", "调试前端 (Debug Frontend - Chrome)"],
+      "stopAll": true
+    },
+    {
+      "name": "全栈调试 (Edge)",
+      "configurations": ["调试后端 (Debug Backend)", "调试前端 (Debug Frontend - Edge)"],
+      "stopAll": true
+    }
+  ]
+}

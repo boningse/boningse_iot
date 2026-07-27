@@ -43,7 +43,6 @@ frontend-build-*/
 ssl/
 
 # ===== IDE 配置 =====
-.vscode/
 .idea/
 *.swp
 *.swo
@@ -56,8 +55,7 @@ ssl/
 Thumbs.db
 ehthumbs.db
 
-# ===== Trae IDE =====
-.trae/
+
 
 # ===== 测试文件 =====
 backend/test/
