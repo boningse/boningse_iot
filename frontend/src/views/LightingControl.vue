@@ -2749,7 +2749,7 @@ const loadDevices = async () => {
           projectBuildingName: device.project_building_name || '',
           projectGroupId: device.project_group_id || '',
           projectGroupName: device.project_group_name || '',
-          loading: true,
+          loading: false,
           group: device.project_group_name || '',
           manufacturer_code: device.manufacturer_code || 'BNDK',
           switchStates: {
@@ -2764,9 +2764,6 @@ const loadDevices = async () => {
       
       // 立即执行过滤显示设备
       filterDevices()
-      
-      // 使用并发控制逐步加载每个设备的详细数据
-      await loadDevicesDataWithConcurrencyControl(devices)
       
       // 如果没有找到照明设备，显示提示
       if (lightingDevices.value.length === 0) {
