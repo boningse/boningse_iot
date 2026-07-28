@@ -41,7 +41,7 @@ export const toDeviceView = (device: ControlDevice): DeviceView => ({
   switch1On: onValue(device.switch_1),
   switch2On: onValue(device.switch_2),
   switch3On: onValue(device.switch_3),
-  powerOn: onValue(device.power_status),
+  powerOn: onValue(device.power_status ?? device.is_on),
   currentTempText: Number.isFinite(Number(device.current_temperature))
     ? Number(device.current_temperature).toFixed(1)
     : "--",

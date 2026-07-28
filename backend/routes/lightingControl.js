@@ -771,7 +771,9 @@ router.post('/:deviceId/control', authenticateToken, async (req, res) => {
       FROM control_device_assignments lc
       JOIN devices d ON lc.device_id = d.id
       LEFT JOIN protocol_configs pc ON d.protocol_config_id = pc.id
-      WHERE d.imei = $1${tenantClause} AND lc.module_type = 'lighting' AND lc.is_active = true
+      WHERE (d.id::text = $1 OR d.imei = $1 OR d.device_id = $1)${tenantClause}
+        AND lc.module_type = 'lighting'
+        AND lc.is_active = true
     `, deviceCheckParams);
 
     if (deviceCheck.rows.length === 0) {

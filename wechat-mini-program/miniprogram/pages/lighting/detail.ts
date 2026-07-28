@@ -79,7 +79,10 @@ Page({
     if (this.data.status !== "online" || this.data.controlling) return;
     this.setData({ controlling: true });
     try {
-      await lightingApi.control(this.data.id, { type: "event", [`key${channel}`]: next ? 1 : 0 });
+      await lightingApi.control(this.data.imei || this.data.id, {
+        type: "event",
+        [`key${channel}`]: next ? 1 : 0
+      });
       this.setData({ [key]: next });
       wx.showToast({ title: "控制命令已发送", icon: "none" });
     } catch (error) {
