@@ -52,21 +52,22 @@ Page({
     this.setData({ loading: true });
     try {
       const response = await lightingApi.getLatest(this.data.imei);
-      const source = record(response.data || response.latest || response);
+      const source = record(response);
+      const switchStates = record(source.switchStates);
       const firstChannel = this.data.channelCount === 1
-        ? source.switch_2 ?? source.key2
-        : source.switch_1 ?? source.key1;
+        ? switchStates.key2
+        : switchStates.key1;
       const secondChannel = this.data.channelCount === 2
-        ? source.switch_3 ?? source.key3
-        : source.switch_2 ?? source.key2;
+        ? switchStates.key3
+        : switchStates.key2;
       this.setData({
         switch1On: isOn(firstChannel),
         switch2On: isOn(secondChannel),
-        switch3On: isOn(source.switch_3 ?? source.key3),
-        voltage: formatNumber(source.voltage ?? source.total_voltage),
-        current: formatNumber(source.current ?? source.total_current),
-        power: formatNumber(source.power ?? source.total_power),
-        energy: formatNumber(source.energy ?? source.total_energy),
+        switch3On: isOn(switchStates.key3),
+        voltage: formatNumber(source.voltage),
+        current: formatNumber(source.current),
+        power: formatNumber(source.power),
+        energy: formatNumber(source.energy),
         updatedAt: formatRelativeTime(String(
           source.measured_at || source.timestamp || source.created_at || ""
         ))
