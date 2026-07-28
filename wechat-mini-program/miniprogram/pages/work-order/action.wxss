@@ -31,6 +31,7 @@
 
 .photo-label-row {
   display: flex;
+  align-items: center;
   justify-content: space-between;
   color: #8a938f;
   font-size: 20rpx;
@@ -115,6 +116,7 @@
   padding: 0 16rpx;
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 7rpx;
   color: #456056;
   background: #e8f0ed;

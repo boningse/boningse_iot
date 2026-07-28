@@ -20,6 +20,9 @@
 
 .order-overview__severity {
   padding: 7rpx 10rpx;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border-radius: 6rpx;
   background: #eef1ef;
 }
@@ -110,6 +113,7 @@
 .order-info view {
   padding: 13rpx 0;
   display: flex;
+  align-items: center;
   justify-content: space-between;
   border-top: 1rpx solid #edf0ee;
   color: #7b8580;
@@ -275,6 +279,7 @@
 
 .timeline-item__head {
   display: flex;
+  align-items: center;
   justify-content: space-between;
   font-weight: 650;
 }
@@ -337,9 +342,13 @@
   min-width: 0;
   height: 70rpx;
   padding: 0 22rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   border-radius: 9rpx;
   font-size: 23rpx;
   font-weight: 650;
+  line-height: 1.2;
 }
 
 .action-button--primary {

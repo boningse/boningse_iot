@@ -7,6 +7,9 @@
 .read-all {
   height: 58rpx;
   padding: 0 16rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   color: #13795b;
   background: #e8f3ef;
   border-radius: 8rpx;
@@ -26,6 +29,9 @@
 
 .message-filter button {
   height: 52rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   color: #74807a;
   background: transparent;
   border-radius: 7rpx;
@@ -80,6 +86,7 @@
 
 .message-row__head {
   display: flex;
+  align-items: center;
   justify-content: space-between;
   gap: 12rpx;
 }
