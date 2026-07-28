@@ -1598,7 +1598,13 @@ class ThermostatService {
 
     if (deviceId) {
       params.push(deviceId);
-      filters.push(`tsm.device_id = $${params.length}`);
+      filters.push(`tsm.device_id IN (
+        SELECT id
+        FROM devices
+        WHERE id::text = $${params.length}
+          OR device_id = $${params.length}
+          OR imei = $${params.length}
+      )`);
     }
 
     if (groupId) {

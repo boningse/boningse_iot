@@ -117,7 +117,7 @@ export const thermostatApi = {
   },
 
   getRuntime(deviceId: string, startDate: string, endDate: string) {
-    return request<Record<string, unknown>>("/thermostat/stats/runtime", {
+    return request<Record<string, unknown>[]>("/thermostat/stats/runtime", {
       query: { deviceId, startDate, endDate }
     });
   }

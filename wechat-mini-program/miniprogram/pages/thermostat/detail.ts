@@ -78,14 +78,29 @@ Page({
     const iso = (date: Date) => date.toISOString().slice(0, 10);
     try {
       const response = await thermostatApi.getRuntime(this.data.id, iso(start), iso(end));
-      const candidates = response.list || response.trend || response.data || [];
-      const rows = Array.isArray(candidates) ? candidates : [];
+      const rows = Array.isArray(response) ? response : [];
       const recent = rows.slice(-7);
-      const values = recent.map((item) => Number(sourceRecord(item).runtime_hours ?? sourceRecord(item).hours ?? sourceRecord(item).value ?? 0));
+      const values = recent.map((item) => {
+        const row = sourceRecord(item);
+        const explicitHours = row.runtime_hours ?? row.hours ?? row.value;
+        const hours = explicitHours === undefined
+          ? (
+            Number(row.runtime_speed1 || 0)
+            + Number(row.runtime_speed2 || 0)
+            + Number(row.runtime_speed3 || 0)
+          ) / 3600
+          : Number(explicitHours);
+        return Number(hours.toFixed(1));
+      });
       const max = Math.max(...values, 1);
       this.setData({
         runtimeBars: recent.map((item, index) => ({
-          label: String(sourceRecord(item).day || sourceRecord(item).date || "").slice(-5),
+          label: String(
+            sourceRecord(item).stat_date
+            || sourceRecord(item).day
+            || sourceRecord(item).date
+            || ""
+          ).slice(-5),
           value: values[index],
           height: Math.max(8, Math.round((values[index] / max) * 100))
         }))

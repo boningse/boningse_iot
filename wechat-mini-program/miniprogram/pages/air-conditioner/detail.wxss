@@ -49,10 +49,43 @@
   gap: 16rpx;
 }
 
+.control-row__label {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.stepper {
+  width: 236rpx;
+  flex: 0 0 236rpx;
+  justify-content: space-between;
+  gap: 8rpx;
+}
+
+.stepper__button {
+  width: 54rpx;
+  height: 54rpx;
+  margin: 0;
+  flex: 0 0 54rpx;
+}
+
+.stepper__value {
+  min-width: 76rpx;
+}
+
 .mode-segments {
   width: 100%;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6rpx;
 }
 
 .mode-segments .segment {
-  flex: 1;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 0 8rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
 }
