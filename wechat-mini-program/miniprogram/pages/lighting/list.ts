@@ -1,7 +1,13 @@
 import { lightingApi } from "../../api/control";
 import type { Query } from "../../models/api";
+import { realtime } from "../../services/socket";
 import type { DeviceView } from "../../utils/device-view";
-import { queryString, toDeviceView } from "../../utils/device-view";
+import {
+  matchesLightingDevice,
+  parseLightingStatusUpdate,
+  queryString,
+  toDeviceView
+} from "../../utils/device-view";
 
 interface LightingCircuit {
   key: string;
@@ -43,7 +49,12 @@ Page({
   },
 
   onLoad() {
+    realtime.on("lighting_switch_status", this.handleRealtimeStatus);
     void this.loadDevices(true);
+  },
+
+  onUnload() {
+    realtime.off("lighting_switch_status", this.handleRealtimeStatus);
   },
 
   onPullDownRefresh() {
@@ -95,6 +106,36 @@ Page({
     } finally {
       this.setData({ loading: false, loadingMore: false });
     }
+  },
+
+  handleRealtimeStatus(payload: unknown) {
+    const update = parseLightingStatusUpdate(payload);
+    if (!update) return;
+
+    let changed = false;
+    const devices = this.data.devices.map((device) => {
+      if (!matchesLightingDevice(
+        update,
+        device.routeId,
+        device.routeImei,
+        device.viewCode,
+        device.id,
+        device.device_id
+      )) {
+        return device;
+      }
+
+      changed = true;
+      const next = {
+        ...device,
+        switch1On: update.states.key1 ?? device.switch1On,
+        switch2On: update.states.key2 ?? device.switch2On,
+        switch3On: update.states.key3 ?? device.switch3On
+      };
+      return { ...next, circuits: lightingCircuits(next) };
+    });
+
+    if (changed) this.setData({ devices });
   },
 
   openDetail(event: WechatMiniprogram.TouchEvent) {

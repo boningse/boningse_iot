@@ -1,5 +1,10 @@
 import { lightingApi } from "../../api/control";
+import { realtime } from "../../services/socket";
 import { formatNumber, formatRelativeTime } from "../../utils/format";
+import {
+  matchesLightingDevice,
+  parseLightingStatusUpdate
+} from "../../utils/device-view";
 
 const record = (value: unknown): Record<string, unknown> => (
   value && typeof value === "object" ? value as Record<string, unknown> : {}
@@ -41,7 +46,12 @@ Page({
       group: decodeURIComponent(options.group || "未分配分组"),
       channelCount: subtype === "triple" ? 3 : subtype === "double" ? 2 : 1
     });
+    realtime.on("lighting_switch_status", this.handleRealtimeStatus);
     void this.loadDetail();
+  },
+
+  onUnload() {
+    realtime.off("lighting_switch_status", this.handleRealtimeStatus);
   },
 
   onPullDownRefresh() {
@@ -79,6 +89,22 @@ Page({
     }
   },
 
+  handleRealtimeStatus(payload: unknown) {
+    const update = parseLightingStatusUpdate(payload);
+    if (!update || !matchesLightingDevice(update, this.data.id, this.data.imei)) return;
+
+    const changes: Record<string, boolean | string> = {};
+    const firstKey = this.data.channelCount === 1 ? "key2" : "key1";
+    const secondKey = this.data.channelCount === 2 ? "key3" : "key2";
+
+    if (update.states[firstKey] !== undefined) changes.switch1On = update.states[firstKey];
+    if (update.states[secondKey] !== undefined) changes.switch2On = update.states[secondKey];
+    if (update.states.key3 !== undefined) changes.switch3On = update.states.key3;
+    if (update.timestamp) changes.updatedAt = formatRelativeTime(update.timestamp);
+
+    this.setData(changes);
+  },
+
   async toggleChannel(event: WechatMiniprogram.TouchEvent) {
     const channel = Number(event.currentTarget.dataset.channel);
     const key = `switch${channel}On` as "switch1On" | "switch2On" | "switch3On";
@@ -93,7 +119,6 @@ Page({
         type: "event",
         [`key${protocolKey}`]: next ? 1 : 0
       });
-      this.setData({ [key]: next });
       wx.showToast({ title: "控制命令已发送", icon: "none" });
     } catch (error) {
       wx.showToast({ title: error instanceof Error ? error.message : "控制失败", icon: "none" });

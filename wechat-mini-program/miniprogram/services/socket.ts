@@ -33,6 +33,7 @@ class RealtimeService {
           "device_data",
           "device_response",
           "device_event",
+          "lighting_switch_status",
           "work_order_updated",
           "work_order_assigned"
         ]

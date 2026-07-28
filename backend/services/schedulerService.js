@@ -329,6 +329,7 @@ class SchedulerService {
       const websocketService = require('./websocketService');
       const statusUpdate = {
         deviceId: deviceInfo.imei || deviceInfo.device_id,
+        tenant_id: deviceInfo.tenant_id,
         switches: { ...command }
       };
       
@@ -423,6 +424,7 @@ class SchedulerService {
       const websocketService = require('./websocketService');
       const statusUpdate = {
         deviceId: deviceInfo.imei || deviceInfo.device_id, // 使用IMEI作为deviceId，与前端保持一致
+        tenant_id: deviceInfo.tenant_id,
         switches: { ...command }
       };
       
