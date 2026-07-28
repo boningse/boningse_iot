@@ -148,6 +148,15 @@ router.get('/', authenticateToken, async (req, res) => {
       LEFT JOIN tenants t ON lc.tenant_id = t.id
       LEFT JOIN project_buildings pb ON d.project_building_id = pb.id
       LEFT JOIN project_groups pg ON d.project_group_id = pg.id
+      LEFT JOIN LATERAL (
+        SELECT
+          COALESCE((state->>'key1')::boolean, (state->>'switch_1')::boolean, false) AS switch_1,
+          COALESCE((state->>'key2')::boolean, (state->>'switch_2')::boolean, false) AS switch_2,
+          COALESCE((state->>'key3')::boolean, (state->>'switch_3')::boolean, false) AS switch_3,
+          measured_at AS status_timestamp
+        FROM lighting_latest_status
+        WHERE device_id = d.id
+      ) ls ON true
       WHERE lc.is_active = true
         AND lc.module_type = 'lighting'
         AND d.is_lighting = true
@@ -177,7 +186,11 @@ router.get('/', authenticateToken, async (req, res) => {
         dt.name as device_type_name,
         t.name as tenant_name,
         pb.name as project_building_name,
-        pg.name as project_group_name
+        pg.name as project_group_name,
+        ls.switch_1,
+        ls.switch_2,
+        ls.switch_3,
+        ls.status_timestamp
       ${baseFrom}
       ORDER BY lc.display_order ASC, lc.created_at ASC
       LIMIT $${queryParams.length + 1} OFFSET $${queryParams.length + 2}
