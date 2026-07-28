@@ -3,9 +3,36 @@ import type { Query } from "../../models/api";
 import type { DeviceView } from "../../utils/device-view";
 import { queryString, toDeviceView } from "../../utils/device-view";
 
+interface LightingCircuit {
+  key: string;
+  label: string;
+  on: boolean;
+}
+
+interface LightingDeviceView extends DeviceView {
+  circuits: LightingCircuit[];
+}
+
+const lightingCircuits = (device: DeviceView): LightingCircuit[] => {
+  if (device.lighting_type === "triple") {
+    return [
+      { key: "key1", label: "1路", on: device.switch1On },
+      { key: "key2", label: "2路", on: device.switch2On },
+      { key: "key3", label: "3路", on: device.switch3On }
+    ];
+  }
+  if (device.lighting_type === "double") {
+    return [
+      { key: "key1", label: "1路", on: device.switch1On },
+      { key: "key3", label: "2路", on: device.switch3On }
+    ];
+  }
+  return [{ key: "key2", label: "1路", on: device.switch2On }];
+};
+
 Page({
   data: {
-    devices: [] as DeviceView[],
+    devices: [] as LightingDeviceView[],
     keyword: "",
     filters: {} as Query,
     page: 1,
@@ -53,7 +80,10 @@ Page({
         page,
         pageSize: 20
       });
-      const incoming = result.list.map(toDeviceView);
+      const incoming = result.list.map((item) => {
+        const device = toDeviceView(item);
+        return { ...device, circuits: lightingCircuits(device) };
+      });
       this.setData({
         devices: reset ? incoming : [...this.data.devices, ...incoming],
         page: result.pagination.page,

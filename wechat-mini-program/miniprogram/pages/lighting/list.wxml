@@ -41,6 +41,17 @@
           <image src="/assets/icons/arrow-right.png" mode="aspectFit"></image>
         </button>
       </view>
+      <view class="lighting-diagram">
+        <view wx:for="{{item.circuits}}" wx:for-item="circuit" wx:key="key" class="lighting-circuit {{circuit.on ? 'lighting-circuit--on' : ''}}">
+          <view class="lighting-circuit__lamp">
+            <image src="/assets/icons/lighting.png" mode="aspectFit"></image>
+          </view>
+          <view class="lighting-circuit__copy">
+            <text>{{circuit.label}}</text>
+            <text>{{circuit.on ? "已开启" : "已关闭"}}</text>
+          </view>
+        </view>
+      </view>
     </view>
   </view>
 
