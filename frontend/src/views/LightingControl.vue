@@ -60,7 +60,7 @@
         
         <div class="stats-info">
           <span class="device-count">共 {{ filteredDevices.length }} 个设备</span>
-          <span class="online-count">在线: {{ onlineDevicesCount.length }}</span>
+          <span class="online-count">在线: {{ onlineDevicesCount }}</span>
         </div>
       </div>
     </div>
@@ -2537,12 +2537,9 @@ const loadDevicesDataWithConcurrencyControl = async (devices) => {
       try {
         console.log(`开始加载设备数据: ${device.device_name} (${index + 1}/${devices.length})`)
         
-        const [deviceData, switchData] = await Promise.all([
-          getLatestDeviceData(device.device_imei),
-          getLatestSwitchData(device.device_imei, device.manufacturer_code || 'BNDK')
-        ])
+        const deviceData = await getLatestDeviceData(device.device_imei)
         
-        // 更新对应设备的数据
+        // 更新对应设备的数据（开关状态已从列表接口获取，此处仅更新电气数据）
         const deviceIndex = lightingDevices.value.findIndex(d => d.id === device.id)
         if (deviceIndex !== -1) {
           lightingDevices.value[deviceIndex] = {
@@ -2551,12 +2548,7 @@ const loadDevicesDataWithConcurrencyControl = async (devices) => {
             current: deviceData.current || '0.000',
             power: deviceData.power || '0.000',
             energy: deviceData.energy || '0.000',
-            loading: false,
-            switchStates: {
-              key1: switchData.key1 !== null && switchData.key1 !== undefined ? switchData.key1 : false,
-              key2: switchData.key2 !== null && switchData.key2 !== undefined ? switchData.key2 : false,
-              key3: switchData.key3 !== null && switchData.key3 !== undefined ? switchData.key3 : false
-            }
+            loading: false
           }
         }
         
@@ -2761,9 +2753,9 @@ const loadDevices = async () => {
           group: device.project_group_name || '',
           manufacturer_code: device.manufacturer_code || 'BNDK',
           switchStates: {
-            key1: false,
-            key2: false,
-            key3: false
+            key1: device.switch_1 === true || device.switch_1 === 't' || device.switch_1 === 1,
+            key2: device.switch_2 === true || device.switch_2 === 't' || device.switch_2 === 1,
+            key3: device.switch_3 === true || device.switch_3 === 't' || device.switch_3 === 1
           },
           selected: false,
           sceneConfig: sceneConfig
