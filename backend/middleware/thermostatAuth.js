@@ -35,7 +35,7 @@ const checkThermostatAccess = async (req, res, next) => {
                tp.id as thermostat_id
         FROM devices d
         LEFT JOIN thermostat_properties tp ON d.id = tp.device_id
-        WHERE d.id = $1
+        WHERE (d.id::text = $1 OR d.imei = $1 OR d.device_id = $1)
       `, [deviceId]);
 
       if (deviceResult.rows.length === 0) {
@@ -47,6 +47,7 @@ const checkThermostatAccess = async (req, res, next) => {
       }
 
       const device = deviceResult.rows[0];
+      req.params.deviceId = device.id;
 
       // 检查设备是否为温控器设备
       if (!device.thermostat_id) {
