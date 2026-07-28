@@ -2083,7 +2083,7 @@ const fetchDeviceData = async (deviceImei, startTime, endTime) => {
       const manufacturerCode = device?.manufacturer_code || 'BNDK' // 默认使用BNDK
       
       const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api'
-      const lightingResult = await fetch(`${API_BASE_URL}/lighting-data/history/${deviceImei}?manufacturer_code=${manufacturerCode}&start_time=${startTime}&end_time=${endTime}&limit=100&use_monthly_partition=true`, {
+      const lightingResult = await fetch(`${API_BASE_URL}/lighting-data/history/${deviceImei}?manufacturer_code=${manufacturerCode}&start_time=${startTime}&end_time=${endTime}&limit=100`, {
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${localStorage.getItem('token')}`

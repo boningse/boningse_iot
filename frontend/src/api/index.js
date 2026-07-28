@@ -785,17 +785,11 @@ const lightingDataAPI = {
    * 获取设备最新照明数据（开关状态和电气数据）
    * @param {string} imei - 设备IMEI
    * @param {string} manufacturerCode - 厂商代码，默认为BNDK
-   * @param {boolean} useMonthlyPartition - 是否使用按月分表查询，默认为true
    * @returns {Promise} 最新照明数据
    */
-  getLatestData: (
-    imei,
-    manufacturerCode = "BNDK",
-    useMonthlyPartition = true,
-  ) =>
+  getLatestData: (imei, manufacturerCode = "BNDK") =>
     get(`/lighting-data/latest/${imei}`, {
       manufacturer_code: manufacturerCode,
-      use_monthly_partition: useMonthlyPartition,
     }),
 
   /**
