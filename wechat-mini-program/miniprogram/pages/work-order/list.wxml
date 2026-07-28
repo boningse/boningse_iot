@@ -34,8 +34,9 @@
       </view>
       <view class="order-card__footer">
         <text>{{item.assigned_to_name ? "处理人：" + item.assigned_to_name : "暂未派单"}}</text>
-        <text>{{item.timeText}}</text>
+        <view class="order-card__next"><text>{{item.nextActionText}}</text><text>›</text></view>
       </view>
+      <text class="order-card__time">{{item.timeText}}</text>
     </view>
   </view>
 

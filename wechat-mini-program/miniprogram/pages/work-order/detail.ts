@@ -27,6 +27,12 @@ interface TimelineView extends WorkOrderTimelineItem {
   timeText: string;
 }
 
+interface WorkflowStep {
+  key: string;
+  label: string;
+  state: "done" | "current" | "pending";
+}
+
 Page({
   data: {
     id: "",
@@ -39,6 +45,8 @@ Page({
     actions: [] as TimelineView[],
     photos: [] as WorkOrderPhoto[],
     actionButtons: [] as ActionButton[],
+    workflowSteps: [] as WorkflowStep[],
+    workflowHint: "",
     loading: true,
     submitting: false
   },
@@ -78,6 +86,8 @@ Page({
         actions,
         photos: result.photos,
         actionButtons: this.availableActions(alarm),
+        workflowSteps: this.workflowSteps(alarm),
+        workflowHint: this.workflowHint(alarm),
         loading: false
       });
       void this.cachePhotos(result.photos);
@@ -96,22 +106,22 @@ Page({
     const buttons: ActionButton[] = [];
 
     if (alarm.status === "active" && canDispatch) {
-      buttons.push({ key: "acknowledge", label: "确认", tone: "secondary", immediate: true });
       buttons.push({ key: "assign", label: "派单", tone: "primary", immediate: false });
+      buttons.push({ key: "acknowledge", label: "仅确认告警", tone: "secondary", immediate: true });
     }
     if (alarm.status === "acknowledged" && canDispatch) {
       buttons.push({ key: "assign", label: "派单", tone: "primary", immediate: false });
     }
     if (alarm.status === "assigned" && isAssignee) {
-      buttons.push({ key: "reject", label: "退回", tone: "danger", immediate: false });
-      buttons.push({ key: "accept", label: "接单", tone: "primary", immediate: true });
+      buttons.push({ key: "accept", label: "接单并开始处理", tone: "primary", immediate: true });
+      buttons.push({ key: "reject", label: "退回工单", tone: "danger", immediate: false });
     }
     if (alarm.status === "assigned" && canDispatch) {
       buttons.push({ key: "assign", label: "改派", tone: "secondary", immediate: false });
     }
     if (alarm.status === "processing" && (isAssignee || isManager)) {
-      buttons.push({ key: "process", label: "记录进展", tone: "secondary", immediate: false });
-      buttons.push({ key: "resolve", label: "解决工单", tone: "primary", immediate: false });
+      buttons.push({ key: "resolve", label: "完成处理", tone: "primary", immediate: false });
+      buttons.push({ key: "process", label: "记录处理进展", tone: "secondary", immediate: false });
     }
     if (alarm.status === "processing" && canDispatch) {
       buttons.push({ key: "assign", label: "改派", tone: "secondary", immediate: false });
@@ -123,8 +133,33 @@ Page({
     if (alarm.status === "closed" && isManager) {
       buttons.push({ key: "reopen", label: "重新打开", tone: "secondary", immediate: false });
     }
-    buttons.unshift({ key: "comment", label: "备注", tone: "secondary", immediate: false });
+    buttons.push({ key: "comment", label: "添加备注", tone: "secondary", immediate: false });
     return buttons;
+  },
+
+  workflowSteps(alarm: WorkOrder): WorkflowStep[] {
+    const order = ["assigned", "processing", "resolved", "closed"];
+    const statusIndex = order.indexOf(alarm.status);
+    const currentIndex = statusIndex >= 0 ? statusIndex : 0;
+    return [
+      { key: "assigned", label: "接单", state: currentIndex > 0 ? "done" : "current" },
+      { key: "processing", label: "现场处理", state: currentIndex > 1 ? "done" : currentIndex === 1 ? "current" : "pending" },
+      { key: "resolved", label: "提交结果", state: currentIndex > 2 ? "done" : currentIndex === 2 ? "current" : "pending" },
+      { key: "closed", label: "关闭", state: currentIndex === 3 ? "current" : "pending" }
+    ];
+  },
+
+  workflowHint(alarm: WorkOrder): string {
+    const user = session.getUser();
+    const isAssignee = String(alarm.assigned_to || "") === String(user?.id || "");
+    if (alarm.status === "active") return "管理员确认告警并派给现场处理人员";
+    if (alarm.status === "acknowledged") return "告警已确认，等待管理员派单";
+    if (alarm.status === "assigned" && isAssignee) return "这是派给你的工单，请接单后开始现场处理";
+    if (alarm.status === "assigned") return `等待 ${alarm.assigned_to_name || "处理人"} 接单`;
+    if (alarm.status === "processing" && isAssignee) return "请记录现场进展；完成时上传照片并填写处理结果";
+    if (alarm.status === "processing") return `${alarm.assigned_to_name || "处理人"} 正在现场处理`;
+    if (alarm.status === "resolved") return "处理结果已提交，等待管理员确认关闭";
+    return "工单已完成并关闭";
   },
 
   async cachePhotos(photos: WorkOrderPhoto[]) {

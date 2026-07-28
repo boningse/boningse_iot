@@ -11,6 +11,7 @@ Page({
     id: "",
     action: "comment" as WorkOrderAction,
     title: "处理工单",
+    submitLabel: "提交",
     note: "",
     assignees: [] as Array<{ id: string; username: string; role: string }>,
     assigneeNames: [] as string[],
@@ -31,11 +32,24 @@ Page({
       id: decodeURIComponent(options.id || ""),
       action,
       title: decodeURIComponent(options.title || "处理工单"),
+      submitLabel: this.submitLabel(action),
       photoRequired: ["process", "resolve"].includes(action),
       noteRequired: ["reject", "comment", "resolve", "reopen"].includes(action)
     });
     wx.setNavigationBarTitle({ title: this.data.title });
     if (action === "assign") void this.loadAssignees();
+  },
+
+  submitLabel(action: WorkOrderAction) {
+    const labels: Partial<Record<WorkOrderAction, string>> = {
+      assign: "确认派单",
+      reject: "确认退回",
+      process: "提交处理进展",
+      resolve: "提交处理结果",
+      comment: "提交备注",
+      reopen: "确认重新打开"
+    };
+    return labels[action] || "确认提交";
   },
 
   async loadAssignees() {

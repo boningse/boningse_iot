@@ -38,6 +38,7 @@ Page({
     try {
       const result = await authApi.login(this.data.username, this.data.password);
       session.saveLogin(result);
+      getApp<IAppOption>().activateWorkOrderSync?.();
       wx.showToast({ title: "登录成功", icon: "success" });
       setTimeout(() => {
         wx.switchTab({ url: "/pages/control/index" });

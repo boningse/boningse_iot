@@ -1,6 +1,7 @@
 import { alarmApi } from "../../api/work-order";
 import type { Query } from "../../models/api";
 import type { WorkOrder } from "../../models/work-order";
+import { session } from "../../services/session";
 import { formatRelativeTime } from "../../utils/format";
 import { moduleLabel, severityLabel, statusLabel } from "../../utils/work-order-view";
 
@@ -9,6 +10,7 @@ interface WorkOrderView extends WorkOrder {
   severityText: string;
   statusText: string;
   timeText: string;
+  nextActionText: string;
 }
 
 const tabs = [
@@ -102,12 +104,14 @@ Page({
         page,
         pageSize: 20
       });
+      const user = session.getUser();
       const incoming = result.list.map((item) => ({
         ...item,
         moduleText: moduleLabel(item.module_type),
         severityText: severityLabel(item.severity),
         statusText: statusLabel(item.status),
-        timeText: formatRelativeTime(item.last_occurred_at || item.first_occurred_at)
+        timeText: formatRelativeTime(item.last_occurred_at || item.first_occurred_at),
+        nextActionText: this.nextActionText(item, user?.id)
       }));
       this.setData({
         list: reset ? incoming : [...this.data.list, ...incoming],
@@ -120,6 +124,14 @@ Page({
     } finally {
       this.setData({ loading: false });
     }
+  },
+
+  nextActionText(item: WorkOrder, userId?: string) {
+    const isAssignee = String(item.assigned_to || "") === String(userId || "");
+    if (item.status === "assigned" && isAssignee) return "去接单";
+    if (item.status === "processing" && isAssignee) return "继续处理";
+    if (item.status === "resolved") return "查看处理结果";
+    return "查看详情";
   },
 
   openDetail(event: WechatMiniprogram.TouchEvent) {

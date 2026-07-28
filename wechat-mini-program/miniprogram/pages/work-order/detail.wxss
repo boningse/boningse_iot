@@ -122,6 +122,101 @@
   text-align: right;
 }
 
+.workflow-panel {
+  margin-top: 18rpx;
+  padding: 24rpx;
+}
+
+.workflow-panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 25rpx;
+  font-weight: 680;
+}
+
+.workflow-panel__head text:last-child {
+  color: #13795b;
+  font-size: 21rpx;
+}
+
+.workflow-steps {
+  margin-top: 24rpx;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.workflow-step {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 9rpx;
+  color: #929a96;
+  font-size: 19rpx;
+}
+
+.workflow-step::before {
+  content: "";
+  position: absolute;
+  top: 19rpx;
+  right: 50%;
+  left: -50%;
+  height: 2rpx;
+  background: #dfe5e2;
+}
+
+.workflow-step:first-child::before {
+  display: none;
+}
+
+.workflow-step__marker {
+  position: relative;
+  z-index: 1;
+  width: 38rpx;
+  height: 38rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2rpx solid #d7dedb;
+  border-radius: 50%;
+  background: #ffffff;
+  font-size: 18rpx;
+}
+
+.workflow-step--done,
+.workflow-step--current {
+  color: #13795b;
+  font-weight: 650;
+}
+
+.workflow-step--done::before,
+.workflow-step--current::before {
+  background: #8ec4b1;
+}
+
+.workflow-step--done .workflow-step__marker {
+  color: #ffffff;
+  border-color: #13795b;
+  background: #13795b;
+}
+
+.workflow-step--current .workflow-step__marker {
+  border-color: #13795b;
+  box-shadow: inset 0 0 0 7rpx #dcefe8;
+}
+
+.workflow-panel__hint {
+  display: block;
+  margin-top: 22rpx;
+  padding: 15rpx 17rpx;
+  color: #53625b;
+  background: #f1f5f3;
+  border-radius: 7rpx;
+  font-size: 21rpx;
+  line-height: 1.5;
+}
+
 .photo-strip {
   white-space: nowrap;
 }
@@ -231,17 +326,15 @@
   border-top: 1rpx solid #e0e5e2;
 }
 
-.action-dock__scroll {
-  white-space: nowrap;
-}
-
 .action-dock__inner {
-  display: inline-flex;
+  display: flex;
+  flex-wrap: wrap;
   gap: 12rpx;
 }
 
 .action-button {
-  min-width: 148rpx;
+  flex: 1 1 150rpx;
+  min-width: 0;
   height: 70rpx;
   padding: 0 22rpx;
   border-radius: 9rpx;
@@ -250,6 +343,7 @@
 }
 
 .action-button--primary {
+  flex-basis: 100%;
   color: #ffffff;
   background: #13795b;
 }

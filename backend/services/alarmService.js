@@ -87,6 +87,13 @@ const createOrUpdateAlarm = async ({
          WHEN device_alarms.status IN ('resolved', 'closed') THEN 'active'
          ELSE device_alarms.status
        END,
+       acknowledged_by = CASE WHEN device_alarms.status IN ('resolved', 'closed') THEN NULL ELSE device_alarms.acknowledged_by END,
+       acknowledged_at = CASE WHEN device_alarms.status IN ('resolved', 'closed') THEN NULL ELSE device_alarms.acknowledged_at END,
+       assigned_to = CASE WHEN device_alarms.status IN ('resolved', 'closed') THEN NULL ELSE device_alarms.assigned_to END,
+       assigned_at = CASE WHEN device_alarms.status IN ('resolved', 'closed') THEN NULL ELSE device_alarms.assigned_at END,
+       accepted_by = CASE WHEN device_alarms.status IN ('resolved', 'closed') THEN NULL ELSE device_alarms.accepted_by END,
+       accepted_at = CASE WHEN device_alarms.status IN ('resolved', 'closed') THEN NULL ELSE device_alarms.accepted_at END,
+       processing_note = CASE WHEN device_alarms.status IN ('resolved', 'closed') THEN NULL ELSE device_alarms.processing_note END,
        resolved_by = CASE WHEN device_alarms.status IN ('resolved', 'closed') THEN NULL ELSE device_alarms.resolved_by END,
        resolved_at = CASE WHEN device_alarms.status IN ('resolved', 'closed') THEN NULL ELSE device_alarms.resolved_at END,
        resolution = CASE WHEN device_alarms.status IN ('resolved', 'closed') THEN NULL ELSE device_alarms.resolution END,

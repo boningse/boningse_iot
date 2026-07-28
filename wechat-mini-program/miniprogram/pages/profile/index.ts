@@ -108,6 +108,7 @@ Page({
     } catch (_) {
       // Local logout still proceeds when the server is unavailable.
     }
+    getApp<IAppOption>().deactivateWorkOrderSync?.();
     session.clear();
     wx.reLaunch({ url: "/pages/login/index" });
   }

@@ -3,6 +3,13 @@ interface IAppOption {
     unreadCount: number;
   };
   refreshUnreadCount?: () => Promise<void>;
+  handleWorkOrderUpdate?: () => Promise<void>;
+  refreshVisibleWorkOrderPage?: () => Promise<void>;
+  activateWorkOrderSync?: () => void;
+  deactivateWorkOrderSync?: () => void;
+  startWorkOrderPolling?: () => void;
+  stopWorkOrderPolling?: () => void;
+  workOrderPollTimer?: number | null;
 }
 
 declare namespace WechatMiniprogram {

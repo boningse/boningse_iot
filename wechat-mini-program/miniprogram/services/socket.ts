@@ -14,8 +14,10 @@ class RealtimeService {
   connect() {
     if (this.task || !session.hasToken()) return;
     this.manuallyClosed = false;
+    const separator = env.websocketUrl.includes("?") ? "&" : "?";
+    const url = `${env.websocketUrl}${separator}token=${encodeURIComponent(session.getAccessToken())}`;
     this.task = wx.connectSocket({
-      url: env.websocketUrl,
+      url,
       header: {
         Authorization: `Bearer ${session.getAccessToken()}`
       }
@@ -30,7 +32,9 @@ class RealtimeService {
           "device_offline",
           "device_data",
           "device_response",
-          "device_event"
+          "device_event",
+          "work_order_updated",
+          "work_order_assigned"
         ]
       });
       this.startHeartbeat();

@@ -173,3 +173,25 @@
   color: #89928e;
   font-size: 19rpx;
 }
+
+.order-card__next {
+  display: flex;
+  align-items: center;
+  gap: 5rpx;
+  color: #13795b;
+  font-size: 21rpx;
+  font-weight: 650;
+}
+
+.order-card__next text:last-child {
+  font-size: 28rpx;
+  line-height: 1;
+}
+
+.order-card__time {
+  display: block;
+  margin-top: 8rpx;
+  color: #9aa29e;
+  font-size: 18rpx;
+  text-align: right;
+}

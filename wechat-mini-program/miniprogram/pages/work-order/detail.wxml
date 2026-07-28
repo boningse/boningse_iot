@@ -22,6 +22,20 @@
     </view>
   </view>
 
+  <view wx:if="{{alarm}}" class="workflow-panel panel">
+    <view class="workflow-panel__head">
+      <text>处理流程</text>
+      <text>{{alarm.statusText}}</text>
+    </view>
+    <view class="workflow-steps">
+      <view wx:for="{{workflowSteps}}" wx:key="key" class="workflow-step workflow-step--{{item.state}}">
+        <view class="workflow-step__marker">{{item.state === "done" ? "✓" : index + 1}}</view>
+        <text>{{item.label}}</text>
+      </view>
+    </view>
+    <text class="workflow-panel__hint">{{workflowHint}}</text>
+  </view>
+
   <view wx:if="{{photos.length}}" class="section-title">现场照片</view>
   <scroll-view wx:if="{{photos.length}}" class="photo-strip" scroll-x enhanced show-scrollbar="{{false}}">
     <view class="photo-strip__inner">
@@ -46,17 +60,15 @@
   </view>
 
   <view wx:if="{{actionButtons.length}}" class="action-dock">
-    <scroll-view class="action-dock__scroll" scroll-x enhanced show-scrollbar="{{false}}">
-      <view class="action-dock__inner">
-        <button
-          wx:for="{{actionButtons}}"
-          wx:key="key"
-          class="action-button action-button--{{item.tone}}"
-          disabled="{{submitting}}"
-          data-action="{{item.key}}"
-          bindtap="performAction"
-        >{{item.label}}</button>
-      </view>
-    </scroll-view>
+    <view class="action-dock__inner">
+      <button
+        wx:for="{{actionButtons}}"
+        wx:key="key"
+        class="action-button action-button--{{item.tone}}"
+        disabled="{{submitting}}"
+        data-action="{{item.key}}"
+        bindtap="performAction"
+      >{{item.label}}</button>
+    </view>
   </view>
 </view>

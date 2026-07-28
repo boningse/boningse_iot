@@ -9,6 +9,7 @@ const {
   resolveStoragePath,
   uploadAlarmPhotos
 } = require('../services/alarmPhotoService');
+const websocketService = require('../services/websocketService');
 const logger = require('../utils/logger');
 
 const router = express.Router();
@@ -76,6 +77,25 @@ const ACTION_CONFIG = {
     allowed: ['resolved', 'closed'],
     toStatus: 'active',
     requireNote: true
+  }
+};
+
+const broadcastWorkOrderAction = (actionName, alarm) => {
+  const payload = {
+    alarm_id: alarm.id,
+    tenant_id: alarm.tenant_id,
+    status: alarm.status,
+    assigned_to: alarm.assigned_to || null,
+    action: actionName,
+    updated_at: alarm.updated_at || new Date().toISOString()
+  };
+  websocketService.broadcastToClients('work_order_updated', payload);
+  if (actionName === 'assign' && alarm.assigned_to) {
+    websocketService.broadcastToClients(
+      'work_order_assigned',
+      payload,
+      (client) => String(client.user?.id || '') === String(alarm.assigned_to)
+    );
   }
 };
 
@@ -710,6 +730,7 @@ router.post('/batch-actions', authenticateToken, requireRole(ROLES), async (req,
       }));
     }
     await client.query('COMMIT');
+    results.forEach((result) => broadcastWorkOrderAction(action, result));
     res.json({ success: true, message: `已处理 ${results.length} 条告警`, data: results });
   } catch (error) {
     await client.query('ROLLBACK');
@@ -760,6 +781,7 @@ router.post(
         );
       }
       await client.query('COMMIT');
+      broadcastWorkOrderAction(action, updated);
       res.json({
         success: true,
         message: photos.length ? `告警处理成功，已上传 ${photos.length} 张照片` : '告警处理成功',
@@ -797,6 +819,7 @@ router.post('/:id/actions', authenticateToken, requireRole(ROLES), async (req, r
       _uploadedPhotoCount: 0
     });
     await client.query('COMMIT');
+    broadcastWorkOrderAction(req.body.action, updated);
     res.json({ success: true, message: '告警处理成功', data: updated });
   } catch (error) {
     await client.query('ROLLBACK');
