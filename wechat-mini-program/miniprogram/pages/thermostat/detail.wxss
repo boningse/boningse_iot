@@ -61,12 +61,41 @@
   gap: 16rpx;
 }
 
-.segmented--wrap {
-  width: 100%;
+.control-row__label {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
-.segmented--wrap .segment {
-  flex: 1;
+.stepper {
+  width: 236rpx;
+  flex: 0 0 236rpx;
+  justify-content: space-between;
+  gap: 8rpx;
+}
+
+.stepper__button {
+  width: 54rpx;
+  height: 54rpx;
+  margin: 0;
+  flex: 0 0 54rpx;
+}
+
+.stepper__value {
+  min-width: 76rpx;
+}
+
+.control-row--stack .segmented {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6rpx;
+}
+
+.control-row--stack .segment {
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 0 8rpx;
 }
 
 .runtime-panel {
