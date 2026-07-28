@@ -48,11 +48,12 @@
   </view>
 
   <view class="section-title">协议上报数据</view>
-  <view class="metric-grid">
-    <view class="metric-cell"><view class="metric-cell__head"><image src="/assets/icons/activity.png" mode="aspectFit"></image><text>电压</text></view><text class="metric-cell__value numeric">{{voltage}}<text class="metric-cell__unit">V</text></text></view>
-    <view class="metric-cell"><view class="metric-cell__head"><image src="/assets/icons/activity.png" mode="aspectFit"></image><text>电流</text></view><text class="metric-cell__value numeric">{{current}}<text class="metric-cell__unit">A</text></text></view>
-    <view class="metric-cell"><view class="metric-cell__head"><image src="/assets/icons/energy.png" mode="aspectFit"></image><text>功率</text></view><text class="metric-cell__value numeric">{{power}}<text class="metric-cell__unit">W</text></text></view>
-    <view class="metric-cell"><view class="metric-cell__head"><image src="/assets/icons/frequency.png" mode="aspectFit"></image><text>电量</text></view><text class="metric-cell__value numeric">{{energy}}<text class="metric-cell__unit">kWh</text></text></view>
+  <view wx:if="{{electricalMetrics.length}}" class="metric-grid">
+    <view wx:for="{{electricalMetrics}}" wx:key="key" class="metric-cell">
+      <view class="metric-cell__head"><image src="{{item.icon}}" mode="aspectFit"></image><text>{{item.label}}</text></view>
+      <text class="metric-cell__value numeric">{{item.value}}<text class="metric-cell__unit">{{item.unit}}</text></text>
+    </view>
   </view>
+  <view wx:else class="protocol-empty panel">当前协议未上报电气参数</view>
   <view class="updated-at">状态更新于 {{updatedAt}}</view>
 </view>

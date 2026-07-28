@@ -19,6 +19,7 @@ export const formatRelativeTime = (value?: string | number | Date): string => {
 };
 
 export const formatNumber = (value: unknown, digits = 2): string => {
+  if (value === null || value === undefined || value === "") return "--";
   const number = Number(value);
   return Number.isFinite(number) ? number.toFixed(digits) : "--";
 };

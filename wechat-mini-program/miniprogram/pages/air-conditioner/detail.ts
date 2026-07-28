@@ -31,6 +31,21 @@ const optionalNumber = (value: unknown, digits: number): string => (
     : "--"
 );
 
+interface ElectricalMetric {
+  key: string;
+  label: string;
+  unit: string;
+  icon: string;
+  value: string;
+}
+
+const electricalMetricDefinitions = [
+  { key: "voltage", label: "电压", unit: "V", icon: "/assets/icons/activity.png" },
+  { key: "current", label: "电流", unit: "A", icon: "/assets/icons/activity.png" },
+  { key: "power", label: "功率", unit: "W", icon: "/assets/icons/energy.png" },
+  { key: "energy", label: "累计电量", unit: "kWh", icon: "/assets/icons/frequency.png" }
+] as const;
+
 Page({
   data: {
     id: "",
@@ -49,6 +64,7 @@ Page({
     current: "--",
     power: "--",
     energy: "--",
+    electricalMetrics: [] as ElectricalMetric[],
     updatedAt: "--",
     controlling: false,
     supportedFields: [] as string[]
@@ -76,9 +92,23 @@ Page({
       const device = asRecord(response.device);
       const state = asRecord(response.status);
       const electrical = asRecord(response.latestElectrical);
-      const fields = Array.isArray(response.protocolFields)
-        ? response.protocolFields.map(String)
+      const protocolFields = Array.isArray(response.protocolFields)
+        ? response.protocolFields.map(asRecord)
         : [];
+      const supportedKeys = new Set(protocolFields
+        .filter((field) => field.supported !== false)
+        .map((field) => String(field.key || field.name || ""))
+        .filter(Boolean));
+      const electricalMetrics = electricalMetricDefinitions
+        .filter((metric) => (
+          supportedKeys.size > 0
+            ? supportedKeys.has(metric.key)
+            : electrical[metric.key] !== null && electrical[metric.key] !== undefined
+        ))
+        .map((metric) => ({
+          ...metric,
+          value: formatNumber(electrical[metric.key])
+        }));
       this.setData({
         name: String(device.name || this.data.name),
         powerOn: isOn(state.power_status),
@@ -91,10 +121,11 @@ Page({
         current: formatNumber(electrical.current),
         power: formatNumber(electrical.power),
         energy: formatNumber(electrical.energy),
+        electricalMetrics,
         updatedAt: formatRelativeTime(String(
           state.measured_at || electrical.measured_at || state.updated_at || ""
         )),
-        supportedFields: fields
+        supportedFields: [...supportedKeys]
       });
     } catch (error) {
       wx.showToast({ title: error instanceof Error ? error.message : "详情加载失败", icon: "none" });
