@@ -8,36 +8,8 @@ const telemetryStore = require('../services/telemetryStore');
 const router = express.Router();
 const pool = new Pool(getPoolConfig());
 
-const ELECTRICAL_FIELDS = [...new Set(
-  ['switch', 'lighting'].flatMap((moduleType) =>
-    telemetryStore.MODULE_CONFIG[moduleType].electricalFields
-      .filter((item) => item.type === 'number')
-      .map((item) => item.name)
-  )
-)];
-
 const isAdminUser = (user) => user && (user.role === 'admin' || user.role === 'super_admin');
 const numberOrNull = (value) => value === null || value === undefined ? null : Number(value);
-
-const normalizeElectricalRow = (row = {}) => {
-  const normalized = {
-    id: row.id,
-    device_id: row.device_id,
-    tenant_id: row.tenant_id,
-    manufacturer_code: row.manufacturer_code,
-    imei: row.imei,
-    phase_type: row.phase_type || 'single_phase',
-    extra_metrics: row.extra_metrics || {},
-    channel_measurements: row.channel_measurements || null,
-    raw_payload: row.raw_payload || {},
-    timestamp: row.measured_at,
-    created_at: row.created_at
-  };
-  ELECTRICAL_FIELDS.forEach((field) => {
-    normalized[field] = numberOrNull(row[field]);
-  });
-  return normalized;
-};
 
 const getDevice = async (req, identifier, moduleType) => {
   const params = [identifier, moduleType];
@@ -110,86 +82,6 @@ router.post('/insert', authenticateToken, requirePermission('lighting'), async (
     logger.error('插入照明数据失败:', error);
     const status = error.message.includes('不存在') || error.message.includes('无权') ? 404 : 400;
     res.status(status).json({ success: false, message: error.message });
-  }
-});
-
-router.get('/switch-electrical/latest/:imei', authenticateToken, requirePermission('lighting'), async (req, res) => {
-  try {
-    const device = await getDevice(req, req.params.imei, 'switch');
-    if (!device) return res.status(404).json({ success: false, message: '设备不存在' });
-    const params = [device.id];
-    let manufacturerClause = '';
-    if (req.query.manufacturer_code) {
-      params.push(req.query.manufacturer_code);
-      manufacturerClause = ` AND manufacturer_code = $${params.length}`;
-    }
-    const result = await pool.query(
-      `SELECT * FROM switch_latest_electrical
-       WHERE device_id = $1${manufacturerClause}`,
-      params
-    );
-    res.json({
-      success: true,
-      data: {
-        device: {
-          id: device.id,
-          name: device.name,
-          imei: device.imei,
-          manufacturer_code: device.manufacturer_code,
-          phase_type: device.subtype === 'triple' ? 'three_phase' : (device.subtype || 'single_phase')
-        },
-        electrical: result.rows[0] ? normalizeElectricalRow(result.rows[0]) : null,
-        source: result.rows[0] ? 'switch_electrical_measurements' : 'no_data'
-      },
-      message: result.rows[0] ? undefined : '暂无电气分析数据'
-    });
-  } catch (error) {
-    logger.error('获取定时开关最新电气分析数据失败:', error);
-    res.status(500).json({ success: false, message: '获取定时开关最新电气分析数据失败', error: error.message });
-  }
-});
-
-router.get('/switch-electrical/history/:imei', authenticateToken, requirePermission('lighting'), async (req, res) => {
-  try {
-    const device = await getDevice(req, req.params.imei, 'switch');
-    if (!device) return res.status(404).json({ success: false, message: '设备不存在' });
-    const params = [device.id];
-    let where = 'WHERE device_id = $1';
-    if (req.query.manufacturer_code) {
-      params.push(req.query.manufacturer_code);
-      where += ` AND manufacturer_code = $${params.length}`;
-    }
-    if (req.query.start_time) {
-      params.push(new Date(req.query.start_time));
-      where += ` AND measured_at >= $${params.length}`;
-    }
-    if (req.query.end_time) {
-      params.push(new Date(req.query.end_time));
-      where += ` AND measured_at <= $${params.length}`;
-    }
-    params.push(Math.min(parseInt(req.query.limit, 10) || 100, 500));
-    const result = await pool.query(
-      `SELECT * FROM switch_electrical_measurements ${where} ORDER BY measured_at DESC LIMIT $${params.length}`,
-      params
-    );
-    res.json({
-      success: true,
-      data: {
-        device: {
-          id: device.id,
-          name: device.name,
-          imei: device.imei,
-          manufacturer_code: device.manufacturer_code,
-          phase_type: device.subtype === 'triple' ? 'three_phase' : (device.subtype || 'single_phase')
-        },
-        list: result.rows.map(normalizeElectricalRow),
-        total: result.rows.length,
-        source: 'switch_electrical_measurements'
-      }
-    });
-  } catch (error) {
-    logger.error('获取定时开关电气分析历史失败:', error);
-    res.status(500).json({ success: false, message: '获取定时开关电气分析历史失败', error: error.message });
   }
 });
 

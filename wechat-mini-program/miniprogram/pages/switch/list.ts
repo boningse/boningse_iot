@@ -68,20 +68,18 @@ Page({
     }
   },
 
-  async toggleChannel(event: WechatMiniprogram.TouchEvent) {
-    const { id, channel, index } = event.currentTarget.dataset as {
+  async togglePower(event: WechatMiniprogram.TouchEvent) {
+    const { id, index } = event.currentTarget.dataset as {
       id: string;
-      channel: number;
       index: number;
     };
     const device = this.data.devices[index];
     if (!device?.online || this.data.controllingId) return;
-    const stateKey = `switch${channel}On` as "switch1On" | "switch2On" | "switch3On";
-    const next = !device[stateKey];
-    this.setData({ controllingId: `${id}-${channel}` });
+    const next = !device.powerOn;
+    this.setData({ controllingId: id });
     try {
-      await switchApi.control(id, { type: "event", [`key${channel}`]: next ? 1 : 0 });
-      this.setData({ [`devices[${index}].${stateKey}`]: next });
+      await switchApi.control(id, { power_status: next });
+      this.setData({ [`devices[${index}].powerOn`]: next });
       wx.showToast({ title: next ? "已发送开启命令" : "已发送关闭命令", icon: "none" });
     } catch (error) {
       wx.showToast({ title: error instanceof Error ? error.message : "控制失败", icon: "none" });

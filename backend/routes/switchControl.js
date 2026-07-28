@@ -10,6 +10,9 @@ const router = express.Router();
 const pool = new Pool(getPoolConfig());
 
 const SWITCH_DEVICE_TYPE = '定时开关';
+const SWITCH_ELECTRICAL_FIELDS = telemetryStore.MODULE_CONFIG.switch.electricalFields
+  .filter((item) => item.type === 'number')
+  .map((item) => item.name);
 const isAdminUser = (user) => user && (user.role === 'admin' || user.role === 'super_admin');
 const toLegacyType = (phaseType) => phaseType === 'three_phase' ? 'triple' : 'single';
 const toPhaseType = (legacyType) => legacyType === 'triple' ? 'three_phase' : (legacyType || 'single_phase');
@@ -65,29 +68,59 @@ const buildProtocolControlMessages = (device, controlData) => {
     return readCommand ? [buildMessage(readCommand, { id: nextId(), addr: controlData.addr || 1 })] : [];
   }
 
-  return ['key1', 'key2', 'key3']
-    .map((key, index) => ({ key, addr: index + 1, value: controlData[key] }))
-    .filter(item => item.value !== undefined)
-    .map(item => {
-      const commandName = Number(item.value) === 1 ? 'turn_on' : 'turn_off';
-      const command = commands.find(candidate => candidate.name === commandName);
-      return command ? buildMessage(command, { id: nextId(), addr: item.addr }) : null;
-    })
-    .filter(Boolean);
+  if (controlData.power_status === undefined) return [];
+  const value = Number(Boolean(controlData.power_status));
+  const commandName = value === 1 ? 'turn_on' : 'turn_off';
+  const command = commands.find(candidate => candidate.name === commandName);
+  return command ? [buildMessage(command, {
+    id: nextId(),
+    addr: controlData.addr || 1,
+    value,
+    state: value,
+    power_status: value
+  })] : [];
 };
 
 const normalizeControlData = (body) => {
   if (body.command) {
     const { command } = body;
     const data = { type: 'event' };
-    if (command.switch_1 !== undefined) data.key1 = command.switch_1;
-    if (command.switch_2 !== undefined) data.key2 = command.switch_2;
-    if (command.switch_3 !== undefined) data.key3 = command.switch_3;
+    if (command.power_status !== undefined) data.power_status = normalizePowerStatus(command.power_status);
     if (command.restart !== undefined) data.restart = command.restart;
     if (command.statistic !== undefined) data.type = 'statistic';
     return data;
   }
+  if (body.power_status !== undefined) {
+    return { type: body.type || 'event', power_status: normalizePowerStatus(body.power_status) };
+  }
   return body.type ? { ...body } : null;
+};
+
+const numberOrNull = (value) => value === null || value === undefined ? null : Number(value);
+
+const normalizeElectricalRow = (row = {}) => {
+  const normalized = {
+    id: row.id,
+    device_id: row.device_id,
+    tenant_id: row.tenant_id,
+    manufacturer_code: row.manufacturer_code,
+    imei: row.imei,
+    phase_type: row.phase_type || 'single_phase',
+    extra_metrics: row.extra_metrics || {},
+    channel_measurements: row.channel_measurements || null,
+    raw_payload: row.raw_payload || {},
+    timestamp: row.measured_at,
+    created_at: row.created_at
+  };
+  SWITCH_ELECTRICAL_FIELDS.forEach((field) => {
+    normalized[field] = numberOrNull(row[field]);
+  });
+  return normalized;
+};
+
+const normalizePowerStatus = (value) => {
+  if (typeof value === 'string') return ['1', 'true', 'on', 'open'].includes(value.toLowerCase());
+  return value === true || value === 1;
 };
 
 const buildTenantClause = (req, alias, params) => {
@@ -100,6 +133,28 @@ const buildTenantClause = (req, alias, params) => {
   }
   params.push(req.user.tenant_id);
   return ` AND ${alias}.tenant_id = $${params.length}`;
+};
+
+const getAssignedSwitchDevice = async (req, identifier) => {
+  const params = [identifier];
+  let tenantClause = '';
+  if (!isAdminUser(req.user)) {
+    params.push(req.user.tenant_id);
+    tenantClause = ` AND d.tenant_id = $${params.length}`;
+  }
+  const result = await pool.query(
+    `SELECT d.id, d.name, d.imei, d.device_id, d.manufacturer_code, d.tenant_id,
+            assignment.subtype AS phase_type
+     FROM devices d
+     JOIN control_device_assignments assignment
+       ON assignment.device_id = d.id
+      AND assignment.module_type = 'switch'
+      AND assignment.is_active = true
+     WHERE (d.imei = $1 OR d.device_id = $1 OR d.id::text = $1)${tenantClause}
+     LIMIT 1`,
+    params
+  );
+  return result.rows[0] || null;
 };
 
 router.get('/', authenticateToken, async (req, res) => {
@@ -139,9 +194,7 @@ router.get('/', authenticateToken, async (req, res) => {
       LEFT JOIN project_groups pg ON d.project_group_id = pg.id
       LEFT JOIN LATERAL (
         SELECT
-          switch_1,
-          switch_2,
-          switch_3,
+          power_status,
           measured_at AS data_timestamp
         FROM switch_latest_status
         WHERE device_id = d.id
@@ -156,7 +209,7 @@ router.get('/', authenticateToken, async (req, res) => {
              d.location as device_location, d.description as device_description, d.manufacturer_code,
              d.project_building_id, d.project_group_id,
              t.name as tenant_name, pb.name as project_building_name, pg.name as project_group_name,
-             ss.switch_1, ss.switch_2, ss.switch_3, ss.data_timestamp as status_timestamp
+             ss.power_status, ss.data_timestamp as status_timestamp
       ${baseFrom}
       ORDER BY sc.display_order ASC, sc.created_at ASC
       LIMIT $${params.length + 1} OFFSET $${params.length + 2}
@@ -219,6 +272,75 @@ router.get('/available-devices', authenticateToken, async (req, res) => {
   }
 });
 
+router.get('/:identifier/electrical/latest', authenticateToken, async (req, res) => {
+  try {
+    const device = await getAssignedSwitchDevice(req, req.params.identifier);
+    if (!device) return res.status(404).json({ success: false, message: '开关设备不存在或无权访问' });
+    const params = [device.id];
+    let manufacturerClause = '';
+    if (req.query.manufacturer_code) {
+      params.push(req.query.manufacturer_code);
+      manufacturerClause = ` AND manufacturer_code = $${params.length}`;
+    }
+    const result = await pool.query(
+      `SELECT * FROM switch_latest_electrical
+       WHERE device_id = $1${manufacturerClause}`,
+      params
+    );
+    res.json({
+      success: true,
+      data: {
+        device,
+        electrical: result.rows[0] ? normalizeElectricalRow(result.rows[0]) : null,
+        source: result.rows[0] ? 'switch_electrical_measurements' : 'no_data'
+      },
+      message: result.rows[0] ? undefined : '暂无开关电气数据'
+    });
+  } catch (error) {
+    logger.error('获取开关最新电气数据失败:', error);
+    res.status(500).json({ success: false, message: '获取开关最新电气数据失败', error: error.message });
+  }
+});
+
+router.get('/:identifier/electrical/history', authenticateToken, async (req, res) => {
+  try {
+    const device = await getAssignedSwitchDevice(req, req.params.identifier);
+    if (!device) return res.status(404).json({ success: false, message: '开关设备不存在或无权访问' });
+    const params = [device.id];
+    let where = 'WHERE device_id = $1';
+    if (req.query.manufacturer_code) {
+      params.push(req.query.manufacturer_code);
+      where += ` AND manufacturer_code = $${params.length}`;
+    }
+    if (req.query.start_time) {
+      params.push(new Date(req.query.start_time));
+      where += ` AND measured_at >= $${params.length}`;
+    }
+    if (req.query.end_time) {
+      params.push(new Date(req.query.end_time));
+      where += ` AND measured_at <= $${params.length}`;
+    }
+    params.push(Math.min(parseInt(req.query.limit, 10) || 100, 500));
+    const result = await pool.query(
+      `SELECT * FROM switch_electrical_measurements ${where}
+       ORDER BY measured_at DESC LIMIT $${params.length}`,
+      params
+    );
+    res.json({
+      success: true,
+      data: {
+        device,
+        list: result.rows.map(normalizeElectricalRow),
+        total: result.rows.length,
+        source: 'switch_electrical_measurements'
+      }
+    });
+  } catch (error) {
+    logger.error('获取开关电气历史失败:', error);
+    res.status(500).json({ success: false, message: '获取开关电气历史失败', error: error.message });
+  }
+});
+
 router.get('/:imei/status', authenticateToken, async (req, res) => {
   try {
     const params = [req.params.imei];
@@ -229,13 +351,11 @@ router.get('/:imei/status', authenticateToken, async (req, res) => {
     }
     const result = await pool.query(
       `SELECT
-         s.switch_1,
-         s.switch_2,
-         s.switch_3,
+         s.power_status,
          s.measured_at AS data_timestamp
        FROM switch_latest_status s
        JOIN devices d ON d.id = s.device_id
-       WHERE d.imei = $1${tenantClause}
+       WHERE (d.imei = $1 OR d.device_id = $1 OR d.id::text = $1)${tenantClause}
        LIMIT 1`,
       params
     );
@@ -243,7 +363,7 @@ router.get('/:imei/status', authenticateToken, async (req, res) => {
     res.json({
       success: true,
       data: row ? {
-        switchStates: { key1: row.switch_1, key2: row.switch_2, key3: row.switch_3 },
+        power_status: row.power_status,
         timestamp: row.data_timestamp
       } : null
     });
@@ -358,8 +478,8 @@ router.post('/:deviceId/control', authenticateToken, async (req, res) => {
   try {
     const controlData = normalizeControlData(req.body);
     if (!controlData) return res.status(400).json({ success: false, message: '控制命令不能为空' });
-    const hasValidCommand = controlData.key1 !== undefined || controlData.key2 !== undefined ||
-      controlData.key3 !== undefined || controlData.restart !== undefined || controlData.type === 'statistic';
+    const hasValidCommand = controlData.power_status !== undefined ||
+      controlData.restart !== undefined || controlData.type === 'statistic';
     if (!hasValidCommand) return res.status(400).json({ success: false, message: '无效的控制命令格式' });
 
     const params = [req.params.deviceId];
@@ -374,7 +494,7 @@ router.post('/:deviceId/control', authenticateToken, async (req, res) => {
        FROM control_device_assignments sc
        JOIN devices d ON sc.device_id = d.id
        LEFT JOIN protocol_configs pc ON d.protocol_config_id = pc.id
-       WHERE d.imei = $1${tenantClause}
+       WHERE (d.imei = $1 OR d.device_id = $1 OR d.id::text = $1)${tenantClause}
          AND sc.module_type = 'switch'
          AND sc.is_active = true
          AND d.is_switch = true

@@ -31,14 +31,14 @@ export const switchApi = {
 
   getElectricalLatest(imei: string, manufacturerCode?: string) {
     return request<Record<string, unknown>>(
-      `/lighting-data/switch-electrical/latest/${encodeURIComponent(imei)}`,
+      `/switch-control/${encodeURIComponent(imei)}/electrical/latest`,
       { query: { manufacturer_code: manufacturerCode } }
     );
   },
 
   getElectricalHistory(imei: string, limit = 100) {
     return request<{ list?: Record<string, unknown>[]; data?: Record<string, unknown>[] }>(
-      `/lighting-data/switch-electrical/history/${encodeURIComponent(imei)}`,
+      `/switch-control/${encodeURIComponent(imei)}/electrical/history`,
       { query: { limit } }
     );
   }

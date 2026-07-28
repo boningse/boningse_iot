@@ -41,11 +41,16 @@
         <text>{{item.viewGroup}}</text>
       </view>
       <view class="device-card__footer">
-        <view class="channel-controls">
-          <button class="channel-button {{item.switch1On ? 'channel-button--on' : ''}}" disabled="{{!item.online || controllingId}}" data-id="{{item.routeId}}" data-channel="1" data-index="{{index}}" catchtap="toggleChannel">1路</button>
-          <button class="channel-button {{item.switch2On ? 'channel-button--on' : ''}}" disabled="{{!item.online || controllingId}}" data-id="{{item.routeId}}" data-channel="2" data-index="{{index}}" catchtap="toggleChannel">2路</button>
-          <button class="channel-button {{item.switch3On ? 'channel-button--on' : ''}}" disabled="{{!item.online || controllingId}}" data-id="{{item.routeId}}" data-channel="3" data-index="{{index}}" catchtap="toggleChannel">3路</button>
-        </view>
+        <button
+          class="power-control {{item.powerOn ? 'power-control--on' : ''}}"
+          disabled="{{!item.online || controllingId}}"
+          data-id="{{item.routeImei}}"
+          data-index="{{index}}"
+          catchtap="togglePower"
+        >
+          <image src="/assets/icons/power.png" mode="aspectFit"></image>
+          <text>{{item.powerOn ? "已开启" : "已关闭"}}</text>
+        </button>
         <button class="detail-link" data-index="{{index}}" catchtap="openDetail">
           <text>详情</text>
           <image src="/assets/icons/arrow-right.png" mode="aspectFit"></image>

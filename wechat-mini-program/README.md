@@ -281,26 +281,25 @@ GET /api/switch-control
 GET /api/switch-control/:imei/status
 ```
 
-控制一路或多路：
+控制单个开关：
 
 ```http
 POST /api/switch-control/:deviceId/control
 Content-Type: application/json
 
 {
-  "type": "event",
-  "key1": 1,
-  "key2": 0,
-  "key3": 1
+  "power_status": true
 }
 ```
 
 电气数据：
 
 ```text
-GET /api/lighting-data/switch-electrical/latest/:imei
-GET /api/lighting-data/switch-electrical/history/:imei
+GET /api/switch-control/:imei/electrical/latest
+GET /api/switch-control/:imei/electrical/history
 ```
+
+开关控制只有一个 `power_status`，不存在 `key1/key2/key3` 分路。照明控制的分路状态和控制命令不能用于开关控制。
 
 卡片和详情页重点显示以下四项，保留两位小数：
 
@@ -311,7 +310,7 @@ GET /api/lighting-data/switch-electrical/history/:imei
 | 漏电电流 | mA |
 | 频率 | Hz |
 
-详情页可补充三相电压、电流和 A/B/C 相温度，但必须以开关模块时序表实际返回字段为准。
+详情页可补充三相电压、电流和 A/B/C 相温度，但必须以独立的 `switch_electrical_measurements` 时序表实际返回字段为准。
 
 ### 8.3 照明控制
 

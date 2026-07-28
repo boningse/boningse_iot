@@ -413,7 +413,6 @@ import { ElMessage, ElMessageBox } from "element-plus";
 import {
   del,
   get,
-  lightingDataAPI,
   post,
   projectManagementAPI,
   put,
@@ -605,10 +604,13 @@ function normalizeElectrical(source) {
 }
 
 async function loadLatestElectrical(device) {
-  let response = await lightingDataAPI.getSwitchElectricalLatest(device.deviceId, device.manufacturer_code);
+  let response = await switchControlAPI.getElectricalLatest(
+    device.deviceId,
+    device.manufacturer_code ? { manufacturer_code: device.manufacturer_code } : {},
+  );
   let electrical = normalizeElectrical(response);
   if (!electrical && device.manufacturer_code) {
-    response = await lightingDataAPI.getSwitchElectricalLatest(device.deviceId);
+    response = await switchControlAPI.getElectricalLatest(device.deviceId);
     electrical = normalizeElectrical(response);
   }
   return electrical;
@@ -635,9 +637,7 @@ const cardMetrics = (device) => [
     value: formatValue(device.frequency, "Hz"),
   },
 ];
-const isPowered = (d) =>
-  ["key1", "key2", "key3"].some((k) => d.switchStates[k] === true) ||
-  Number(d.power || 0) > 0;
+const isPowered = (device) => device.powerOn === true;
 
 async function loadTenants() {
   if (!isAdmin.value) return;
@@ -683,11 +683,7 @@ function mapDevice(x) {
     voltage_a: null,
     voltage_b: null,
     voltage_c: null,
-    switchStates: {
-      key1: x.switch_1 ?? null,
-      key2: x.switch_2 ?? null,
-      key3: x.switch_3 ?? null,
-    },
+    powerOn: [true, 1, "1", "true", "on"].includes(x.power_status),
     loading: false,
   };
 }
@@ -720,11 +716,8 @@ async function loadDevices() {
 async function send(device, payload) {
   const command = {};
   if (payload.statistic) command.statistic = 1;
-  else {
-    if (payload.key1 !== undefined) command.switch_1 = payload.key1;
-    if (payload.key2 !== undefined) command.switch_2 = payload.key2;
-    if (payload.key3 !== undefined) command.switch_3 = payload.key3;
-  }
+  else if (payload.power_status !== undefined)
+    command.power_status = payload.power_status;
   const r = await switchControlAPI.controlDevice(device.deviceId, { command });
   if (!r.success) throw new Error(r.message || "指令发送失败");
 }
@@ -738,30 +731,20 @@ async function refreshDevice(device) {
   ]);
   const status = s.status === "fulfilled" ? s.value.data || {} : {};
   const electrical = e.status === "fulfilled" ? e.value : null;
-  ["key1", "key2", "key3"].forEach((k) => {
-    if (status.switchStates?.[k] != null)
-      device.switchStates[k] = [true, 1, "1"].includes(status.switchStates[k]);
-  });
+  if (status.power_status != null)
+    device.powerOn = [true, 1, "1", "true", "on"].includes(status.power_status);
   Object.assign(device, electrical || status);
 }
 async function controlPower(device, on) {
   device.loading = true;
-  const old = { ...device.switchStates };
-  const value = on ? 1 : 0;
-  const payload =
-    device.phaseType === "three_phase"
-      ? { key1: value, key2: value, key3: value }
-      : { key2: value };
-  Object.assign(
-    device.switchStates,
-    Object.fromEntries(Object.entries(payload).map(([k, v]) => [k, !!v])),
-  );
+  const old = device.powerOn;
+  device.powerOn = Boolean(on);
   try {
-    await send(device, payload);
+    await send(device, { power_status: Boolean(on) });
     ElMessage.success(on ? "已发送开启指令" : "已发送关闭指令");
     setTimeout(() => refreshDevice(device), 2000);
   } catch (e) {
-    device.switchStates = old;
+    device.powerOn = old;
     ElMessage.error(e.message);
   } finally {
     device.loading = false;
@@ -987,7 +970,7 @@ async function openDetail(device) {
     await refreshDevice(device);
     const [electrical, b] = await Promise.all([
       loadLatestElectrical(device),
-      lightingDataAPI.getSwitchElectricalHistory(device.deviceId, {
+      switchControlAPI.getElectricalHistory(device.deviceId, {
         manufacturer_code: device.manufacturer_code,
         limit: 100,
       }),

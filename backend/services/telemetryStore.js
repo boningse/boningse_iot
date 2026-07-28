@@ -38,7 +38,7 @@ const MODULE_CONFIG = {
     electricalTable: 'switch_electrical_measurements',
     controlTable: 'switch_control_logs',
     statusFields: [
-      field('switch_1', 'boolean'), field('switch_2', 'boolean'), field('switch_3', 'boolean'),
+      field('power_status', 'boolean'),
       field('breaker_state', 'text'), field('trip_state', 'boolean'), field('trip_reason', 'text'),
       field('alarm_code', 'text'), field('online', 'boolean')
     ],
@@ -155,7 +155,7 @@ const stateValue = (state, name) => {
     mode: ['mode', 'ac_mode'],
     target_temperature: ['target_temperature', 'target_temp'],
     current_temperature: ['current_temperature', 'current_temp'],
-    power_status: ['power_status', 'power_state']
+    power_status: ['power_status', 'power_state', 'switch_status']
   };
   const keys = aliases[name] || [name];
   const key = keys.find((candidate) => state[candidate] !== undefined);

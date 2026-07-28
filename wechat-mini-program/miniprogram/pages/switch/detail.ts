@@ -14,9 +14,7 @@ Page({
     status: "unknown",
     building: "",
     group: "",
-    switch1On: false,
-    switch2On: false,
-    switch3On: false,
+    powerOn: false,
     energy: "--",
     power: "--",
     leakage: "--",
@@ -50,17 +48,14 @@ Page({
         switchApi.getStatus(this.data.imei),
         switchApi.getElectricalLatest(this.data.imei, this.data.manufacturer)
       ]);
-      const status = asRecord(statusResult.status || statusResult.latest || statusResult);
-      const electrical = asRecord(
-        electricalResult.data || electricalResult.latest || electricalResult
-      );
+      const status = asRecord(statusResult);
+      const electricalPayload = asRecord(electricalResult);
+      const electrical = asRecord(electricalPayload.electrical || electricalPayload.latest || electricalPayload);
       const on = (value: unknown) => (
         value === true || value === 1 || value === "1" || String(value).toLowerCase() === "on"
       );
       this.setData({
-        switch1On: on(status.switch_1 ?? electrical.switch_1),
-        switch2On: on(status.switch_2 ?? electrical.switch_2),
-        switch3On: on(status.switch_3 ?? electrical.switch_3),
+        powerOn: on(status.power_status),
         energy: formatNumber(electrical.total_energy ?? electrical.energy ?? electrical.cumulative_energy),
         power: formatNumber(electrical.total_power ?? electrical.power),
         leakage: formatNumber(electrical.leakage_current ?? electrical.leak_current),
@@ -76,15 +71,13 @@ Page({
     }
   },
 
-  async toggleChannel(event: WechatMiniprogram.TouchEvent) {
-    const channel = Number(event.currentTarget.dataset.channel);
-    const key = `switch${channel}On` as "switch1On" | "switch2On" | "switch3On";
-    const next = !this.data[key];
+  async togglePower() {
+    const next = !this.data.powerOn;
     if (this.data.status !== "online" || this.data.controlling) return;
     this.setData({ controlling: true });
     try {
-      await switchApi.control(this.data.id, { type: "event", [`key${channel}`]: next ? 1 : 0 });
-      this.setData({ [key]: next });
+      await switchApi.control(this.data.imei, { power_status: next });
+      this.setData({ powerOn: next });
       wx.showToast({ title: "控制命令已发送", icon: "none" });
     } catch (error) {
       wx.showToast({ title: error instanceof Error ? error.message : "控制失败", icon: "none" });
