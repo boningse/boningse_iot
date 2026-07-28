@@ -7,6 +7,7 @@ const { mqttLogger: logger } = require('../utils/logger');
 const { Pool } = require('pg');
 const { getPoolConfig } = require('../config/database');
 const { parseDa51kdUplink } = require('../utils/da51kdProtocol');
+const { parseZqcSwitchStatus } = require('../utils/zqcSwitchProtocol');
 const telemetryStore = require('./telemetryStore');
 const alarmService = require('./alarmService');
 require('dotenv').config();
@@ -1769,6 +1770,7 @@ class MqttService {
 
       const manufacturerCode = this.extractManufacturerFromTopic(topic) || device.manufacturer_code || 'ZQC';
       const records = [];
+      let latestStatus = null;
 
       for (const item of data.devices) {
         const electricalData = this.normalizeZqcV200SwitchElectricalData(item, data);
@@ -1776,6 +1778,23 @@ class MqttService {
         const saved = await this.saveSwitchElectricalData(device, electricalData, manufacturerCode);
         if (!saved.success) {
           throw new Error(saved.error || saved.reason || 'ZQC开关电气数据入库失败');
+        }
+
+        const switchStatus = parseZqcSwitchStatus(item);
+        if (switchStatus) {
+          latestStatus = switchStatus;
+          await telemetryStore.saveStatus({
+            device: { ...device, manufacturer_code: manufacturerCode },
+            moduleType: 'switch',
+            state: switchStatus,
+            source: 'mqtt',
+            rawPayload: {
+              ...item,
+              gateway_timestamp: data.timestamp,
+              version: data.ver,
+              packType: data.packType
+            }
+          });
         }
       }
 
@@ -1804,6 +1823,7 @@ class MqttService {
         manufacturer_code: manufacturerCode,
         electricalData: records[0] || null,
         records,
+        power_status: latestStatus?.power_status ?? null,
         messageType: 'zqc_switch_data',
         timestamp: new Date()
       });
