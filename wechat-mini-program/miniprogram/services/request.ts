@@ -25,6 +25,7 @@ export interface RequestOptions {
 }
 
 let refreshPromise: Promise<string> | null = null;
+let redirectingToLogin = false;
 
 const encodeQuery = (query?: Query): string => {
   if (!query) return "";
@@ -92,11 +93,19 @@ const refreshAccessToken = async (): Promise<string> => {
 
 const redirectToLogin = () => {
   session.clear();
+  if (redirectingToLogin) return;
+
   const pages = getCurrentPages();
   const current = pages[pages.length - 1]?.route;
-  if (current !== "pages/login/index") {
-    wx.reLaunch({ url: "/pages/login/index" });
-  }
+  if (current === "pages/login/index") return;
+
+  redirectingToLogin = true;
+  wx.reLaunch({
+    url: "/pages/login/index",
+    complete: () => {
+      redirectingToLogin = false;
+    }
+  });
 };
 
 export const request = async <T>(path: string, options: RequestOptions = {}): Promise<T> => {
