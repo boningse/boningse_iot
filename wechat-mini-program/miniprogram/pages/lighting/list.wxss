@@ -9,12 +9,13 @@
 }
 
 .lighting-diagram {
-  margin-top: 16rpx;
-  padding-top: 16rpx;
+  margin-top: 20rpx;
+  padding: 16rpx 0;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10rpx;
   border-top: 1rpx solid #edf0ee;
+  border-bottom: 1rpx solid #edf0ee;
 }
 
 .lighting-circuit {
@@ -85,4 +86,12 @@
 
 .lighting-circuit--on .lighting-circuit__copy text:first-child {
   color: #8b4d13;
+}
+
+.device-card__footer {
+  margin-top: 16rpx;
+}
+
+.device-card__footer .detail-link {
+  margin: 0 0 0 auto;
 }

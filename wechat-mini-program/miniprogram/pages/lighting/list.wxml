@@ -34,13 +34,6 @@
         <view class="location-separator"></view>
         <text>{{item.viewGroup}}</text>
       </view>
-      <view class="device-card__footer">
-        <view class="lighting-type">{{item.lighting_type === "triple" ? "三路" : item.lighting_type === "double" ? "双路" : "单路"}}照明</view>
-        <button class="detail-link" data-index="{{index}}" catchtap="openDetail">
-          <text>控制</text>
-          <image src="/assets/icons/arrow-right.png" mode="aspectFit"></image>
-        </button>
-      </view>
       <view class="lighting-diagram">
         <view wx:for="{{item.circuits}}" wx:for-item="circuit" wx:key="key" class="lighting-circuit {{circuit.on ? 'lighting-circuit--on' : ''}}">
           <view class="lighting-circuit__lamp">
@@ -51,6 +44,13 @@
             <text>{{circuit.on ? "已开启" : "已关闭"}}</text>
           </view>
         </view>
+      </view>
+      <view class="device-card__footer">
+        <view class="lighting-type">{{item.lighting_type === "triple" ? "三路" : item.lighting_type === "double" ? "双路" : "单路"}}照明</view>
+        <button class="detail-link" data-index="{{index}}" catchtap="openDetail">
+          <text>控制</text>
+          <image src="/assets/icons/arrow-right.png" mode="aspectFit"></image>
+        </button>
       </view>
     </view>
   </view>
