@@ -30,9 +30,7 @@ CREATE TABLE switch_status_measurements (
   tenant_id uuid NOT NULL,
   manufacturer_code text,
   imei varchar(255) NOT NULL,
-  switch_1 boolean,
-  switch_2 boolean,
-  switch_3 boolean,
+  power_status boolean,
   breaker_state text,
   trip_state boolean,
   trip_reason text,
@@ -335,12 +333,14 @@ $$;
 
 INSERT INTO switch_status_measurements (
   measured_at, device_id, tenant_id, manufacturer_code, imei,
-  switch_1, switch_2, switch_3, state, source, raw_payload, created_at
+  power_status, state, source, raw_payload, created_at
 )
 SELECT measured_at, device_id, tenant_id, manufacturer_code, imei,
-       CASE lower(COALESCE(state->>'switch_1', state->>'key1')) WHEN 'true' THEN true WHEN 'false' THEN false ELSE NULL END,
-       CASE lower(COALESCE(state->>'switch_2', state->>'key2')) WHEN 'true' THEN true WHEN 'false' THEN false ELSE NULL END,
-       CASE lower(COALESCE(state->>'switch_3', state->>'key3')) WHEN 'true' THEN true WHEN 'false' THEN false ELSE NULL END,
+       CASE lower(COALESCE(state->>'power_status', state->>'power_state'))
+         WHEN 'true' THEN true WHEN '1' THEN true
+         WHEN 'false' THEN false WHEN '0' THEN false
+         ELSE NULL
+       END,
        state, source, raw_payload, created_at
 FROM device_status_measurements
 WHERE module_type = 'switch';

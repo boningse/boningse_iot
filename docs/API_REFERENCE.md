@@ -416,7 +416,19 @@ status, buildingId, projectGroupId
 | POST | `/api/switch-control` | 登录 | 加入模块；Body: `device_id,phase_type,lighting_type,group_name,display_order` |
 | PUT | `/api/switch-control/:id` | 登录 | 更新相制和显示顺序 |
 | DELETE | `/api/switch-control/:id` | 登录 | 从开关模块移除 |
-| POST | `/api/switch-control/:deviceId/control` | 登录 | 下发开关控制，格式同照明控制 |
+| POST | `/api/switch-control/:deviceId/control` | 登录 | 下发单个开关的开启或关闭命令；Body: `{power_status:true}` |
+| GET | `/api/switch-control/:deviceId/electrical/latest` | 登录 | 开关模块最新电气数据；Query: `manufacturer_code` |
+| GET | `/api/switch-control/:deviceId/electrical/history` | 登录 | 开关模块电气历史；Query: `manufacturer_code,start_time,end_time,limit` |
+
+开关控制使用单一状态字段：
+
+```json
+{
+  "power_status": true
+}
+```
+
+开关控制不存在 `key1/key2/key3` 分路，这些字段仅属于照明控制。
 
 读取统计数据可发送：
 
@@ -453,14 +465,12 @@ status, buildingId, projectGroupId
 
 DA51KD 等 Hex 协议由后端编码，小程序不要自行拼装 Hex。
 
-### 5.13 照明/开关电气数据 `/api/lighting-data`
+### 5.13 照明电气数据 `/api/lighting-data`
 
 | 方法 | 路径 | 权限 | 用途/关键参数 |
 |---|---|---|---|
 | POST | `/api/lighting-data/insert` | 照明权限 | 人工写入单条照明数据；Body 至少 `manufacturer_code,device_imei` |
 | POST | `/api/lighting-data/batch-insert` | 照明权限 | 批量写入；Body: `{data_list:[...]}` |
-| GET | `/api/lighting-data/switch-electrical/latest/:imei` | 照明权限 | 开关最新电气数据；Query: `manufacturer_code` |
-| GET | `/api/lighting-data/switch-electrical/history/:imei` | 照明权限 | 开关电气历史；Query: `manufacturer_code,start_time,end_time,limit` |
 | GET | `/api/lighting-data/latest/:imei` | 照明权限 | 照明模块最新数据 |
 | GET | `/api/lighting-data/history/:imei` | 照明权限 | 照明历史；Query: `start_time,end_time,limit` |
 | GET | `/api/lighting-data/stats/:manufacturer_code` | 照明权限 | 指定厂商数据统计 |
@@ -747,7 +757,7 @@ Authorization: Bearer <accessToken>
 | 项目选择 | `GET /api/project-management/buildings`、`GET /api/project-management/groups` |
 | 设备列表 | `GET /api/devices` |
 | 照明 | `/api/lighting-control`、`/api/lighting-data` |
-| 开关 | `/api/switch-control`、`/api/lighting-data/switch-electrical/*` |
+| 开关 | `/api/switch-control`（含独立状态、控制和电气数据接口） |
 | 温控 | `/api/thermostat/devices` 及控制、统计接口 |
 | 分散空调 | `/api/air-conditioner-control` |
 | 告警 | `/api/alarms`、`/api/alarms/notifications` |

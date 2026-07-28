@@ -47,10 +47,7 @@ export const protocolTemplates = [
     deviceType: "定时开关",
     description: "定时开关状态、电气参数、分合闸和定时控制协议",
     fields: [
-      field("power_state", "开关状态", "data.power", "power_state", "", 1, "boolean"),
-      field("channel_1", "回路1状态", "data.channel1", "key1", "", 1, "boolean"),
-      field("channel_2", "回路2状态", "data.channel2", "key2", "", 1, "boolean"),
-      field("channel_3", "回路3状态", "data.channel3", "key3", "", 1, "boolean"),
+      field("power_status", "开关状态", "data.power", "power_status", "", 1, "boolean"),
       field("energy", "累计电量", "data.energy", "energy", "kWh"),
       field("power", "总功率", "data.powerValue", "power", "W"),
       field("leakage_current", "漏电电流", "data.leakage", "leakage_current", "mA"),

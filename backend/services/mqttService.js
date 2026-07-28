@@ -4188,9 +4188,43 @@ try {
         'air_conditioner',
         'air-conditioner'
       ].includes(protocolDeviceType);
+      const isSwitchProtocol = (
+        device.is_switch === true && device.is_lighting !== true
+      ) || [
+        '定时开关',
+        'switch',
+        'switch_control',
+        'switch-control'
+      ].includes(protocolDeviceType);
 
       if (isAirConditionerProtocol) {
         await this.saveAirConditionerDataByProtocol(device, extractedData, protocolConfig, topic);
+      } else if (isSwitchProtocol) {
+        const manufacturerCode = this.extractManufacturerFromTopic(topic) ||
+          device.manufacturer_code || protocolConfig.manufacturer_code;
+        const powerStatus = this.extractBooleanValue(
+          extractedData.power_status ?? extractedData.power_state ?? extractedData.switch_status
+        );
+        if (powerStatus !== null) {
+          await telemetryStore.saveStatus({
+            device: { ...device, manufacturer_code: manufacturerCode },
+            moduleType: 'switch',
+            state: { power_status: powerStatus },
+            source: 'mqtt',
+            rawPayload: extractedData
+          });
+        }
+        const electricalData = this.prepareElectricalDataByProtocol(extractedData);
+        if (SWITCH_ELECTRICAL_FIELDS.some(
+          key => electricalData[key] !== null && electricalData[key] !== undefined
+        )) {
+          await telemetryStore.saveElectrical({
+            device: { ...device, manufacturer_code: manufacturerCode },
+            moduleType: 'switch',
+            data: electricalData,
+            measuredAt: new Date()
+          });
+        }
       // 检查是否为照明设备协议
       } else if (protocolConfig.name === '智鸟照明开关' ||
         protocolConfig.device_type === 'lighting_switch' ||
@@ -4523,6 +4557,9 @@ try {
    */
   prepareSwitchStatusDataByProtocol(data) {
     return {
+      power_status: this.extractBooleanValue(
+        data.power_status ?? data.power_state ?? data.switch_status
+      ),
       key1: this.extractBooleanValue(data.key1),
       key2: this.extractBooleanValue(data.key2),
       key3: this.extractBooleanValue(data.key3),
@@ -4966,21 +5003,28 @@ try {
         logger.warn('设备缺少IMEI，无法保存照明状态', { deviceId: device.id });
         return;
       }
+      const moduleType = device.is_switch && !device.is_lighting ? 'switch' : 'lighting';
+      const state = moduleType === 'switch'
+        ? {
+            power_status: switchData.power_status ?? switchData.power_state ??
+              switchData.key1 ?? switchData.key2 ?? switchData.key3
+          }
+        : {
+            switch_1: switchData.key1,
+            switch_2: switchData.key2,
+            switch_3: switchData.key3,
+            key1: switchData.key1,
+            key2: switchData.key2,
+            key3: switchData.key3
+          };
       await telemetryStore.saveStatus({
         device: { ...device, manufacturer_code: manufacturerCode || device.manufacturer_code },
-        moduleType: device.is_switch && !device.is_lighting ? 'switch' : 'lighting',
-        state: {
-          switch_1: switchData.key1,
-          switch_2: switchData.key2,
-          switch_3: switchData.key3,
-          key1: switchData.key1,
-          key2: switchData.key2,
-          key3: switchData.key3
-        },
+        moduleType,
+        state,
         source: 'mqtt',
         rawPayload: switchData.raw_payload || switchData
       });
-      logger.debug('设备开关状态已保存到统一时序表', {
+      logger.debug('设备开关状态已保存到所属模块时序表', {
         deviceId: device.id,
         imei: device.imei,
         manufacturerCode

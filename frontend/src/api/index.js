@@ -714,6 +714,10 @@ const switchControlAPI = {
   getAvailableDevices: (params = {}) =>
     get("/switch-control/available-devices", params),
   getLatestStatus: (id) => get(`/switch-control/${id}/status`),
+  getElectricalLatest: (id, params = {}) =>
+    get(`/switch-control/${id}/electrical/latest`, params),
+  getElectricalHistory: (id, params = {}) =>
+    get(`/switch-control/${id}/electrical/history`, params),
   controlDevice: (id, data) => post(`/switch-control/${id}/control`, data),
 };
 
@@ -787,15 +791,6 @@ const lightingDataAPI = {
     get(`/lighting-data/latest/${imei}`, {
       manufacturer_code: manufacturerCode,
     }),
-
-  getSwitchElectricalLatest: (imei, manufacturerCode) =>
-    get(
-      `/lighting-data/switch-electrical/latest/${imei}`,
-      manufacturerCode ? { manufacturer_code: manufacturerCode } : {},
-    ),
-
-  getSwitchElectricalHistory: (imei, params = {}) =>
-    get(`/lighting-data/switch-electrical/history/${imei}`, params),
 
   /**
    * 插入照明数据
