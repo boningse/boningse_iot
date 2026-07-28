@@ -53,9 +53,15 @@ Page({
     try {
       const response = await lightingApi.getLatest(this.data.imei);
       const source = record(response.data || response.latest || response);
+      const firstChannel = this.data.channelCount === 1
+        ? source.switch_2 ?? source.key2
+        : source.switch_1 ?? source.key1;
+      const secondChannel = this.data.channelCount === 2
+        ? source.switch_3 ?? source.key3
+        : source.switch_2 ?? source.key2;
       this.setData({
-        switch1On: isOn(source.switch_1 ?? source.key1),
-        switch2On: isOn(source.switch_2 ?? source.key2),
+        switch1On: isOn(firstChannel),
+        switch2On: isOn(secondChannel),
         switch3On: isOn(source.switch_3 ?? source.key3),
         voltage: formatNumber(source.voltage ?? source.total_voltage),
         current: formatNumber(source.current ?? source.total_current),
@@ -75,13 +81,16 @@ Page({
   async toggleChannel(event: WechatMiniprogram.TouchEvent) {
     const channel = Number(event.currentTarget.dataset.channel);
     const key = `switch${channel}On` as "switch1On" | "switch2On" | "switch3On";
+    const protocolKey = this.data.channelCount === 1
+      ? 2
+      : this.data.channelCount === 2 && channel === 2 ? 3 : channel;
     const next = !this.data[key];
     if (this.data.status !== "online" || this.data.controlling) return;
     this.setData({ controlling: true });
     try {
       await lightingApi.control(this.data.imei || this.data.id, {
         type: "event",
-        [`key${channel}`]: next ? 1 : 0
+        [`key${protocolKey}`]: next ? 1 : 0
       });
       this.setData({ [key]: next });
       wx.showToast({ title: "控制命令已发送", icon: "none" });
