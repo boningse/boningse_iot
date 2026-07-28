@@ -703,6 +703,15 @@ const lightingControlAPI = {
    */
   controlDevice: (deviceId, controlData) =>
     post(`/lighting-control/${deviceId}/control`, controlData),
+
+  /**
+   * 批量控制照明设备（群控）
+   * @param {string[]} devices - 设备IMEI数组
+   * @param {object} command - 控制命令 { switch: 0|1 }
+   * @returns {Promise} 控制结果
+   */
+  batchControl: (devices, command) =>
+    post("/lighting-control/batch/control", { devices, command }),
 };
 
 // 开关控制API

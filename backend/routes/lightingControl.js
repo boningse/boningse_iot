@@ -684,6 +684,142 @@ router.get('/available-devices', authenticateToken, async (req, res) => {
   }
 });
 
+// 批量控制照明设备（群控）
+router.post('/batch/control', authenticateToken, async (req, res) => {
+  try {
+    const { tenant_id } = req.user;
+    const { devices, command } = req.body;
+
+    if (!Array.isArray(devices) || devices.length === 0) {
+      return res.status(400).json({ success: false, message: '设备列表不能为空' });
+    }
+    if (!command || command.switch === undefined) {
+      return res.status(400).json({ success: false, message: '控制命令不能为空，需指定 switch 字段（0=关闭，1=开启）' });
+    }
+
+    const switchValue = command.switch === 1 || command.switch === true ? 1 : 0;
+    const actionLabel = switchValue === 1 ? '开启' : '关闭';
+
+    // 构建全开/全关控制数据
+    const controlData = {
+      type: 'event',
+      key1: switchValue,
+      key2: switchValue,
+      key3: switchValue
+    };
+
+    // 批量查询设备信息
+    const params = [devices];
+    let tenantClause = '';
+    if (!isAdminUser(req.user)) {
+      params.push(tenant_id);
+      tenantClause = ` AND lc.tenant_id = $${params.length}`;
+    }
+
+    const deviceResult = await pool.query(`
+      SELECT
+        d.id,
+        lc.id AS assignment_id,
+        lc.device_id,
+        lc.tenant_id,
+        d.device_id AS device_code,
+        d.imei,
+        d.name,
+        d.manufacturer_code,
+        d.connection_config,
+        pc.command_config
+      FROM control_device_assignments lc
+      JOIN devices d ON lc.device_id = d.id
+      LEFT JOIN protocol_configs pc ON d.protocol_config_id = pc.id
+      WHERE (d.imei = ANY($1) OR d.id::text = ANY($1))
+        AND lc.module_type = 'lighting'
+        AND lc.is_active = true${tenantClause}
+    `, params);
+
+    if (deviceResult.rows.length === 0) {
+      return res.status(404).json({ success: false, message: '未找到有效的照明设备' });
+    }
+
+    const foundDevices = deviceResult.rows;
+    const results = [];
+
+    // 并行向所有设备发送指令
+    await Promise.all(foundDevices.map(async (device) => {
+      let protocolMessages = [];
+      let status = 'sent';
+      let errorMessage = null;
+
+      try {
+        protocolMessages = buildProtocolControlMessages(device, controlData);
+
+        if (protocolMessages.length > 0) {
+          for (const message of protocolMessages) {
+            await mqttService.sendCommandToDevice(device.imei, message.payload, {
+              mqttTopic: message.topic
+            });
+          }
+        } else {
+          await mqttService.sendCommandToDevice(device.imei, controlData);
+        }
+
+        logger.info(`群控${actionLabel}指令发送成功`, {
+          device_imei: device.imei,
+          control_data: controlData,
+          protocol_messages: protocolMessages
+        });
+      } catch (mqttError) {
+        logger.error(`群控${actionLabel}指令发送失败`, {
+          device_imei: device.imei,
+          control_data: controlData,
+          error: mqttError.message
+        });
+        status = 'failed';
+        errorMessage = mqttError.message;
+      }
+
+      await telemetryStore.logControl({
+        device,
+        moduleType: 'lighting',
+        action: `batch_${actionLabel}`,
+        command: controlData,
+        encodedPayload: protocolMessages,
+        status,
+        errorMessage,
+        userId: req.user.id
+      });
+
+      results.push({
+        device_imei: device.imei,
+        device_name: device.name,
+        status,
+        error: errorMessage
+      });
+    }));
+
+    const successCount = results.filter(r => r.status === 'sent').length;
+    const failCount = results.filter(r => r.status === 'failed').length;
+
+    res.json({
+      success: failCount === 0,
+      message: `群控${actionLabel}完成，成功 ${successCount} 台${failCount > 0 ? `，失败 ${failCount} 台` : ''}`,
+      data: {
+        action: actionLabel,
+        total: results.length,
+        success_count: successCount,
+        failed_count: failCount,
+        results
+      }
+    });
+  } catch (error) {
+    logger.error('批量控制照明设备失败:', error);
+    res.status(500).json({
+      success: false,
+      message: '批量控制照明设备失败',
+      error: error.message
+    });
+  }
+});
+
 // 控制照明设备
 router.post('/:deviceId/control', authenticateToken, async (req, res) => {
   try {
