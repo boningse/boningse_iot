@@ -20,7 +20,13 @@
   </view>
 
   <view class="device-list">
-    <view wx:for="{{devices}}" wx:key="routeId" class="device-card">
+    <view
+      wx:for="{{devices}}"
+      wx:key="routeId"
+      class="device-card"
+      data-index="{{index}}"
+      bindtap="openDetail"
+    >
       <view class="device-card__head">
         <view class="device-card__identity">
           <text class="device-card__name">{{item.viewName}}</text>
@@ -40,7 +46,7 @@
           <button class="channel-button {{item.switch2On ? 'channel-button--on' : ''}}" disabled="{{!item.online || controllingId}}" data-id="{{item.routeId}}" data-channel="2" data-index="{{index}}" catchtap="toggleChannel">2路</button>
           <button class="channel-button {{item.switch3On ? 'channel-button--on' : ''}}" disabled="{{!item.online || controllingId}}" data-id="{{item.routeId}}" data-channel="3" data-index="{{index}}" catchtap="toggleChannel">3路</button>
         </view>
-        <button class="detail-link" data-index="{{index}}" bindtap="openDetail">
+        <button class="detail-link" data-index="{{index}}" catchtap="openDetail">
           <text>详情</text>
           <image src="/assets/icons/arrow-right.png" mode="aspectFit"></image>
         </button>
