@@ -109,6 +109,26 @@ function buildDa51kdCommand(command, currentState = {}) {
   return buildDa51kdDownlinkFrame(state);
 }
 
+function parseDa51kdWriteAck(payload) {
+  const base64 = typeof payload === 'string' ? payload : payload?.data;
+  if (!base64 || typeof base64 !== 'string') return null;
+
+  const frame = Buffer.from(base64.trim(), 'base64');
+  if (frame.length !== 8 || frame[0] !== 0x01 || frame[1] !== DOWNLINK_FUNCTION_CODE) {
+    return null;
+  }
+  const expectedCrc = crc16Modbus(frame.subarray(0, 6));
+  const actualCrc = frame[6] | (frame[7] << 8);
+  if (actualCrc !== expectedCrc) throw new Error('DA51KD控制应答CRC校验失败');
+
+  return {
+    acknowledged: true,
+    start_register: frame.readUInt16BE(2),
+    register_count: frame.readUInt16BE(4),
+    raw_hex: frame.toString('hex').toUpperCase()
+  };
+}
+
 function parseDa51kdUplink(payload) {
   const base64 = typeof payload === 'string' ? payload : payload?.data;
   if (!base64 || typeof base64 !== 'string') throw new Error('DA51KD上报缺少data字段');
@@ -160,6 +180,7 @@ function parseDa51kdUplink(payload) {
 module.exports = {
   buildDa51kdDownlinkFrame,
   buildDa51kdCommand,
+  parseDa51kdWriteAck,
   parseDa51kdUplink,
   crc16Modbus
 };

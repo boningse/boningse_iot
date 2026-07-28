@@ -9,6 +9,28 @@ const isOn = (value: unknown): boolean => (
   value === true || value === 1 || value === "1" || String(value).toLowerCase() === "on"
 );
 
+const fanSpeedValue = (value: unknown): number => {
+  const normalized = String(value ?? "0").trim().toLowerCase();
+  const values: Record<string, number> = {
+    auto: 0,
+    low: 1,
+    medium: 2,
+    middle: 2,
+    high: 3,
+    "自动": 0,
+    "低": 1,
+    "中": 2,
+    "高": 3
+  };
+  return values[normalized] ?? (Number(normalized) || 0);
+};
+
+const optionalNumber = (value: unknown, digits: number): string => (
+  value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value))
+    ? Number(value).toFixed(digits)
+    : "--"
+);
+
 Page({
   data: {
     id: "",
@@ -60,13 +82,11 @@ Page({
       this.setData({
         name: String(device.name || this.data.name),
         powerOn: isOn(state.power_status),
-        currentTemperature: Number.isFinite(Number(state.current_temperature))
-          ? Number(state.current_temperature).toFixed(1)
-          : "--",
+        currentTemperature: optionalNumber(state.current_temperature, 1),
         targetTemperature: Number(state.target_temperature ?? 24),
-        humidity: formatNumber(state.humidity, 1),
+        humidity: optionalNumber(state.humidity, 1),
         mode: String(state.mode || "cool"),
-        fanSpeed: Number(state.fan_speed ?? 0),
+        fanSpeed: fanSpeedValue(state.fan_speed),
         voltage: formatNumber(electrical.voltage),
         current: formatNumber(electrical.current),
         power: formatNumber(electrical.power),

@@ -352,12 +352,13 @@ router.post('/:deviceId/control', authenticateToken, async (req, res) => {
     const deviceResult = await pool.query(
       `SELECT acc.id as control_id, acc.tenant_id, d.id, d.imei, d.name, d.device_id, d.manufacturer_code,
               status_data.power_status, status_data.mode, status_data.fan_speed,
-              status_data.target_temperature
+              status_data.target_temperature, status_data.current_temperature, status_data.humidity
        FROM control_device_assignments acc
        JOIN devices d ON acc.device_id = d.id
        LEFT JOIN LATERAL (
          SELECT
-           power_status, mode, fan_speed, target_temperature
+           power_status, mode, fan_speed, target_temperature,
+           current_temperature, humidity
          FROM air_conditioner_latest_status
          WHERE device_id = d.id
        ) status_data ON true
@@ -403,11 +404,31 @@ router.post('/:deviceId/control', authenticateToken, async (req, res) => {
       return res.status(502).json({ success: false, message: '分散空调MQTT控制指令发送失败', error: mqttError.message });
     }
 
-    const status = encodedCommand ? encodedCommand.state : {};
+    const status = {
+      power_status: device.power_status,
+      mode: device.mode,
+      fan_speed: device.fan_speed,
+      target_temperature: device.target_temperature,
+      current_temperature: device.current_temperature,
+      humidity: device.humidity,
+      online: true,
+      ...(encodedCommand ? encodedCommand.state : {})
+    };
     if (!encodedCommand && (command.action === 'set_power' || command.power_state !== undefined)) status.power_status = Boolean(Number(command.power_state));
     if (!encodedCommand && (command.action === 'set_mode' || command.mode !== undefined)) status.mode = command.mode;
     if (!encodedCommand && (command.action === 'set_fan_speed' || command.fan_speed !== undefined)) status.fan_speed = command.fan_speed;
     if (!encodedCommand && (command.action === 'set_temperature' || command.target_temperature !== undefined)) status.target_temperature = command.target_temperature;
+
+    await telemetryStore.saveStatus({
+      device,
+      moduleType: 'air_conditioner',
+      state: status,
+      source: 'control_command',
+      rawPayload: {
+        command,
+        ...(encodedCommand ? { protocol: 'DA51KD', hex: encodedCommand.hex } : {})
+      }
+    });
 
     await telemetryStore.logControl({
       device,

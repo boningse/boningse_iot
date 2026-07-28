@@ -6,7 +6,7 @@ const MessageProcessingService = require('./messageProcessingService');
 const { mqttLogger: logger } = require('../utils/logger');
 const { Pool } = require('pg');
 const { getPoolConfig } = require('../config/database');
-const { parseDa51kdUplink } = require('../utils/da51kdProtocol');
+const { parseDa51kdUplink, parseDa51kdWriteAck } = require('../utils/da51kdProtocol');
 const { parseZqcSwitchStatus } = require('../utils/zqcSwitchProtocol');
 const telemetryStore = require('./telemetryStore');
 const alarmService = require('./alarmService');
@@ -3966,6 +3966,14 @@ try {
       const dataParsingConfig = protocolConfig.data_parsing_config;
 
       if (dataParsingConfig?.format === 'mqtt_json_base64_modbus_rtu') {
+        const commandAck = parseDa51kdWriteAck(parsedData);
+        if (commandAck) {
+          logger.debug('DA51KD控制命令已由设备确认', {
+            deviceId: device.id,
+            ...commandAck
+          });
+          return true;
+        }
         parsedData = { ...parsedData, decoded: parseDa51kdUplink(parsedData) };
       }
 
