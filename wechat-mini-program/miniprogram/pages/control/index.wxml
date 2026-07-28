@@ -36,7 +36,7 @@
       bindtap="openModule"
     >
       <view class="module-row__accent"></view>
-      <view class="module-row__icon">
+      <view class="module-row__icon module-row__icon--{{item.key}}">
         <image src="{{item.icon}}" mode="aspectFit"></image>
       </view>
       <view class="module-row__copy">

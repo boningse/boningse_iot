@@ -166,6 +166,11 @@
   height: 42rpx;
 }
 
+.module-row__icon--switch image {
+  width: 34rpx;
+  height: 34rpx;
+}
+
 .module-row__copy {
   flex: 1;
   min-width: 0;
