@@ -248,7 +248,7 @@ router.get('/', authenticateToken, async (req, res) => {
         {
           model: Device,
           as: 'parent_device',
-          attributes: ['id', 'name', 'device_id'],
+          attributes: ['id', 'name', 'device_id', 'imei'],
           required: false
         }
       ],
@@ -772,7 +772,15 @@ router.post('/import', authenticateToken, excelUpload.single('file'), async (req
         if (!existing) {
           try {
             const fullDevice = await Device.findByPk(savedDevice.id, {
-              include: [{ model: Manufacturer, as: 'manufacturer' }]
+              include: [
+                { model: Manufacturer, as: 'manufacturer' },
+                {
+                  model: Device,
+                  as: 'parent_device',
+                  attributes: ['id', 'name', 'device_id', 'imei', 'device_category'],
+                  required: false
+                }
+              ]
             });
             const generatedConfig = mqttConfigService.buildDeviceConfig(fullDevice);
             await fullDevice.update({ mqtt_config: generatedConfig });
@@ -1221,7 +1229,7 @@ router.post('/', authenticateToken, validateDevice, async (req, res) => {
         {
           model: Device,
           as: 'parent_device',
-          attributes: ['id', 'name', 'device_id', 'device_category']
+          attributes: ['id', 'name', 'device_id', 'imei', 'device_category']
         }
       ]
     });
@@ -1688,6 +1696,7 @@ router.get('/:id/logs', authenticateToken, async (req, res) => {
       page = 1,
       pageSize = 20,
       logType,
+      level,
       startTime,
       endTime
     } = req.query;
@@ -1716,15 +1725,56 @@ router.get('/:id/logs', authenticateToken, async (req, res) => {
     const limit = parseInt(pageSize);
 
     // 构建查询条件
-    const where = { device_id: id };
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    const where = {
+      device_id: id,
+      timestamp: { [Op.gte]: startOfToday }
+    };
+
+    if (level) {
+      where.level = level;
+    }
 
     if (logType) {
-      where.level = logType;
+      const messageKeywords = {
+        online: ['上线', '连接', 'online'],
+        offline: ['下线', '离线', 'offline'],
+        data: ['数据', 'data'],
+        heartbeat: ['心跳', 'heartbeat'],
+        command: ['命令', '发送', 'command'],
+        error: ['错误', '失败', 'error']
+      };
+      const keywords = messageKeywords[logType] || [logType];
+      where[Op.and] = [{
+        [Op.or]: [
+          sequelize.where(sequelize.json('data.messageType'), logType),
+          ...keywords.map(keyword => ({
+            message: { [Op.iLike]: `%${keyword}%` }
+          }))
+        ]
+      }];
     }
 
     if (startTime && endTime) {
+      const requestedStart = new Date(startTime);
+      const requestedEnd = new Date(endTime);
+      const effectiveStart = requestedStart > startOfToday
+        ? requestedStart
+        : startOfToday;
       where.timestamp = {
-        [Op.between]: [new Date(startTime), new Date(endTime)]
+        [Op.between]: [effectiveStart, requestedEnd]
+      };
+    } else if (startTime) {
+      const requestedStart = new Date(startTime);
+      where.timestamp = {
+        [Op.gte]: requestedStart > startOfToday
+          ? requestedStart
+          : startOfToday
+      };
+    } else if (endTime) {
+      where.timestamp = {
+        [Op.between]: [startOfToday, new Date(endTime)]
       };
     }
 
@@ -1767,11 +1817,7 @@ router.post('/:id/command', authenticateToken, async (req, res) => {
     const { id } = req.params;
     const { command, params, timestamp, mqttTopic } = req.body;
 
-    const device = await Device.findByPk(id, {
-      attributes: {
-        exclude: ['device_category']  // 排除有问题的字段
-      }
-    });
+    const device = await Device.findByPk(id);
     if (!device) {
       return res.status(404).json({
         success: false,
@@ -1811,7 +1857,7 @@ router.post('/:id/command', authenticateToken, async (req, res) => {
     if (mqttTopic && typeof commandData === 'object' && commandData !== null) {
       commandData.mqttTopic = mqttTopic;
     }
-    await mqttService.sendCommandToDevice(device.imei, commandData, { mqttTopic });
+    await mqttService.sendCommandToDevice(device.device_id, commandData, { mqttTopic });
 
     // 记录命令日志
     await DeviceLog.create({

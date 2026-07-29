@@ -10,6 +10,7 @@ const { parseDa51kdUplink, parseDa51kdWriteAck } = require('../utils/da51kdProto
 const { parseZqcSwitchStatus } = require('../utils/zqcSwitchProtocol');
 const telemetryStore = require('./telemetryStore');
 const alarmService = require('./alarmService');
+const { normalizeDeviceLogEntry } = require('../utils/deviceLog');
 require('dotenv').config();
 
 const persistVerboseDeviceLogs = process.env.PERSIST_VERBOSE_DEVICE_LOGS === 'true';
@@ -18,9 +19,7 @@ const isInactiveControlModuleError = (error) => (
   error?.code === '23514' && /not active in control module/.test(error.message || '')
 );
 const persistDeviceLog = async (entry) => {
-  const level = String(entry?.level || 'info').toLowerCase();
-  if (!persistVerboseDeviceLogs && !['warning', 'warn', 'error'].includes(level)) return null;
-  return DeviceLog.create(entry);
+  return DeviceLog.create(normalizeDeviceLogEntry(entry, persistVerboseDeviceLogs));
 };
 
 // PostgreSQL连接池
@@ -106,6 +105,8 @@ class MqttService {
     // 清理统计数据的定时器
     this.statsCleanupInterval = 5 * 60 * 1000; // 已优化，原1小时 // 1小时清理一次
     this.statsCleanupTimer = null;
+    this.deviceLogCleanupInterval = 60 * 60 * 1000;
+    this.deviceLogCleanupTimer = null;
 
     // 消息处理服务将在连接时从全局实例获取
     this.messageProcessingService = null;
@@ -324,10 +325,13 @@ class MqttService {
           model: Manufacturer,
           as: 'manufacturer',
           attributes: ['code', 'subscription_type']
+        }, {
+          model: Device,
+          as: 'parent_device',
+          attributes: ['id', 'device_id', 'imei', 'device_category'],
+          required: false
         }],
-        where: {
-          status: 'active' // 只订阅活跃设备
-        }
+        where: { status: 'online' }
       });
 
       for (const device of devices) {
@@ -345,10 +349,14 @@ class MqttService {
    */
   async subscribeToDeviceCommandTopics(device) {
     try {
-      if (!device.imei || !device.manufacturer?.code) {
+      const communicationDevice = device.device_category === 'sub_device' && device.parent_device
+        ? device.parent_device
+        : device;
+      const communicationIdentity = communicationDevice.imei || communicationDevice.device_id;
+      if (!communicationIdentity || !device.manufacturer?.code) {
         logger.warn('设备缺少IMEI或厂商信息，跳过订阅', {
           deviceId: device.device_id,
-          imei: device.imei,
+          imei: communicationIdentity,
           manufacturerCode: device.manufacturer?.code
         });
         return;
@@ -360,14 +368,16 @@ class MqttService {
 
       if (subscriptionType === 'imei_middle') {
         // IMEI在中间：zhhl/{厂商编号}/{IMEI}/subscribe
-        commandTopic = `zhhl/${manufacturerCode}/${device.imei}/subscribe`;
+        commandTopic = `zhhl/${manufacturerCode}/${communicationIdentity}/subscribe`;
       } else if (subscriptionType === "custom") {
         const mfgConfig = device.manufacturer?.mqtt_config || {};
         const subTopics = mfgConfig.subscribeTopics || mfgConfig.subscribe_topics || [];
         if (subTopics.length > 0) {
           for (const ti of subTopics) {
             if (ti.enabled !== false && ti.topic) {
-              const topic = ti.topic.replace(/{imei}/g, device.imei);
+              const topic = ti.topic
+                .replace(/\{imei\}|\{IMEI\}/g, communicationIdentity)
+                .replace(/\{deviceId\}|\{device_id\}/g, communicationDevice.device_id || communicationIdentity);
               this.client.subscribe(topic, { qos: ti.qos || 1 }, (e) => {
                 if (e) logger.error("Custom unsub fail", { deviceId: device.device_id, topic, error: e.message });
                 else logger.info("Custom sub ok", { deviceId: device.device_id, topic });
@@ -380,7 +390,7 @@ class MqttService {
         return;
       } else if (subscriptionType === 'imei_last') {
         // IMEI在最后：zhhl/{厂商编号}/subscribe/{IMEI}
-        commandTopic = `zhhl/${manufacturerCode}/subscribe/${device.imei}`;
+        commandTopic = `zhhl/${manufacturerCode}/subscribe/${communicationIdentity}`;
       } else {
         logger.warn('未知的订阅类型', {
           deviceId: device.device_id,
@@ -430,7 +440,11 @@ class MqttService {
    */
   async unsubscribeDevice(device) {
     try {
-      if (!this.isConnected || !device.imei || !device.manufacturer?.code) {
+      const communicationDevice = device.device_category === 'sub_device' && device.parent_device
+        ? device.parent_device
+        : device;
+      const communicationIdentity = communicationDevice.imei || communicationDevice.device_id;
+      if (!this.isConnected || !communicationIdentity || !device.manufacturer?.code) {
         return;
       }
 
@@ -439,14 +453,16 @@ class MqttService {
       let commandTopic;
 
       if (subscriptionType === 'imei_middle') {
-        commandTopic = `zhhl/${manufacturerCode}/${device.imei}/subscribe`;
+        commandTopic = `zhhl/${manufacturerCode}/${communicationIdentity}/subscribe`;
       } else if (subscriptionType === "custom") {
         const mfgConfig = device.manufacturer?.mqtt_config || {};
         const subTopics = mfgConfig.subscribeTopics || mfgConfig.subscribe_topics || [];
         if (subTopics.length > 0) {
           for (const ti of subTopics) {
             if (ti.enabled !== false && ti.topic) {
-              const topic = ti.topic.replace(/{imei}/g, device.imei);
+              const topic = ti.topic
+                .replace(/\{imei\}|\{IMEI\}/g, communicationIdentity)
+                .replace(/\{deviceId\}|\{device_id\}/g, communicationDevice.device_id || communicationIdentity);
               this.client.unsubscribe(topic, { qos: ti.qos || 1 }, (e) => {
                 if (e) logger.error("Custom unsub fail", { deviceId: device.device_id, topic, error: e.message });
                 else logger.info("Custom unsub ok", { deviceId: device.device_id, topic });
@@ -456,9 +472,8 @@ class MqttService {
         } else {
         }
         return;
-        return;
       } else if (subscriptionType === 'imei_last') {
-        commandTopic = `zhhl/${manufacturerCode}/subscribe/${device.imei}`;
+        commandTopic = `zhhl/${manufacturerCode}/subscribe/${communicationIdentity}`;
       }
 
       if (commandTopic) {
@@ -1615,10 +1630,12 @@ class MqttService {
         model: ProtocolConfig,
         as: 'protocol_config',
         attributes: ['id', 'name', 'modbus_config', 'status']
-      }],
-      attributes: {
-        exclude: ['device_category']  // 暂时排除可能有问题的字段
-      }
+      }, {
+        model: Device,
+        as: 'parent_device',
+        attributes: ['id', 'name', 'device_id', 'imei', 'device_category'],
+        required: false
+      }]
     };
 
     if (includeTenant) {
@@ -2651,15 +2668,27 @@ class MqttService {
    * @param {Object} device - 设备对象
    */
   buildCommandTopic(device) {
-    
-    // 对于子设备，使用父网关的IMEI来构建MQTT主题
-    const effectiveImei = device.device_category === 'sub_device' && device.parent_device
-        ? (device.parent_device.imei || device.parent_device.device_id)
-        : (device.imei || device.device_id);
-try {
+    const isSubDevice = device.device_category === 'sub_device' && device.parent_device;
+    const effectiveImei = isSubDevice
+      ? (device.parent_device.imei || device.parent_device.device_id)
+      : (device.imei || device.device_id);
+    const replaceChildIdentity = (topic) => {
+      if (!isSubDevice || !topic) return topic;
+      let result = String(topic);
+      const childIdentities = [device.device_id, device.imei]
+        .filter((value, index, values) => value && values.indexOf(value) === index)
+        .sort((left, right) => right.length - left.length);
+      for (const identity of childIdentities) {
+        result = result.split(identity).join(effectiveImei);
+      }
+      return result;
+    };
+    try {
       // 优先使用设备的MQTT配置
       const deviceMqttConfig = device.mqtt_config || {};
-      const renderTopic = (template) => this.renderTopicTemplate(template, device);
+      const renderTopic = (template) => replaceChildIdentity(
+        this.renderTopicTemplate(template, device)
+      );
       
       // 优先使用command_topic字段
       if (deviceMqttConfig.command_topic) {
@@ -2739,15 +2768,18 @@ try {
   renderTopicTemplate(template, device) {
     if (!template) return template;
     const manufacturerCode = device.manufacturer?.code || device.manufacturer_code || '';
+    const communicationDevice = device.device_category === 'sub_device' && device.parent_device
+      ? device.parent_device
+      : device;
     const replacements = {
       manufacturerCode,
       manufacturer: manufacturerCode,
       code: manufacturerCode,
-      imei: device.imei || '',
-      deviceId: device.device_id || '',
-      device_id: device.device_id || '',
-      gatewayMac: device.gateway_mac || device.parent_device?.imei || device.imei || '',
-      mac: device.gateway_mac || device.parent_device?.imei || device.imei || '',
+      imei: communicationDevice.imei || communicationDevice.device_id || '',
+      deviceId: communicationDevice.device_id || communicationDevice.imei || '',
+      device_id: communicationDevice.device_id || communicationDevice.imei || '',
+      gatewayMac: device.gateway_mac || communicationDevice.imei || communicationDevice.device_id || '',
+      mac: device.gateway_mac || communicationDevice.imei || communicationDevice.device_id || '',
       addr: device.sub_device_sequence || device.address || device.device_address || '',
       id: device.id || ''
     };
@@ -2894,8 +2926,11 @@ try {
         throw new Error('设备不存在');
       }
 
-      // 构建MQTT主题
-      const topic = options.mqttTopic || command?.mqttTopic || command?.topic || this.buildCommandTopic(device);
+      // 子设备只能通过上级网关通信，不能使用前端传入的子设备主题。
+      const requestedTopic = options.mqttTopic || command?.mqttTopic || command?.topic;
+      const topic = device.device_category === 'sub_device'
+        ? this.buildCommandTopic(device)
+        : (requestedTopic || this.buildCommandTopic(device));
       // 直接发送原始命令数据，不进行额外封装
       let message;
       if (typeof command === 'string') {
@@ -3669,6 +3704,7 @@ try {
    */
   startStatsCleanup() {
     this.startDeviceLastSeenCleanup();
+    this.startDeviceLogCleanup();
     this.statsCleanupTimer = setInterval(() => {
       this.cleanupStats();
     }, this.statsCleanupInterval);
@@ -3683,6 +3719,40 @@ try {
       this.statsCleanupTimer = null;
     }
     this.stopDeviceLastSeenCleanup();
+    this.stopDeviceLogCleanup();
+  }
+
+  async cleanupExpiredDeviceLogs() {
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    const deletedCount = await DeviceLog.destroy({
+      where: {
+        timestamp: { [Op.lt]: startOfToday }
+      }
+    });
+    if (deletedCount > 0) {
+      logger.info('已清理非当天设备通信日志', { deletedCount });
+    }
+    return deletedCount;
+  }
+
+  startDeviceLogCleanup() {
+    if (this.deviceLogCleanupTimer) return;
+    this.cleanupExpiredDeviceLogs().catch((error) => {
+      logger.error('清理设备通信日志失败', { error: error.message });
+    });
+    this.deviceLogCleanupTimer = setInterval(() => {
+      this.cleanupExpiredDeviceLogs().catch((error) => {
+        logger.error('清理设备通信日志失败', { error: error.message });
+      });
+    }, this.deviceLogCleanupInterval);
+  }
+
+  stopDeviceLogCleanup() {
+    if (this.deviceLogCleanupTimer) {
+      clearInterval(this.deviceLogCleanupTimer);
+      this.deviceLogCleanupTimer = null;
+    }
   }
 
   startDeviceLastSeenCleanup() {

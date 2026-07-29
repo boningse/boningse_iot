@@ -194,6 +194,9 @@ async function startServer() {
     // 启动WebSocket服务
     websocketService.init(server);
     logger.info('WebSocket服务启动成功');
+
+    // 通信日志保留策略不依赖 MQTT 是否连接成功。
+    mqttService.startDeviceLogCleanup();
     
     // 启动MQTT服务
     try {

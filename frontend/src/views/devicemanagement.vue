@@ -1320,6 +1320,7 @@ const getDeviceList = async () => {
       deviceList.value = deviceData.map((device) => ({
         id: device.id,
         name: device.name,
+        deviceId: device.device_id,
         imei: device.imei,
         tenantId: device.tenant_id,
         tenantName: device.tenant?.name || "未知租户",
@@ -1332,6 +1333,8 @@ const getDeviceList = async () => {
         device_category: device.device_category || "standalone", // 设备分类
         parent_device_id: device.parent_device_id, // 父设备ID
         parent_device_name: device.parent_device?.name || "", // 父设备名称
+        parent_device_device_id: device.parent_device?.device_id || "",
+        parent_device_imei: device.parent_device?.imei || "",
         sub_device_sequence: device.sub_device_sequence, // 子设备序列ID
         manufacturerCode: device.manufacturer_code || "",
         protocolConfigId: device.protocol_config_id || "",
@@ -1728,7 +1731,7 @@ const loadDeviceLogs = async () => {
           ? new Date(log.timestamp).toLocaleString("zh-CN")
           : "未知时间",
         level: log.level || "info",
-        type: getLogTypeFromMessage(log.message),
+        type: getLogTypeFromMessage(log.message, log.data?.messageType),
         message: log.message || "无消息内容",
         data: log.data,
         source: log.data?.source || log.source || "system",
@@ -1770,7 +1773,12 @@ const loadDeviceLogs = async () => {
 /**
  * 从消息内容推断日志类型
  */
-const getLogTypeFromMessage = (message) => {
+const getLogTypeFromMessage = (message, messageType = "") => {
+  const normalizedType = String(messageType).toLowerCase();
+  if (normalizedType.includes("command")) return "command";
+  if (normalizedType.includes("heartbeat")) return "heartbeat";
+  if (normalizedType.includes("error")) return "error";
+  if (normalizedType && normalizedType !== "info") return "data";
   if (!message) return "info";
 
   const msg = message.toLowerCase();
@@ -1779,10 +1787,10 @@ const getLogTypeFromMessage = (message) => {
   if (msg.includes("下线") || msg.includes("离线") || msg.includes("offline"))
     return "offline";
   if (msg.includes("心跳") || msg.includes("heartbeat")) return "heartbeat";
-  if (msg.includes("数据") || msg.includes("data")) return "data";
   if (msg.includes("命令") || msg.includes("command")) return "command";
   if (msg.includes("错误") || msg.includes("error") || msg.includes("失败"))
     return "error";
+  if (msg.includes("数据") || msg.includes("data")) return "data";
 
   return "info";
 };
@@ -1850,6 +1858,72 @@ const formatLogData = (data) => {
 /**
  * 打开设备数据传输对话框
  */
+const getCommunicationIdentity = (device) => {
+  if (device?.device_category === "sub_device") {
+    return (
+      device.parent_device_imei ||
+      device.parent_device_device_id ||
+      ""
+    );
+  }
+  return device?.imei || device?.deviceId || "";
+};
+
+const renderDebugTopic = (template, device, manufacturerCode) => {
+  const communicationIdentity = getCommunicationIdentity(device);
+  const communicationDeviceId =
+    device?.device_category === "sub_device"
+      ? device.parent_device_device_id || communicationIdentity
+      : device?.deviceId || communicationIdentity;
+  return String(template || "")
+    .replace(/\{imei\}|\{IMEI\}/g, communicationIdentity)
+    .replace(/\{deviceId\}|\{device_id\}/g, communicationDeviceId)
+    .replace(
+      /\{manufacturerCode\}|\{manufacturer\}|\{code\}/g,
+      manufacturerCode,
+    );
+};
+
+const buildDebugTopics = (device, manufacturer) => {
+  const manufacturerCode = device.manufacturerCode;
+  const communicationIdentity = getCommunicationIdentity(device);
+  const mqttConfig = manufacturer.mqttConfig || {};
+  const subscriptionType = mqttConfig.subscriptionType || "middle";
+
+  if (subscriptionType === "custom") {
+    const subscribeTemplate =
+      mqttConfig.subscribeTopic || mqttConfig.subscribeTopics?.[0]?.topic;
+    const publishTemplate =
+      mqttConfig.publishTopic || mqttConfig.publishTopics?.[0]?.topic;
+    return {
+      publishTopic: renderDebugTopic(
+        publishTemplate ||
+          `zhhl/${manufacturerCode}/{imei}/publish`,
+        device,
+        manufacturerCode,
+      ),
+      subscribeTopic: renderDebugTopic(
+        subscribeTemplate ||
+          `zhhl/${manufacturerCode}/{imei}/subscribe`,
+        device,
+        manufacturerCode,
+      ),
+    };
+  }
+
+  if (subscriptionType === "end" || subscriptionType === "imei_last") {
+    return {
+      publishTopic: `zhhl/${manufacturerCode}/publish/${communicationIdentity}`,
+      subscribeTopic: `zhhl/${manufacturerCode}/subscribe/${communicationIdentity}`,
+    };
+  }
+
+  return {
+    publishTopic: `zhhl/${manufacturerCode}/${communicationIdentity}/publish`,
+    subscribeTopic: `zhhl/${manufacturerCode}/${communicationIdentity}/subscribe`,
+  };
+};
+
 const openDebugDialog = async (row) => {
   debugDevice.value = row;
   debugDialogVisible.value = true;
@@ -1885,21 +1959,15 @@ const openDebugDialog = async (row) => {
     );
     if (manufacturerResponse.success && manufacturerResponse.data) {
       const manufacturer = manufacturerResponse.data;
-      const subscriptionType =
-        manufacturer.mqttConfig?.subscriptionType || "middle";
-
-      let publishTopic, subscribeTopic;
-      if (subscriptionType === "middle") {
-        // IMEI在中间：zhhl/{厂商编号}/{IMEI}/publish
-        publishTopic = `zhhl/${row.manufacturerCode}/${row.imei}/publish`;
-        subscribeTopic = `zhhl/${row.manufacturerCode}/${row.imei}/subscribe`;
-      } else {
-        // IMEI在最后：zhhl/{厂商编号}/publish/{IMEI}
-        publishTopic = `zhhl/${row.manufacturerCode}/publish/${row.imei}`;
-        subscribeTopic = `zhhl/${row.manufacturerCode}/subscribe/${row.imei}`;
-      }
+      const { publishTopic, subscribeTopic } = buildDebugTopics(
+        row,
+        manufacturer,
+      );
 
       receivedData.value += `[${timestamp}] 使用厂商配置的MQTT主题格式\n`;
+      if (row.device_category === "sub_device") {
+        receivedData.value += `[${timestamp}] 子设备通过上级网关 ${getCommunicationIdentity(row)} 通信\n`;
+      }
       receivedData.value += `[${timestamp}] 发布主题: ${publishTopic}\n`;
       receivedData.value += `[${timestamp}] 订阅主题: ${subscribeTopic}\n`;
     } else {
@@ -1960,19 +2028,13 @@ const sendDataToDevice = async () => {
 
     if (manufacturerResponse.success && manufacturerResponse.data) {
       const manufacturer = manufacturerResponse.data;
-      const subscriptionType =
-        manufacturer.mqttConfig?.subscriptionType || "middle";
-
-      if (subscriptionType === "middle") {
-        // IMEI在中间：zhhl/{厂商编号}/{IMEI}/subscribe
-        subscribeTopic = `zhhl/${debugDevice.value.manufacturerCode}/${debugDevice.value.imei}/subscribe`;
-      } else {
-        // IMEI在最后：zhhl/{厂商编号}/subscribe/{IMEI}
-        subscribeTopic = `zhhl/${debugDevice.value.manufacturerCode}/subscribe/${debugDevice.value.imei}`;
-      }
+      subscribeTopic = buildDebugTopics(
+        debugDevice.value,
+        manufacturer,
+      ).subscribeTopic;
     } else {
       // 使用默认格式
-      subscribeTopic = `zhhl/${debugDevice.value.manufacturerCode}/${debugDevice.value.imei}/subscribe`;
+      subscribeTopic = `zhhl/${debugDevice.value.manufacturerCode}/${getCommunicationIdentity(debugDevice.value)}/subscribe`;
     }
 
     // 调用设备命令API，传入MQTT主题信息
