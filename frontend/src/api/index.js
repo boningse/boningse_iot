@@ -192,6 +192,34 @@ const patch = (url, data = {}) => {
   });
 };
 
+const downloadBlob = async (url, params = {}) => {
+  const token = localStorage.getItem("token");
+  const queryString = new URLSearchParams(params).toString();
+  const finalUrl = queryString ? `${url}?${queryString}` : url;
+  const response = await fetch(`${API_BASE_URL}${finalUrl}`, {
+    credentials: "include",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+
+  if (!response.ok) {
+    const contentType = response.headers.get("content-type") || "";
+    const result = contentType.includes("application/json")
+      ? await response.json()
+      : { message: await response.text() };
+    throw new Error(result.message || "文件下载失败");
+  }
+
+  const disposition = response.headers.get("content-disposition") || "";
+  const encodedName = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+  const fallbackName = disposition.match(/filename="?([^";]+)"?/i)?.[1];
+  return {
+    blob: await response.blob(),
+    fileName: encodedName
+      ? decodeURIComponent(encodedName)
+      : fallbackName || "download.xlsx",
+  };
+};
+
 // 认证相关API
 const authAPI = {
   /**
@@ -318,6 +346,15 @@ const deviceAPI = {
    */
   getGateways: () => get("/devices/gateways"),
 
+  downloadImportTemplate: () => downloadBlob("/devices/import-template"),
+
+  exportDevices: (params = {}) => downloadBlob("/devices/export", params),
+
+  importDevices: (formData) =>
+    request("/devices/import", {
+      method: "POST",
+      body: formData,
+    }),
 };
 
 // 租户管理API
@@ -703,6 +740,9 @@ const lightingControlAPI = {
    */
   controlDevice: (deviceId, controlData) =>
     post(`/lighting-control/${deviceId}/control`, controlData),
+
+  batchControl: (devices, command) =>
+    post("/lighting-control/batch/control", { devices, command }),
 };
 
 // 开关控制API

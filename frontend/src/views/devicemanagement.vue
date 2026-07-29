@@ -69,6 +69,31 @@
 
     <!-- 设备列表 -->
     <el-card class="table-card" shadow="never">
+      <div class="batch-toolbar">
+        <div class="batch-toolbar__summary">
+          <span>批量维护</span>
+          <small>导出后可直接修改，再导入完成新增或更新</small>
+        </div>
+        <div class="batch-toolbar__actions">
+          <el-button @click="downloadImportTemplate">
+            <el-icon><Document /></el-icon>
+            下载模板
+          </el-button>
+          <el-button type="primary" plain @click="openImportDialog">
+            <el-icon><UploadFilled /></el-icon>
+            导入设备
+          </el-button>
+          <el-button
+            type="primary"
+            :loading="exporting"
+            @click="exportDevices"
+          >
+            <el-icon><Download /></el-icon>
+            导出设备
+          </el-button>
+        </div>
+      </div>
+
       <el-table
         :data="deviceList"
         v-loading="loading"
@@ -223,6 +248,73 @@
         />
       </div>
     </el-card>
+
+    <el-dialog
+      v-model="importDialogVisible"
+      title="批量导入设备"
+      width="620px"
+      @closed="resetImportDialog"
+    >
+      <div class="import-guide">
+        <p>
+          使用系统 ID、设备 ID 或 IMEI 匹配已有设备；匹配成功时更新，未匹配时新增。
+        </p>
+        <p>
+          空白单元格不会覆盖已有内容，需要清除的选填字段请填写“【清空】”。
+        </p>
+      </div>
+
+      <el-upload
+        ref="importUploadRef"
+        class="device-import-upload"
+        drag
+        :auto-upload="false"
+        :limit="1"
+        accept=".xlsx"
+        :on-change="handleImportFileChange"
+        :on-remove="handleImportFileRemove"
+      >
+        <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
+        <div class="el-upload__text">
+          将 Excel 文件拖到此处，或<em>点击选择</em>
+        </div>
+        <template #tip>
+          <div class="el-upload__tip">仅支持 .xlsx，单次最多 5000 台设备</div>
+        </template>
+      </el-upload>
+
+      <div v-if="importResult" class="import-result">
+        <el-alert
+          :type="importResult.failed ? 'warning' : 'success'"
+          :closable="false"
+          show-icon
+          :title="`新增 ${importResult.created} 台，更新 ${importResult.updated} 台，失败 ${importResult.failed} 行`"
+        />
+        <el-table
+          v-if="importResult.errors?.length"
+          :data="importResult.errors"
+          max-height="220"
+          size="small"
+        >
+          <el-table-column prop="row" label="行号" width="72" />
+          <el-table-column prop="device" label="设备" width="150" />
+          <el-table-column prop="message" label="失败原因" min-width="260" />
+        </el-table>
+      </div>
+
+      <template #footer>
+        <el-button @click="downloadImportTemplate">下载模板</el-button>
+        <el-button @click="importDialogVisible = false">关闭</el-button>
+        <el-button
+          type="primary"
+          :loading="importing"
+          :disabled="!importFile"
+          @click="submitDeviceImport"
+        >
+          开始导入
+        </el-button>
+      </template>
+    </el-dialog>
 
     <!-- 添加/编辑设备对话框 -->
     <el-dialog
@@ -741,6 +833,8 @@ import {
   Refresh,
   Plus,
   Edit,
+  Download,
+  UploadFilled,
 } from "@element-plus/icons-vue";
 import {
   deviceAPI,
@@ -801,6 +895,13 @@ const pagination = reactive({
   pageSize: 10,
   total: 0,
 });
+
+const importDialogVisible = ref(false);
+const importUploadRef = ref(null);
+const importFile = ref(null);
+const importResult = ref(null);
+const importing = ref(false);
+const exporting = ref(false);
 
 /**
  * 对话框相关
@@ -1223,9 +1324,9 @@ const getDeviceList = async () => {
         tenantId: device.tenant_id,
         tenantName: device.tenant?.name || "未知租户",
         projectBuildingId: device.project_building_id || "",
-        projectBuildingName: device.project_building?.name || "",
+        projectBuildingName: device.project_building_name || "",
         projectGroupId: device.project_group_id || "",
-        projectGroupName: device.project_group?.name || "",
+        projectGroupName: device.project_group_name || "",
         type: device.device_type?.name || "未知类型",
         deviceTypeId: device.device_type_id,
         device_category: device.device_category || "standalone", // 设备分类
@@ -1276,6 +1377,109 @@ const getDeviceList = async () => {
     ElMessage.error(errorMessage);
   } finally {
     loading.value = false;
+  }
+};
+
+const saveBlob = ({ blob, fileName }) => {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+};
+
+const downloadImportTemplate = async () => {
+  try {
+    saveBlob(await deviceAPI.downloadImportTemplate());
+  } catch (error) {
+    console.error("下载设备导入模板失败:", error);
+    ElMessage.error(error.message || "下载设备导入模板失败");
+  }
+};
+
+const exportDevices = async () => {
+  exporting.value = true;
+  try {
+    const params = {
+      keyword: searchForm.keyword,
+      status: searchForm.status,
+      type: searchForm.type,
+      tenantId: searchForm.tenantId,
+    };
+    Object.keys(params).forEach((key) => {
+      if (!params[key]) delete params[key];
+    });
+    saveBlob(await deviceAPI.exportDevices(params));
+    ElMessage.success("设备清单已导出");
+  } catch (error) {
+    console.error("导出设备失败:", error);
+    ElMessage.error(error.message || "导出设备失败");
+  } finally {
+    exporting.value = false;
+  }
+};
+
+const openImportDialog = () => {
+  importDialogVisible.value = true;
+};
+
+const handleImportFileChange = (uploadFile) => {
+  importResult.value = null;
+  if (!uploadFile.name?.toLowerCase().endsWith(".xlsx")) {
+    ElMessage.warning("请选择 .xlsx 格式的 Excel 文件");
+    importUploadRef.value?.clearFiles();
+    importFile.value = null;
+    return;
+  }
+  if (uploadFile.size > 10 * 1024 * 1024) {
+    ElMessage.warning("Excel 文件不能超过 10 MB");
+    importUploadRef.value?.clearFiles();
+    importFile.value = null;
+    return;
+  }
+  importFile.value = uploadFile.raw;
+};
+
+const handleImportFileRemove = () => {
+  importFile.value = null;
+  importResult.value = null;
+};
+
+const resetImportDialog = () => {
+  importUploadRef.value?.clearFiles();
+  importFile.value = null;
+  importResult.value = null;
+  importing.value = false;
+};
+
+const submitDeviceImport = async () => {
+  if (!importFile.value) return;
+  importing.value = true;
+  try {
+    const formData = new FormData();
+    formData.append("file", importFile.value);
+    const response = await deviceAPI.importDevices(formData);
+    importResult.value = response.data || null;
+
+    if (response.data?.created || response.data?.updated) {
+      apiCache.clear("devices");
+      pagination.currentPage = 1;
+      await getDeviceList();
+    }
+
+    if (response.success) {
+      ElMessage.success(response.message || "设备导入完成");
+    } else {
+      ElMessage.warning(response.message || "导入文件未产生有效变更");
+    }
+  } catch (error) {
+    console.error("批量导入设备失败:", error);
+    ElMessage.error(error.message || "批量导入设备失败");
+  } finally {
+    importing.value = false;
   }
 };
 
@@ -2687,11 +2891,73 @@ onUnmounted(() => {
   .table-card {
     overflow: hidden;
 
+    .batch-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 16px;
+      padding-bottom: 14px;
+      border-bottom: 1px solid var(--border-light);
+    }
+
+    .batch-toolbar__summary {
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+
+      span {
+        color: var(--text-primary);
+        font-weight: 600;
+      }
+
+      small {
+        color: var(--text-secondary);
+      }
+    }
+
+    .batch-toolbar__actions {
+      display: flex;
+      flex-shrink: 0;
+      gap: 8px;
+
+      :deep(.el-button + .el-button) {
+        margin-left: 0;
+      }
+    }
+
     .pagination-container {
       margin-top: 20px;
       display: flex;
       justify-content: flex-end;
     }
+  }
+
+  .import-guide {
+    margin-bottom: 16px;
+    padding: 12px 14px;
+    border-left: 3px solid var(--primary-color);
+    background: var(--fill-lighter);
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1.7;
+
+    p {
+      margin: 0;
+    }
+  }
+
+  .device-import-upload {
+    :deep(.el-upload),
+    :deep(.el-upload-dragger) {
+      width: 100%;
+    }
+  }
+
+  .import-result {
+    display: grid;
+    gap: 12px;
+    margin-top: 18px;
   }
 
   // 日志相关样式
@@ -2930,6 +3196,27 @@ onUnmounted(() => {
     .table-card {
       :deep(.el-card__body) {
         padding: 12px;
+      }
+
+      .batch-toolbar {
+        align-items: stretch;
+        flex-direction: column;
+      }
+
+      .batch-toolbar__summary {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 2px;
+      }
+
+      .batch-toolbar__actions {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+
+        :deep(.el-button) {
+          width: 100%;
+          padding-inline: 8px;
+        }
       }
 
       .pagination-container {

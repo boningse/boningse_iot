@@ -228,6 +228,9 @@ isAirConditioner, excludeGateways
 | GET | `/api/devices` | 登录 | 获取设备和网关子设备列表 |
 | POST | `/api/devices` | 登录 | 创建设备；支持独立设备、网关和子设备 |
 | GET | `/api/devices/gateways` | 登录 | 获取可作为上级的网关 |
+| GET | `/api/devices/import-template` | 登录 | 下载设备批量导入模板（`.xlsx`） |
+| GET | `/api/devices/export` | 登录 | 按设备列表筛选参数导出当前权限范围内的设备 |
+| POST | `/api/devices/import` | 登录 | 上传 `file` 表单字段，按系统 ID、设备 ID 或 IMEI 批量新增/更新，最多 5000 行 |
 | GET | `/api/devices/:id` | 登录 | 获取设备详情 |
 | PUT | `/api/devices/:id` | 登录 | 更新设备基础信息、项目归属和协议 |
 | DELETE | `/api/devices/:id` | 登录 | 删除设备 |
