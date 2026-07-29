@@ -59,8 +59,8 @@
         </div>
         
         <div class="stats-info">
-          <span class="device-count">共 {{ filteredDevices.length }} 个设备</span>
-          <span class="online-count">在线: {{ onlineDevicesCount }}</span>
+          <span class="device-count">共 {{ deviceTotal }} 个设备</span>
+          <span class="online-count">本页在线: {{ onlineDevicesCount }}</span>
         </div>
       </div>
     </div>
@@ -201,6 +201,18 @@
           </el-button>
         </div>
       </el-card>
+    </div>
+
+    <div class="pagination-container device-pagination">
+      <el-pagination
+        v-model:current-page="devicePage"
+        v-model:page-size="devicePageSize"
+        :page-sizes="[12, 24, 48, 96]"
+        :total="deviceTotal"
+        layout="total, sizes, prev, pager, next, jumper"
+        @size-change="handleDevicePageSizeChange"
+        @current-change="handleDevicePageChange"
+      />
     </div>
 
     <!-- 添加设备对话框 -->
@@ -891,6 +903,10 @@ const tenantOptions = ref([])
 const buildingOptions = ref([])
 const deviceGroups = ref([])
 const filteredDevices = ref([])
+const devicePage = ref(1)
+const devicePageSize = ref(24)
+const deviceTotal = ref(0)
+let searchTimer = null
 
 const filteredBuildingOptions = computed(() => selectedTenant.value
   ? buildingOptions.value.filter(item => String(item.tenant_id) === String(selectedTenant.value))
@@ -1222,48 +1238,49 @@ const onlineDevicesCount = computed(() => {
   return filteredDevices.value.filter(device => device.status === 'online').length
 })
 
-// 过滤设备列表
+// 后端已按完整设备集筛选和分页，前端只展示当前页。
 const filterDevices = () => {
-  let filtered = lightingDevices.value
-  
-  // 按名称搜索
-  if (searchKeyword.value) {
-    filtered = filtered.filter(device => 
-      device.name.toLowerCase().includes(searchKeyword.value.toLowerCase())
-    )
-  }
-  
-  if (selectedTenant.value) filtered = filtered.filter(device => String(device.tenantId || '') === String(selectedTenant.value))
-  if (selectedBuilding.value) filtered = filtered.filter(device => String(device.projectBuildingId || '') === String(selectedBuilding.value))
-  if (selectedProjectGroup.value) filtered = filtered.filter(device => String(device.projectGroupId || '') === String(selectedProjectGroup.value))
-  if (selectedStatus.value) filtered = filtered.filter(device => device.status === selectedStatus.value)
-  
-  filteredDevices.value = filtered
+  filteredDevices.value = lightingDevices.value
 }
 
 // 搜索处理
 const handleSearch = () => {
-  filterDevices()
+  devicePage.value = 1
+  clearTimeout(searchTimer)
+  searchTimer = setTimeout(loadDevices, 300)
 }
 
 // 分组过滤处理
 const handleGroupFilter = () => {
-  filterDevices()
+  devicePage.value = 1
+  loadDevices()
 }
 
 const handleTenantFilter = () => {
   selectedBuilding.value = ''
   selectedProjectGroup.value = ''
-  filterDevices()
+  devicePage.value = 1
+  loadDevices()
 }
 
 const handleBuildingFilter = () => {
   if (selectedProjectGroup.value && !filteredProjectGroupOptions.value.some(item => String(item.id) === String(selectedProjectGroup.value))) selectedProjectGroup.value = ''
-  filterDevices()
+  devicePage.value = 1
+  loadDevices()
 }
 
 const handleStatusFilter = () => {
-  filterDevices()
+  devicePage.value = 1
+  loadDevices()
+}
+
+const handleDevicePageSizeChange = () => {
+  devicePage.value = 1
+  loadDevices()
+}
+
+const handleDevicePageChange = () => {
+  loadDevices()
 }
 
 // 获取灯泡状态
@@ -2719,11 +2736,24 @@ const loadTenants = async () => {
 // 加载设备列表
 const loadDevices = async () => {
   try {
-    // 从照明控制API获取设备列表
-    const result = await lightingControlAPI.getLightingDevices()
+    loading.value = true
+    const params = {
+      page: devicePage.value,
+      pageSize: devicePageSize.value
+    }
+    const keyword = searchKeyword.value.trim()
+    if (keyword) params.keyword = keyword
+    if (selectedTenant.value) params.tenantId = selectedTenant.value
+    if (selectedBuilding.value) params.buildingId = selectedBuilding.value
+    if (selectedProjectGroup.value) params.projectGroupId = selectedProjectGroup.value
+    if (selectedStatus.value) params.status = selectedStatus.value
+
+    const result = await lightingControlAPI.getLightingDevices(params)
     if (result.success && result.data) {
-      // 直接使用照明控制表中的设备，无需过滤
       const devices = result.data.devices || []
+      deviceTotal.value = Number(
+        result.data.pagination?.total ?? result.data.total ?? devices.length
+      )
       
       // 先快速显示设备基本信息，不等待数据加载
       lightingDevices.value = devices.map(device => {
@@ -2775,6 +2805,10 @@ const loadDevices = async () => {
     ElMessage.error('加载照明设备列表失败')
     // 如果API调用失败，使用空数组
     lightingDevices.value = []
+    filteredDevices.value = []
+    deviceTotal.value = 0
+  } finally {
+    loading.value = false
   }
 }
 
@@ -2799,18 +2833,15 @@ const deleteDevice = async (device) => {
       throw new Error(result.message || '删除设备失败')
     }
     
-    // 从设备列表中移除
-    const index = lightingDevices.value.findIndex(d => d.id === device.id)
-    if (index > -1) {
-      lightingDevices.value.splice(index, 1)
-      ElMessage.success('设备删除成功')
-      
-      // 如果删除的是当前查看详情的设备，关闭详情对话框
-      if (selectedDevice.value && selectedDevice.value.id === device.id) {
-        showDetailDialog.value = false
-        selectedDevice.value = null
-      }
+    if (selectedDevice.value && selectedDevice.value.id === device.id) {
+      showDetailDialog.value = false
+      selectedDevice.value = null
     }
+    const remainingTotal = Math.max(deviceTotal.value - 1, 0)
+    const lastPage = Math.max(Math.ceil(remainingTotal / devicePageSize.value), 1)
+    devicePage.value = Math.min(devicePage.value, lastPage)
+    await loadDevices()
+    ElMessage.success('设备删除成功')
   } catch (error) {
     if (error !== 'cancel') {
       console.error('删除设备失败:', error)
@@ -2871,6 +2902,7 @@ onMounted(async () => {
 
 // 组件卸载时清理资源
 onUnmounted(() => {
+  clearTimeout(searchTimer)
   // 移除WebSocket监听器
   websocketService.off('device_status_update', handleDeviceStatusUpdate)
   websocketService.off('device_offline', handleDeviceOffline)
@@ -4365,6 +4397,18 @@ const getIconComponent = (iconName) => {
   justify-content: center;
   margin-top: 20px;
   padding: 20px 0;
+}
+
+.device-pagination {
+  margin-bottom: 8px;
+}
+
+@media (max-width: 768px) {
+  .device-pagination {
+    justify-content: flex-start;
+    overflow-x: auto;
+    padding: 14px 0 18px;
+  }
 }
 
 /* 空状态样式 */
