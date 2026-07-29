@@ -102,7 +102,7 @@ Page({
         status: tab.status,
         mine: tab.mine,
         page,
-        pageSize: 20
+        pageSize: 3000
       });
       const user = session.getUser();
       const incoming = result.list.map((item) => ({

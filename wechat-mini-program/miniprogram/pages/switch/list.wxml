@@ -1,25 +1,28 @@
 <view class="page device-page">
-  <view class="toolbar">
-    <view class="search-box">
-      <image src="/assets/icons/search.png" mode="aspectFit"></image>
+  <view class="list-toolbar">
+    <view class="list-search-box">
+      <image src="/assets/icons/search.png" class="search-icon"></image>
       <input class="search-input" value="{{keyword}}" placeholder="名称、设备 ID" confirm-type="search" bindinput="onKeywordInput" bindconfirm="search" />
     </view>
-    <button class="icon-button" bindtap="search" aria-label="搜索">
-      <image src="/assets/icons/refresh.png" mode="aspectFit"></image>
+    <button class="list-icon-button" bindtap="search" aria-label="搜索">
+      <image src="/assets/icons/refresh.png" class="search-icon"></image>
     </button>
   </view>
 
   <scope-filter bind:change="onScopeChange"></scope-filter>
 
   <view class="device-summary">
-    <view>
-      <text class="page-title">开关控制</text>
-      <text class="page-subtitle">回路状态与关键电气数据</text>
+    <view class="bounary-line">
+      <!-- <text class="page-title">开关控制</text>
+      <text class="page-subtitle">定时开关统一控制</text> -->
     </view>
-    <view class="device-total"><text class="numeric">{{total}}</text>台</view>
+
   </view>
 
-  <view class="device-list">
+  <view wx:if="{{!loading && !devices.length}}">
+    <empty-state  title="暂无开关设备" description="可在 PC 端设备管理中加入控制模块"></empty-state>
+  </view>
+  <view wx:else class="device-list">
     <view
       wx:for="{{devices}}"
       wx:key="routeId"
@@ -58,8 +61,6 @@
       </view>
     </view>
   </view>
-
-  <empty-state wx:if="{{!loading && !devices.length}}" title="暂无开关设备" description="可在 PC 端设备管理中加入控制模块"></empty-state>
   <view wx:if="{{loading || loadingMore}}" class="load-footer">正在同步设备...</view>
-  <view wx:elif="{{devices.length && page >= totalPages}}" class="load-footer">已显示全部设备</view>
+  <view wx:elif="{{devices.length && page >= totalPages}}" class="load-footer"><text class="numeric">设备总数：{{total}}</text>台</view>
 </view>

@@ -74,15 +74,16 @@ const normalizeText = (value) => (
   value === undefined || value === null ? '' : String(value).trim()
 );
 const normalizeLookup = (value) => normalizeText(value).toLocaleLowerCase('zh-CN');
+const normalizeProjectLookup = (value) => normalizeLookup(value).replace(/\s+/g, '');
 const hasValue = (value) => normalizeText(value) !== '';
 const isClearValue = (value) => normalizeText(value) === CLEAR_VALUE;
 
-const makeLookup = (items, keys, scopeKey = null) => {
+const makeLookup = (items, keys, scopeKey = null, normalize = normalizeLookup) => {
   const lookup = new Map();
   for (const item of items) {
     const scope = scopeKey ? `${item[scopeKey]}|` : '';
     for (const key of keys) {
-      const value = normalizeLookup(item[key]);
+      const value = normalize(item[key]);
       if (!value) continue;
       const lookupKey = `${scope}${value}`;
       if (!lookup.has(lookupKey)) {
@@ -97,8 +98,8 @@ const makeLookup = (items, keys, scopeKey = null) => {
   return lookup;
 };
 
-const resolveLookup = (lookup, value, label, scope = '') => {
-  const item = lookup.get(`${scope}${normalizeLookup(value)}`);
+const resolveLookup = (lookup, value, label, scope = '', normalize = normalizeLookup) => {
+  const item = lookup.get(`${scope}${normalize(value)}`);
   if (!item) throw new Error(`${label}“${value}”不存在或名称不唯一`);
   return item;
 };
@@ -484,8 +485,18 @@ router.post('/import', authenticateToken, excelUpload.single('file'), async (req
       manufacturers.map((item) => item.get({ plain: true })),
       ['id', 'name', 'code']
     );
-    const buildingLookup = makeLookup(buildingsResult, ['id', 'name', 'code'], 'tenant_id');
-    const groupLookup = makeLookup(groupsResult, ['id', 'name', 'code'], 'tenant_id');
+    const buildingLookup = makeLookup(
+      buildingsResult,
+      ['id', 'name', 'code'],
+      'tenant_id',
+      normalizeProjectLookup
+    );
+    const groupLookup = makeLookup(
+      groupsResult,
+      ['id', 'name', 'code'],
+      'tenant_id',
+      normalizeProjectLookup
+    );
     const protocolItems = protocols.map((item) => item.get({ plain: true }));
     const deviceItems = existingDevices.map((item) => item.get({ plain: true }));
     const devicesById = new Map(deviceItems.map((item) => [item.id, item]));
@@ -608,14 +619,26 @@ router.post('/import', authenticateToken, excelUpload.single('file'), async (req
         if (hasValue(row.building)) {
           next.project_building_id = isClearValue(row.building)
             ? null
-            : resolveLookup(buildingLookup, row.building, '所属建筑', `${tenant.id}|`).id;
+            : resolveLookup(
+              buildingLookup,
+              row.building,
+              '所属建筑',
+              `${tenant.id}|`,
+              normalizeProjectLookup
+            ).id;
         }
         let selectedGroup = null;
         if (hasValue(row.group)) {
           if (isClearValue(row.group)) {
             next.project_group_id = null;
           } else {
-            selectedGroup = resolveLookup(groupLookup, row.group, '所属分组', `${tenant.id}|`);
+            selectedGroup = resolveLookup(
+              groupLookup,
+              row.group,
+              '所属分组',
+              `${tenant.id}|`,
+              normalizeProjectLookup
+            );
             next.project_group_id = selectedGroup.id;
             if (!next.project_building_id) next.project_building_id = selectedGroup.building_id;
             if (next.project_building_id && selectedGroup.building_id !== next.project_building_id) {

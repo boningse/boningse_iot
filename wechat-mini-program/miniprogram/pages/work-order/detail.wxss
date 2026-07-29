@@ -237,7 +237,9 @@
   border-radius: 8rpx;
   background: #e5eae7;
 }
-
+.timeline{
+  padding-bottom: 260rpx;
+}
 .timeline-item {
   display: flex;
 }

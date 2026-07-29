@@ -24,8 +24,8 @@
         <image src="/assets/icons/chevron-down.png" mode="aspectFit"></image>
       </view>
     </picker>
-    <button class="filter-reset" bindtap="reset" aria-label="重置筛选">
+    <!-- <button class="filter-reset" bindtap="reset" aria-label="重置筛选">
       <image src="/assets/icons/rotate-ccw.png" mode="aspectFit"></image>
-    </button>
+    </button> -->
   </view>
 </scroll-view>

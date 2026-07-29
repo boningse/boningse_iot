@@ -4,7 +4,7 @@
       <text class="page-title">消息</text>
       <text class="page-subtitle">派单与工单状态变化</text>
     </view>
-    <button class="read-all" bindtap="markAllRead">全部已读</button>
+    <button class="read-all" bindtap="markAllRead">全部标为已读</button>
   </view>
 
   <view class="message-filter">

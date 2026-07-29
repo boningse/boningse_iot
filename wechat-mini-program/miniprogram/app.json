@@ -39,7 +39,7 @@
         "pagePath": "pages/work-order/list",
         "text": "工单",
         "iconPath": "assets/tab/work-order.png",
-        "selectedIconPath": "assets/tab/work-order-active.png"
+        "selectedIconPath": "assets/tab/work-order-selected.png"
       },
       {
         "pagePath": "pages/notification/list",
@@ -56,14 +56,6 @@
     ]
   },
   "style": "v2",
-  "permission": {
-    "scope.userLocation": {
-      "desc": "用于记录工单现场位置"
-    }
-  },
-  "requiredPrivateInfos": [
-    "getLocation"
-  ],
   "sitemapLocation": "sitemap.json",
   "lazyCodeLoading": "requiredComponents"
 }

@@ -743,6 +743,14 @@ const lightingControlAPI = {
 
   batchControl: (devices, command) =>
     post("/lighting-control/batch/control", { devices, command }),
+
+  getStrategies: () => get("/lighting-timer/strategies"),
+  getStrategyDevices: () => get("/lighting-timer/strategy-devices"),
+  createStrategy: (data) => post("/lighting-timer/strategies", data),
+  updateStrategy: (id, data) => put(`/lighting-timer/strategies/${id}`, data),
+  toggleStrategy: (id, enabled) =>
+    put(`/lighting-timer/strategies/${id}/toggle`, { enabled }),
+  deleteStrategy: (id) => del(`/lighting-timer/strategies/${id}`),
 };
 
 // 开关控制API
@@ -759,6 +767,13 @@ const switchControlAPI = {
   getElectricalHistory: (id, params = {}) =>
     get(`/switch-control/${id}/electrical/history`, params),
   controlDevice: (id, data) => post(`/switch-control/${id}/control`, data),
+  getStrategies: (params = {}) => get("/switch-control/strategies", params),
+  getStrategyDevices: () => get("/switch-control/strategy-devices"),
+  createStrategy: (data) => post("/switch-control/strategies", data),
+  updateStrategy: (id, data) => put(`/switch-control/strategies/${id}`, data),
+  toggleStrategy: (id, enabled) =>
+    put(`/switch-control/strategies/${id}/toggle`, { enabled }),
+  deleteStrategy: (id) => del(`/switch-control/strategies/${id}`),
 };
 
 // 分散空调控制API
@@ -766,7 +781,14 @@ const airConditionerControlAPI = {
   getDevices: (params = {}) => get("/air-conditioner-control", params),
   syncDevices: (params = {}) =>
     post("/air-conditioner-control/sync-devices", params),
-  saveStrategy: (data) => put("/air-conditioner-control/strategy", data),
+  getStrategies: () => get("/air-conditioner-control/strategies"),
+  getStrategyDevices: () => get("/air-conditioner-control/strategy-devices"),
+  createStrategy: (data) => post("/air-conditioner-control/strategies", data),
+  updateStrategy: (id, data) =>
+    put(`/air-conditioner-control/strategies/${id}`, data),
+  toggleStrategy: (id, enabled) =>
+    post(`/air-conditioner-control/strategies/${id}/toggle`, { enabled }),
+  deleteStrategy: (id) => del(`/air-conditioner-control/strategies/${id}`),
   getDeviceDetail: (id, params = {}) =>
     get(`/air-conditioner-control/${id}/detail`, params),
   controlDevice: (id, data) =>

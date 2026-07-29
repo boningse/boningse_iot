@@ -12,9 +12,14 @@
     </view>
   </scroll-view>
 
-  <view class="toolbar">
-    <view class="search-box"><image src="/assets/icons/search.png" mode="aspectFit"></image><input class="search-input" value="{{keyword}}" placeholder="设备、告警内容" confirm-type="search" bindinput="onKeywordInput" bindconfirm="search" /></view>
-    <button class="icon-button" bindtap="search" aria-label="刷新"><image src="/assets/icons/refresh.png" mode="aspectFit"></image></button>
+  <view class="list-toolbar">
+    <view class="list-search-box">
+      <image src="/assets/icons/search.png" mode="aspectFit" class="search-icon"></image>
+      <input class="search-input" value="{{keyword}}" placeholder="设备、告警内容" confirm-type="search" bindinput="onKeywordInput" bindconfirm="search"></input>
+    </view>
+    <button class="list-icon-button" bindtap="search" aria-label="刷新">
+      <image src="/assets/icons/refresh.png" class="search-icon" mode="aspectFit"></image>
+    </button>
   </view>
   <scope-filter show-status="{{false}}" bind:change="onScopeChange"></scope-filter>
 

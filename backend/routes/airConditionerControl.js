@@ -1,11 +1,10 @@
 const express = require('express');
+const { randomUUID } = require('crypto');
 const { Pool } = require('pg');
 const { authenticateToken } = require('../middleware/auth');
 const logger = require('../utils/logger');
 const { getPoolConfig } = require('../config/database');
-const mqttService = require('../services/mqttService');
-const { buildDa51kdCommand } = require('../utils/da51kdProtocol');
-const telemetryStore = require('../services/telemetryStore');
+const { executeAirConditionerControl } = require('../services/airConditionerExecutor');
 
 const router = express.Router();
 const pool = new Pool(getPoolConfig());
@@ -127,12 +126,46 @@ router.get('/', authenticateToken, async (req, res) => {
         FROM air_conditioner_latest_electrical
         WHERE device_id = d.id
       ) electrical_data ON true
+      LEFT JOIN LATERAL (
+        SELECT jsonb_build_object(
+          'enabled', strategy.enabled,
+          'mode', strategy.mode,
+          'fan_speed', strategy.fan_speed,
+          'target_temperature', strategy.target_temperature,
+          'temperature_range', jsonb_build_object(
+            'min', strategy.min_temperature,
+            'max', strategy.max_temperature
+          ),
+          'active_period', jsonb_build_object(
+            'start', to_char(strategy.active_start, 'HH24:MI'),
+            'end', to_char(strategy.active_end, 'HH24:MI')
+          ),
+          'description', strategy.description,
+          'schedules', COALESCE((
+            SELECT jsonb_agg(jsonb_build_object(
+              'id', schedule.id,
+              'name', schedule.name,
+              'action', schedule.action,
+              'time', to_char(schedule.execute_time, 'HH24:MI'),
+              'repeat', schedule.repeat_days,
+              'mode', schedule.mode,
+              'fan_speed', schedule.fan_speed,
+              'target_temperature', schedule.target_temperature,
+              'enabled', schedule.enabled
+            ) ORDER BY schedule.execute_time)
+            FROM air_conditioner_schedules schedule
+            WHERE schedule.strategy_id = strategy.id
+          ), '[]'::jsonb)
+        ) AS strategy_config
+        FROM air_conditioner_strategies strategy
+        WHERE strategy.device_id = d.id
+      ) strategy_data ON true
       ${where}
     `;
 
     const query = `
       SELECT acc.id as control_id, NULL::text AS group_name, acc.display_order,
-             acc.config->'strategy_config' AS strategy_config,
+             strategy_data.strategy_config,
              d.id, d.name, d.device_id, d.imei, d.status, d.location, d.description,
              d.tenant_id, d.manufacturer_code, d.project_building_id, d.project_group_id,
              dt.name as device_type_name, t.name as tenant_name,
@@ -207,41 +240,323 @@ router.post('/sync-devices', authenticateToken, async (req, res) => {
   }
 });
 
-router.put('/strategy', authenticateToken, async (req, res) => {
-  try {
-    const deviceIds = Array.isArray(req.body.deviceIds) ? req.body.deviceIds.filter(Boolean) : [];
-    const strategy = req.body.strategy;
-    if (!deviceIds.length || !strategy || typeof strategy !== 'object') {
-      return res.status(400).json({ success: false, message: '设备范围和策略内容不能为空' });
-    }
+const normalizeStrategyPayload = (body) => ({
+  deviceIds: [...new Set(Array.isArray(body.deviceIds) ? body.deviceIds.filter(Boolean) : [])],
+  name: String(body.name || '').trim(),
+  action: body.action,
+  executeTime: body.executeTime,
+  repeatType: body.repeatType || 'once',
+  weekDays: [...new Set((body.weekDays || []).map(Number))]
+    .filter((day) => Number.isInteger(day) && day >= 0 && day <= 6),
+  customDates: [...new Set(Array.isArray(body.customDates) ? body.customDates.filter(Boolean) : [])],
+  mode: body.action === 'power_off' ? null : (body.mode || 'cool'),
+  fanSpeed: body.action === 'power_off' ? null : (body.fanSpeed || 'auto'),
+  targetTemperature: body.action === 'power_off'
+    ? null
+    : Math.min(Math.max(Number(body.targetTemperature) || 24, 16), 30),
+  enabled: body.enabled !== false,
+  description: String(body.description || '').trim().slice(0, 200)
+});
 
-    const params = [deviceIds, JSON.stringify(strategy)];
+const validateStrategyPayload = (strategy) => {
+  if (!strategy.name || strategy.name.length > 100) return '请输入有效的策略名称';
+  if (!strategy.deviceIds.length) return '请选择至少一台空调设备';
+  if (!['power_on', 'power_off', 'temperature'].includes(strategy.action)) return '请选择有效的控制动作';
+  if (!/^\d{2}:\d{2}$/.test(String(strategy.executeTime || ''))) return '请选择执行时间';
+  if (!['once', 'daily', 'weekly', 'custom'].includes(strategy.repeatType)) return '请选择有效的重复方式';
+  if (strategy.repeatType === 'weekly' && !strategy.weekDays.length) return '请选择每周执行日期';
+  if (strategy.repeatType === 'custom' && !strategy.customDates.length) return '请选择自定义执行日期';
+  return null;
+};
+
+const findStrategyDevices = async (client, req, deviceIds) => {
+  const params = [deviceIds];
+  let tenantClause = '';
+  if (!isAdminUser(req.user)) {
+    params.push(req.user.tenant_id);
+    tenantClause = ` AND assignment.tenant_id = $${params.length}`;
+  }
+  const result = await client.query(
+    `SELECT DISTINCT assignment.device_id, assignment.tenant_id
+     FROM control_device_assignments assignment
+     JOIN devices d ON d.id = assignment.device_id
+     WHERE assignment.device_id = ANY($1::uuid[])
+       AND assignment.module_type = 'air_conditioner'
+       AND assignment.is_active = true
+       AND d.is_air_conditioner = true
+       AND COALESCE(d.device_category, 'standalone') <> 'gateway'${tenantClause}`,
+    params
+  );
+  return result.rows;
+};
+
+const saveStrategyRows = async (client, req, groupId, strategy, devicesToSave) => {
+  for (const device of devicesToSave) {
+    const baseResult = await client.query(
+      `INSERT INTO air_conditioner_strategies (
+         tenant_id, device_id, enabled, mode, fan_speed, target_temperature,
+         description, created_by
+       ) VALUES ($1, $2, true, $3, $4, $5, $6, $7)
+       ON CONFLICT (device_id) DO UPDATE SET
+         tenant_id = EXCLUDED.tenant_id,
+         enabled = true,
+         mode = EXCLUDED.mode,
+         fan_speed = EXCLUDED.fan_speed,
+         target_temperature = EXCLUDED.target_temperature,
+         description = EXCLUDED.description,
+         updated_at = CURRENT_TIMESTAMP
+       RETURNING id`,
+      [
+        device.tenant_id,
+        device.device_id,
+        strategy.mode || 'cool',
+        strategy.fanSpeed || 'auto',
+        strategy.targetTemperature ?? 24,
+        strategy.description || null,
+        req.user.id
+      ]
+    );
+    await client.query(
+      `INSERT INTO air_conditioner_schedules (
+         group_id, strategy_id, device_id, name, action, execute_time,
+         repeat_type, repeat_days, custom_dates, mode, fan_speed,
+         target_temperature, enabled, description, created_by
+       ) VALUES (
+         $1, $2, $3, $4, $5, $6, $7, $8, $9,
+         $10, $11, $12, $13, $14, $15
+       )`,
+      [
+        groupId,
+        baseResult.rows[0].id,
+        device.device_id,
+        strategy.name,
+        strategy.action,
+        strategy.executeTime,
+        strategy.repeatType,
+        strategy.repeatType === 'weekly' ? strategy.weekDays : [],
+        strategy.repeatType === 'custom' ? strategy.customDates : [],
+        strategy.mode,
+        strategy.fanSpeed,
+        strategy.targetTemperature,
+        strategy.enabled,
+        strategy.description || null,
+        req.user.id
+      ]
+    );
+  }
+};
+
+router.get('/strategy-devices', authenticateToken, async (req, res) => {
+  try {
+    const params = [];
     let tenantClause = '';
     if (!isAdminUser(req.user)) {
       params.push(req.user.tenant_id);
-      tenantClause = ` AND tenant_id = $${params.length}`;
+      tenantClause = ` AND assignment.tenant_id = $${params.length}`;
     }
     const result = await pool.query(
-      `UPDATE control_device_assignments
-       SET config = jsonb_set(COALESCE(config, '{}'::jsonb), '{strategy_config}', $2::jsonb, true),
-           updated_at = CURRENT_TIMESTAMP
-       WHERE device_id = ANY($1::uuid[])
-         AND module_type = 'air_conditioner'
-         AND is_active = true${tenantClause}
-       RETURNING device_id`,
+      `SELECT DISTINCT d.id, d.name, d.device_id, d.imei, d.status,
+              d.tenant_id, d.project_building_id, d.project_group_id,
+              t.name AS tenant_name, pb.name AS project_building_name,
+              pg.name AS project_group_name
+       FROM control_device_assignments assignment
+       JOIN devices d ON d.id = assignment.device_id
+       LEFT JOIN tenants t ON t.id = d.tenant_id
+       LEFT JOIN project_buildings pb ON pb.id = d.project_building_id
+       LEFT JOIN project_groups pg ON pg.id = d.project_group_id
+       WHERE assignment.module_type = 'air_conditioner'
+         AND assignment.is_active = true
+         AND d.is_air_conditioner = true
+         AND COALESCE(d.device_category, 'standalone') <> 'gateway'${tenantClause}
+       ORDER BY t.name NULLS LAST, d.name`,
       params
     );
-    if (!result.rows.length) {
-      return res.status(404).json({ success: false, message: '未找到可保存策略的空调设备' });
-    }
-    res.json({
-      success: true,
-      message: '空调策略已保存',
-      data: { count: result.rows.length, deviceIds: result.rows.map((row) => row.device_id) }
-    });
+    res.json({ success: true, data: result.rows });
   } catch (error) {
-    logger.error('保存分散空调策略失败:', error);
-    res.status(500).json({ success: false, message: '保存分散空调策略失败', error: error.message });
+    logger.error('获取空调策略设备失败:', error);
+    res.status(500).json({ success: false, message: '获取空调策略设备失败', error: error.message });
+  }
+});
+
+router.get('/strategies', authenticateToken, async (req, res) => {
+  try {
+    const params = [];
+    let tenantClause = '';
+    if (!isAdminUser(req.user)) {
+      params.push(req.user.tenant_id);
+      tenantClause = ` AND d.tenant_id = $${params.length}`;
+    }
+    const result = await pool.query(
+      `SELECT schedule.*, d.name AS device_name, d.device_id AS device_code,
+              d.imei, d.tenant_id, t.name AS tenant_name
+       FROM air_conditioner_schedules schedule
+       JOIN devices d ON d.id = schedule.device_id
+       LEFT JOIN tenants t ON t.id = d.tenant_id
+       WHERE 1 = 1${tenantClause}
+       ORDER BY schedule.created_at DESC, d.name`,
+      params
+    );
+    const groupsById = new Map();
+    for (const row of result.rows) {
+      const groupId = row.group_id || row.id;
+      if (!groupsById.has(groupId)) {
+        groupsById.set(groupId, {
+          id: groupId,
+          name: row.name,
+          action: row.action,
+          executeTime: String(row.execute_time || '').slice(0, 5),
+          repeatType: row.repeat_type || 'daily',
+          weekDays: (row.repeat_days || []).map(Number),
+          customDates: row.custom_dates || [],
+          mode: row.mode,
+          fanSpeed: row.fan_speed,
+          targetTemperature: row.target_temperature,
+          enabled: row.enabled !== false,
+          description: row.description || '',
+          tenantId: row.tenant_id,
+          tenantName: row.tenant_name,
+          devices: []
+        });
+      }
+      const group = groupsById.get(groupId);
+      group.enabled = group.enabled && row.enabled !== false;
+      group.devices.push({
+        id: row.device_id,
+        name: row.device_name,
+        deviceId: row.device_code,
+        imei: row.imei
+      });
+    }
+    res.json({ success: true, data: [...groupsById.values()] });
+  } catch (error) {
+    logger.error('获取空调策略列表失败:', error);
+    res.status(500).json({ success: false, message: '获取空调策略列表失败', error: error.message });
+  }
+});
+
+router.post('/strategies', authenticateToken, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const strategy = normalizeStrategyPayload(req.body);
+    const validationError = validateStrategyPayload(strategy);
+    if (validationError) return res.status(400).json({ success: false, message: validationError });
+
+    await client.query('BEGIN');
+    const selectedDevices = await findStrategyDevices(client, req, strategy.deviceIds);
+    if (selectedDevices.length !== strategy.deviceIds.length) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ success: false, message: '部分设备不存在或无权限' });
+    }
+    const tenantIds = [...new Set(selectedDevices.map((device) => String(device.tenant_id)))];
+    if (tenantIds.length !== 1) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ success: false, message: '同一策略只能选择同一租户的设备' });
+    }
+    const groupId = randomUUID();
+    await saveStrategyRows(client, req, groupId, strategy, selectedDevices);
+    await client.query('COMMIT');
+    res.status(201).json({ success: true, message: '空调策略已创建', data: { id: groupId } });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    logger.error('创建空调策略失败:', error);
+    res.status(500).json({ success: false, message: '创建空调策略失败', error: error.message });
+  } finally {
+    client.release();
+  }
+});
+
+router.put('/strategies/:groupId', authenticateToken, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const strategy = normalizeStrategyPayload(req.body);
+    const validationError = validateStrategyPayload(strategy);
+    if (validationError) return res.status(400).json({ success: false, message: validationError });
+
+    await client.query('BEGIN');
+    const existingParams = [req.params.groupId];
+    let tenantClause = '';
+    if (!isAdminUser(req.user)) {
+      existingParams.push(req.user.tenant_id);
+      tenantClause = ` AND d.tenant_id = $${existingParams.length}`;
+    }
+    const existing = await client.query(
+      `SELECT schedule.id
+       FROM air_conditioner_schedules schedule
+       JOIN devices d ON d.id = schedule.device_id
+       WHERE schedule.group_id = $1${tenantClause}`,
+      existingParams
+    );
+    if (!existing.rows.length) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ success: false, message: '空调策略不存在或无权限' });
+    }
+    const selectedDevices = await findStrategyDevices(client, req, strategy.deviceIds);
+    if (selectedDevices.length !== strategy.deviceIds.length) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ success: false, message: '部分设备不存在或无权限' });
+    }
+    const tenantIds = [...new Set(selectedDevices.map((device) => String(device.tenant_id)))];
+    if (tenantIds.length !== 1) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ success: false, message: '同一策略只能选择同一租户的设备' });
+    }
+    await client.query('DELETE FROM air_conditioner_schedules WHERE group_id = $1', [req.params.groupId]);
+    await saveStrategyRows(client, req, req.params.groupId, strategy, selectedDevices);
+    await client.query('COMMIT');
+    res.json({ success: true, message: '空调策略已更新' });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    logger.error('更新空调策略失败:', error);
+    res.status(500).json({ success: false, message: '更新空调策略失败', error: error.message });
+  } finally {
+    client.release();
+  }
+});
+
+router.post('/strategies/:groupId/toggle', authenticateToken, async (req, res) => {
+  try {
+    const params = [req.body.enabled !== false, req.params.groupId];
+    let tenantClause = '';
+    if (!isAdminUser(req.user)) {
+      params.push(req.user.tenant_id);
+      tenantClause = ` AND d.tenant_id = $${params.length}`;
+    }
+    const result = await pool.query(
+      `UPDATE air_conditioner_schedules schedule
+       SET enabled = $1, updated_at = CURRENT_TIMESTAMP
+       FROM devices d
+       WHERE schedule.device_id = d.id
+         AND schedule.group_id = $2${tenantClause}`,
+      params
+    );
+    if (!result.rowCount) return res.status(404).json({ success: false, message: '空调策略不存在或无权限' });
+    res.json({ success: true, message: req.body.enabled !== false ? '策略已启用' : '策略已停用' });
+  } catch (error) {
+    logger.error('切换空调策略失败:', error);
+    res.status(500).json({ success: false, message: '切换空调策略失败', error: error.message });
+  }
+});
+
+router.delete('/strategies/:groupId', authenticateToken, async (req, res) => {
+  try {
+    const params = [req.params.groupId];
+    let tenantClause = '';
+    if (!isAdminUser(req.user)) {
+      params.push(req.user.tenant_id);
+      tenantClause = ` AND d.tenant_id = $${params.length}`;
+    }
+    const result = await pool.query(
+      `DELETE FROM air_conditioner_schedules schedule
+       USING devices d
+       WHERE schedule.device_id = d.id
+         AND schedule.group_id = $1${tenantClause}`,
+      params
+    );
+    if (!result.rowCount) return res.status(404).json({ success: false, message: '空调策略不存在或无权限' });
+    res.json({ success: true, message: '空调策略已删除' });
+  } catch (error) {
+    logger.error('删除空调策略失败:', error);
+    res.status(500).json({ success: false, message: '删除空调策略失败', error: error.message });
   }
 });
 
@@ -374,71 +689,13 @@ router.post('/:deviceId/control', authenticateToken, async (req, res) => {
       return res.status(404).json({ success: false, message: '设备不存在或不在分散空调控制列表中' });
     }
     const device = deviceResult.rows[0];
-    const isDa51kd = String(device.manufacturer_code || '').trim().toUpperCase() === 'DA51KD';
-    let mqttCommand = command;
-    let encodedCommand = null;
-
-    if (isDa51kd) {
-      try {
-        encodedCommand = buildDa51kdCommand(command, device);
-        mqttCommand = { data: encodedCommand.base64 };
-      } catch (protocolError) {
-        return res.status(400).json({ success: false, message: protocolError.message });
-      }
-    }
-
+    let encodedCommand;
     try {
-      await mqttService.sendCommandToDevice(device.imei, mqttCommand);
+      encodedCommand = await executeAirConditionerControl(device, command, req.user.id);
     } catch (mqttError) {
       logger.error('分散空调MQTT控制指令发送失败', { imei: device.imei, error: mqttError.message });
-      await telemetryStore.logControl({
-        device,
-        moduleType: 'air_conditioner',
-        action: command.action || 'air_conditioner_control',
-        command,
-        encodedPayload: encodedCommand ? { protocol: 'DA51KD', hex: encodedCommand.hex, mqtt_payload: mqttCommand } : mqttCommand,
-        status: 'failed',
-        errorMessage: mqttError.message,
-        userId: req.user.id
-      });
       return res.status(502).json({ success: false, message: '分散空调MQTT控制指令发送失败', error: mqttError.message });
     }
-
-    const status = {
-      power_status: device.power_status,
-      mode: device.mode,
-      fan_speed: device.fan_speed,
-      target_temperature: device.target_temperature,
-      current_temperature: device.current_temperature,
-      humidity: device.humidity,
-      online: true,
-      ...(encodedCommand ? encodedCommand.state : {})
-    };
-    if (!encodedCommand && (command.action === 'set_power' || command.power_state !== undefined)) status.power_status = Boolean(Number(command.power_state));
-    if (!encodedCommand && (command.action === 'set_mode' || command.mode !== undefined)) status.mode = command.mode;
-    if (!encodedCommand && (command.action === 'set_fan_speed' || command.fan_speed !== undefined)) status.fan_speed = command.fan_speed;
-    if (!encodedCommand && (command.action === 'set_temperature' || command.target_temperature !== undefined)) status.target_temperature = command.target_temperature;
-
-    await telemetryStore.saveStatus({
-      device,
-      moduleType: 'air_conditioner',
-      state: status,
-      source: 'control_command',
-      rawPayload: {
-        command,
-        ...(encodedCommand ? { protocol: 'DA51KD', hex: encodedCommand.hex } : {})
-      }
-    });
-
-    await telemetryStore.logControl({
-      device,
-      moduleType: 'air_conditioner',
-      action: command.action || 'air_conditioner_control',
-      command,
-      encodedPayload: encodedCommand ? { protocol: 'DA51KD', hex: encodedCommand.hex, mqtt_payload: mqttCommand } : mqttCommand,
-      status: 'sent',
-      userId: req.user.id
-    });
 
     res.json({
       success: true,

@@ -316,198 +316,172 @@
       </div>
     </el-dialog>
 
-    <el-drawer v-model="strategyVisible" title="空调策略统一管理" size="min(920px, 96vw)">
+    <el-dialog v-model="strategyVisible" title="空调策略管理" width="1080px">
       <div class="strategy-panel">
-        <el-tabs v-model="strategyTab" class="strategy-tabs">
-          <el-tab-pane label="基础策略" name="base">
-        <el-form label-width="96px" class="strategy-form">
-          <el-form-item label="设备筛选">
-            <div class="strategy-filter-row">
-              <el-select
-                v-if="isAdmin"
-                v-model="strategyFilters.tenantId"
-                placeholder="所属租户"
-                clearable
-                filterable
-                @change="strategyTenantChanged"
-                ><el-option label="全部租户" value="" /><el-option
-                  v-for="item in tenants"
-                  :key="item.id"
-                  :label="item.name"
-                  :value="item.id"
-              /></el-select>
-              <el-select
-                v-model="strategyFilters.buildingId"
-                placeholder="所属建筑"
-                clearable
-                filterable
-                @change="strategyBuildingChanged"
-                ><el-option label="全部建筑" value="" /><el-option
-                  v-for="item in strategyBuildings"
-                  :key="item.id"
-                  :label="item.name"
-                  :value="item.id"
-              /></el-select>
-              <el-select
-                v-model="strategyFilters.groupId"
-                placeholder="所属分组"
-                clearable
-                filterable
-                ><el-option label="全部分组" value="" /><el-option
-                  v-for="item in strategyGroups"
-                  :key="item.id"
-                  :label="item.name"
-                  :value="item.id"
-              /></el-select>
-            </div>
-          </el-form-item>
-          <el-form-item label="作用范围"
-            ><el-segmented
-              v-model="strategy.scope"
-              :options="[
-                { label: '当前筛选', value: 'filtered' },
-                { label: '选择设备', value: 'selected' },
-              ]"
-          /></el-form-item>
-          <el-form-item v-if="strategy.scope === 'selected'" label="选择设备"
-            ><div class="selection-block">
-              <el-select
-                v-model="strategy.deviceIds"
-                multiple
-                filterable
-                collapse-tags
-                collapse-tags-tooltip
-                placeholder="请选择设备"
-                class="wide-control"
-                ><el-option
-                  v-for="item in strategyDevices"
-                  :key="item.id"
-                  :label="item.name"
-                  :value="item.id"
-              /></el-select>
-              <div class="selection-actions">
-                <el-button
-                  size="small"
-                  @click="strategy.deviceIds = strategyDevices.map((x) => x.id)"
-                  >全选当前筛选</el-button
-                ><el-button size="small" @click="strategy.deviceIds = []"
-                  >清空</el-button
-                >
+        <div class="strategy-guide">
+          <strong>空调运行策略</strong>
+          <span>按设备范围设置执行时间、周期和运行参数。策略仅作用于空调控制模块。</span>
+        </div>
+        <div class="schedule-toolbar">
+          <span>共 {{ strategyList.length }} 条策略</span>
+          <el-button type="primary" :icon="Plus" @click="openStrategyEditor()">
+            新增策略
+          </el-button>
+        </div>
+        <el-table :data="strategyList" v-loading="loadingStrategies" class="schedule-table">
+          <el-table-column prop="name" label="策略名称" min-width="150" show-overflow-tooltip />
+          <el-table-column prop="deviceNames" label="设备" min-width="190" show-overflow-tooltip />
+          <el-table-column label="动作" width="150">
+            <template #default="{ row }">
+              <el-tag :type="row.action === 'power_off' ? 'danger' : 'success'" size="small">
+                {{ strategyActionText(row) }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="executeTime" label="执行时间" width="110" />
+          <el-table-column prop="repeatLabel" label="重复" min-width="140" />
+          <el-table-column label="状态" width="90">
+            <template #default="{ row }">
+              <el-switch v-model="row.enabled" @change="toggleStrategy(row)" />
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="180" fixed="right">
+            <template #default="{ row }">
+              <div class="strategy-actions">
+                <el-button type="primary" size="small" @click="openStrategyEditor(row)">编辑</el-button>
+                <el-button type="danger" size="small" @click="deleteStrategy(row)">删除</el-button>
               </div>
-            </div></el-form-item
-          >
-          <el-form-item label="启用策略"
-            ><el-switch v-model="strategy.enabled"
-          /></el-form-item>
-          <el-form-item label="默认模式"
-            ><el-select v-model="strategy.mode" class="wide-control"
-              ><el-option
-                v-for="item in modes"
-                :key="item.value"
-                :label="item.label"
-                :value="item.value" /></el-select
-          ></el-form-item>
-          <el-form-item label="默认风速"
-            ><el-select v-model="strategy.fanSpeed" class="wide-control"
-              ><el-option
-                v-for="item in fanSpeeds"
-                :key="item.value"
-                :label="item.label"
-                :value="item.value" /></el-select
-          ></el-form-item>
-          <el-form-item label="默认温度"
-            ><el-input-number v-model="strategy.targetTemp" :min="16" :max="30"
-          /></el-form-item>
-          <el-form-item label="温度范围"
-            ><div class="range-row">
-              <el-input-number
-                v-model="strategy.minTemp"
-                :min="16"
-                :max="30"
-              /><span>至</span
-              ><el-input-number
-                v-model="strategy.maxTemp"
-                :min="16"
-                :max="30"
-              /></div
-          ></el-form-item>
-          <el-form-item label="运行时段"
-            ><div class="range-row">
-              <el-time-picker
-                v-model="strategy.startTime"
-                value-format="HH:mm"
-                format="HH:mm"
-                placeholder="开始"
-              /><span>至</span
-              ><el-time-picker
-                v-model="strategy.endTime"
-                value-format="HH:mm"
-                format="HH:mm"
-                placeholder="结束"
-              /></div
-          ></el-form-item>
-          <el-form-item label="节能策略"
-            ><el-checkbox v-model="strategy.autoEco">自动节能</el-checkbox
-            ><el-checkbox v-model="strategy.offlineProtect"
-              >离线保护</el-checkbox
-            ></el-form-item
-          >
-          <el-form-item label="策略说明"
-            ><el-input
-              v-model="strategy.description"
-              type="textarea"
-              :rows="2"
-              placeholder="例如：工作日办公区节能运行"
-          /></el-form-item>
-          <el-button
-            type="primary"
-            :loading="savingStrategy"
-            @click="applyStrategy"
-            >保存策略</el-button
-          >
-        </el-form>
-          </el-tab-pane>
-          <el-tab-pane name="schedules">
-            <template #label>定时策略 <el-tag size="small" type="info">{{ strategy.schedules.length }}</el-tag></template>
-            <div class="schedule-toolbar">
-              <span>策略数量：{{ strategy.schedules.length }}</span>
-              <el-button type="primary" :icon="Plus" @click="openScheduleEditor()">新增定时策略</el-button>
-            </div>
-            <el-table :data="strategy.schedules" max-height="520" stripe class="schedule-table">
-              <el-table-column prop="name" label="策略名称" min-width="150" show-overflow-tooltip />
-              <el-table-column prop="time" label="时间" width="82" />
-              <el-table-column label="控制动作" min-width="130"><template #default="scope">{{ actionText(scope.row) }}</template></el-table-column>
-              <el-table-column label="重复" min-width="150" show-overflow-tooltip><template #default="scope">{{ repeatText(scope.row.repeat) }}</template></el-table-column>
-              <el-table-column label="状态" width="82"><template #default="scope"><el-switch v-model="scope.row.enabled" @change="saveStrategyLocal" /></template></el-table-column>
-              <el-table-column label="操作" width="132" fixed="right"><template #default="scope">
-                <el-button :icon="Edit" circle text title="编辑" @click="openScheduleEditor(scope.row)" />
-                <el-button :icon="Delete" circle text type="danger" title="删除" @click="removeSchedule(scope.row)" />
-              </template></el-table-column>
-            </el-table>
-            <el-empty v-if="strategy.schedules.length === 0" description="暂无定时策略" />
-          </el-tab-pane>
-        </el-tabs>
+            </template>
+          </el-table-column>
+        </el-table>
       </div>
-    </el-drawer>
+    </el-dialog>
 
-    <el-dialog v-model="scheduleDialogVisible" :title="editingScheduleId ? '编辑定时策略' : '新增定时策略'" width="560px" destroy-on-close>
-      <el-form label-width="90px">
-        <el-form-item label="名称"><el-input v-model="schedule.name" placeholder="定时策略名称" /></el-form-item>
-        <el-form-item label="动作"><el-select v-model="schedule.action" class="wide-control"><el-option label="开机" value="power_on" /><el-option label="关机" value="power_off" /><el-option label="调温" value="temperature" /></el-select></el-form-item>
-        <el-form-item label="执行时间"><el-time-picker v-model="schedule.time" value-format="HH:mm" format="HH:mm" placeholder="选择时间" /></el-form-item>
-        <el-form-item v-if="schedule.action !== 'power_off'" label="控制参数"><div class="range-row"><el-select v-model="schedule.mode"><el-option v-for="item in modes" :key="item.value" :label="item.label" :value="item.value" /></el-select><el-input-number v-model="schedule.targetTemp" :min="16" :max="30" /></div></el-form-item>
-        <el-form-item label="重复"><el-checkbox-group v-model="schedule.repeat"><el-checkbox-button v-for="day in weekOptions" :key="day.value" :label="day.value">{{ day.label }}</el-checkbox-button></el-checkbox-group></el-form-item>
-        <el-form-item label="启用"><el-switch v-model="schedule.enabled" /></el-form-item>
+    <el-dialog
+      v-model="strategyEditorVisible"
+      :title="strategyForm.id ? '编辑空调策略' : '新增空调策略'"
+      width="900px"
+      @closed="resetStrategyForm"
+    >
+      <el-form ref="strategyFormRef" :model="strategyForm" :rules="strategyRules" label-width="120px">
+        <div class="strategy-form-section">设备范围</div>
+        <el-form-item label="策略名称" prop="name">
+          <el-input v-model="strategyForm.name" maxlength="50" show-word-limit placeholder="请输入策略名称" />
+        </el-form-item>
+        <el-form-item label="选择设备" prop="deviceIds">
+          <div class="strategy-device-filters">
+            <el-input v-model="strategyFilters.keyword" clearable placeholder="搜索设备名称或设备ID">
+              <template #prefix><el-icon><Search /></el-icon></template>
+            </el-input>
+            <el-select v-if="isAdmin" v-model="strategyFilters.tenantId" clearable filterable placeholder="所属租户" @change="strategyTenantChanged">
+              <el-option v-for="item in tenants" :key="item.id" :label="item.name" :value="item.id" />
+            </el-select>
+            <el-select v-model="strategyFilters.buildingId" clearable filterable placeholder="所属建筑" @change="strategyBuildingChanged">
+              <el-option v-for="item in strategyBuildings" :key="item.id" :label="item.name" :value="item.id" />
+            </el-select>
+            <el-select v-model="strategyFilters.groupId" clearable filterable placeholder="所属分组">
+              <el-option v-for="item in strategyGroups" :key="item.id" :label="item.name" :value="item.id" />
+            </el-select>
+            <el-select v-model="strategyFilters.status" clearable placeholder="设备状态">
+              <el-option label="在线" value="online" />
+              <el-option label="离线" value="offline" />
+            </el-select>
+          </div>
+          <el-select
+            v-model="strategyForm.deviceIds"
+            multiple
+            filterable
+            collapse-tags
+            collapse-tags-tooltip
+            :max-collapse-tags="3"
+            placeholder="请选择一台或多台设备"
+            class="wide-control"
+            @change="strategyDeviceChanged"
+          >
+            <el-option
+              v-for="item in filteredStrategyDevices"
+              :key="item.id"
+              :label="strategyDeviceLabel(item)"
+              :value="item.id"
+            />
+          </el-select>
+          <div class="strategy-device-summary">
+            <span>筛选结果 {{ filteredStrategyDevices.length }} 台，已选 {{ strategyForm.deviceIds.length }} 台</span>
+            <div>
+              <el-button type="primary" link @click="selectFilteredStrategyDevices">选择筛选结果</el-button>
+              <el-button link @click="strategyForm.deviceIds = []">清空已选</el-button>
+            </div>
+          </div>
+        </el-form-item>
+
+        <div class="strategy-form-section">触发条件</div>
+        <el-form-item label="执行时间" prop="executeTime">
+          <el-time-picker v-model="strategyForm.executeTime" value-format="HH:mm" format="HH:mm" placeholder="选择执行时间" />
+        </el-form-item>
+        <el-form-item label="重复设置" prop="repeatType">
+          <el-radio-group v-model="strategyForm.repeatType">
+            <el-radio label="once">仅执行一次</el-radio>
+            <el-radio label="daily">每天</el-radio>
+            <el-radio label="weekly">每周</el-radio>
+            <el-radio label="custom">自定义</el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item v-if="strategyForm.repeatType === 'weekly'" label="重复日期">
+          <el-checkbox-group v-model="strategyForm.weekDays">
+            <el-checkbox v-for="day in weekOptions" :key="day.value" :label="day.value">周{{ day.label }}</el-checkbox>
+          </el-checkbox-group>
+        </el-form-item>
+        <el-form-item v-if="strategyForm.repeatType === 'custom'" label="自定义日期">
+          <el-date-picker v-model="strategyForm.customDates" type="dates" value-format="YYYY-MM-DD" format="YYYY-MM-DD" placeholder="选择执行日期" class="wide-control" />
+        </el-form-item>
+
+        <div class="strategy-form-section">执行动作</div>
+        <el-form-item label="控制动作">
+          <el-radio-group v-model="strategyForm.action">
+            <el-radio label="power_on">开机</el-radio>
+            <el-radio label="power_off">关机</el-radio>
+            <el-radio label="temperature">调整运行参数</el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <template v-if="strategyForm.action !== 'power_off'">
+          <el-form-item label="工作模式">
+            <el-radio-group v-model="strategyForm.mode">
+              <el-radio v-for="item in modes" :key="item.value" :label="item.value">{{ item.label }}</el-radio>
+            </el-radio-group>
+          </el-form-item>
+          <el-form-item label="目标温度">
+            <el-input-number v-model="strategyForm.targetTemperature" :min="16" :max="30" />
+            <span class="control-unit">°C</span>
+          </el-form-item>
+          <el-form-item label="风速档位">
+            <el-radio-group v-model="strategyForm.fanSpeed">
+              <el-radio v-for="item in fanSpeeds" :key="item.value" :label="item.value">{{ item.label }}</el-radio>
+            </el-radio-group>
+          </el-form-item>
+        </template>
+
+        <div class="strategy-form-section">策略状态</div>
+        <el-form-item label="启用状态">
+          <el-switch v-model="strategyForm.enabled" active-text="启用" inactive-text="禁用" />
+        </el-form-item>
+        <el-form-item label="备注">
+          <el-input v-model="strategyForm.description" type="textarea" :rows="3" maxlength="200" show-word-limit placeholder="请输入策略备注（可选）" />
+        </el-form-item>
       </el-form>
-      <template #footer><el-button @click="scheduleDialogVisible = false">取消</el-button><el-button type="primary" @click="saveSchedule">保存</el-button></template>
+      <template #footer>
+        <el-button @click="strategyEditorVisible = false">取消</el-button>
+        <el-button type="primary" :loading="savingStrategy" @click="submitStrategy">
+          {{ strategyForm.id ? "保存修改" : "保存策略" }}
+        </el-button>
+      </template>
     </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from "vue";
-import { Delete, Edit, Minus, Plus, Refresh, Search, Setting, View } from "@element-plus/icons-vue";
-import { ElMessage } from "element-plus";
+import { Minus, Plus, Refresh, Search, Setting, View } from "@element-plus/icons-vue";
+import { ElMessage, ElMessageBox } from "element-plus";
 import * as echarts from "echarts";
 import {
   airConditionerControlAPI,
@@ -516,7 +490,6 @@ import {
 } from "@/api";
 
 const DEVICE_TYPE = "分散空调控制器";
-const STORAGE_KEY = "air-conditioner-strategies";
 const userInfo = ref(JSON.parse(localStorage.getItem("userInfo") || "{}"));
 const isAdmin = computed(() => userInfo.value?.role === "admin");
 const loading = ref(false),
@@ -536,11 +509,12 @@ const filters = reactive({
 const pagination = reactive({ page: 1, pageSize: 24, total: 0 });
 const batch = reactive({ mode: "cool", temperature: 24 });
 const strategyVisible = ref(false),
-  savingStrategy = ref(false),
-  strategyStore = ref({});
-const strategyTab = ref("base");
-const scheduleDialogVisible = ref(false);
-const editingScheduleId = ref(null);
+  strategyEditorVisible = ref(false),
+  loadingStrategies = ref(false),
+  savingStrategy = ref(false);
+const strategyList = ref([]);
+const strategyDeviceOptions = ref([]);
+const strategyFormRef = ref(null);
 const detailVisible = ref(false);
 const detailLoading = ref(false);
 const selectedDevice = ref(null);
@@ -557,32 +531,37 @@ const detailData = reactive({
   protocolName: "",
 });
 let electricalChartInstance = null;
-const strategy = reactive({
-  scope: "filtered",
+const strategyForm = reactive({
+  id: null,
+  name: "",
   deviceIds: [],
-  enabled: false,
+  executeTime: "",
+  repeatType: "once",
+  weekDays: [],
+  customDates: [],
+  action: "power_on",
   mode: "cool",
   fanSpeed: "auto",
-  targetTemp: 24,
-  minTemp: 22,
-  maxTemp: 27,
-  startTime: "08:00",
-  endTime: "18:00",
-  autoEco: true,
-  offlineProtect: true,
-  description: "",
-  schedules: [],
-});
-const strategyFilters = reactive({ tenantId: "", buildingId: "", groupId: "" });
-const schedule = reactive({
-  name: "",
-  action: "power_on",
-  time: "",
-  mode: "cool",
-  targetTemp: 24,
-  repeat: [1, 2, 3, 4, 5],
+  targetTemperature: 24,
   enabled: true,
+  description: "",
 });
+const strategyFilters = reactive({
+  keyword: "",
+  tenantId: "",
+  buildingId: "",
+  groupId: "",
+  status: "",
+});
+const strategyRules = {
+  name: [
+    { required: true, message: "请输入策略名称", trigger: "blur" },
+    { min: 2, max: 50, message: "策略名称长度为 2 至 50 个字符", trigger: "blur" },
+  ],
+  deviceIds: [{ required: true, message: "请选择至少一台设备", trigger: "change" }],
+  executeTime: [{ required: true, message: "请选择执行时间", trigger: "change" }],
+  repeatType: [{ required: true, message: "请选择重复方式", trigger: "change" }],
+};
 const modes = [
   { label: "制冷", value: "cool" },
   { label: "制热", value: "heat" },
@@ -632,44 +611,57 @@ const filteredDevices = computed(() =>
     );
   }),
 );
+const selectedStrategyTenantId = computed(() => {
+  const device = strategyDeviceOptions.value.find((item) =>
+    strategyForm.deviceIds.includes(item.id),
+  );
+  return device?.tenantId || "";
+});
+const effectiveStrategyTenantId = computed(
+  () => strategyFilters.tenantId || selectedStrategyTenantId.value,
+);
 const strategyBuildings = computed(() =>
-  strategyFilters.tenantId
+  effectiveStrategyTenantId.value
     ? buildings.value.filter((x) =>
-        sameId(x.tenant_id, strategyFilters.tenantId),
+        sameId(x.tenant_id, effectiveStrategyTenantId.value),
       )
     : buildings.value,
 );
 const strategyGroups = computed(() =>
   groups.value.filter(
     (x) =>
-      (!strategyFilters.tenantId ||
-        sameId(x.tenant_id, strategyFilters.tenantId)) &&
+      (!effectiveStrategyTenantId.value ||
+        sameId(x.tenant_id, effectiveStrategyTenantId.value)) &&
       (!strategyFilters.buildingId ||
         !x.building_id ||
         sameId(x.building_id, strategyFilters.buildingId)),
   ),
 );
-const strategyDevices = computed(() =>
-  devices.value.filter(
-    (x) =>
-      (!strategyFilters.tenantId ||
-        sameId(x.tenantId, strategyFilters.tenantId)) &&
+const filteredStrategyDevices = computed(() => {
+  const keyword = strategyFilters.keyword.trim().toLowerCase();
+  return strategyDeviceOptions.value.filter(
+    (item) =>
+      (!keyword ||
+        item.name.toLowerCase().includes(keyword) ||
+        String(item.deviceId || item.imei).toLowerCase().includes(keyword)) &&
+      (!effectiveStrategyTenantId.value ||
+        sameId(item.tenantId, effectiveStrategyTenantId.value)) &&
       (!strategyFilters.buildingId ||
-        sameId(x.projectBuildingId, strategyFilters.buildingId)) &&
+        sameId(item.projectBuildingId, strategyFilters.buildingId)) &&
       (!strategyFilters.groupId ||
-        sameId(x.projectGroupId, strategyFilters.groupId)),
-  ),
-);
+        sameId(item.projectGroupId, strategyFilters.groupId)) &&
+      (!strategyFilters.status || item.status === strategyFilters.status),
+  );
+});
 const onlineCount = computed(
   () => devices.value.filter((x) => x.status === "online").length,
 );
-const savedStrategy = computed(
-  () => strategyStore.value.__page_strategy__ || null,
-);
 const strategyEnabled = computed(
   () =>
-    savedStrategy.value?.enabled ??
-    devices.value.some((item) => item.strategyConfig?.enabled === true),
+    strategyList.value.some((item) => item.enabled) ||
+    devices.value.some((item) =>
+      item.strategyConfig?.schedules?.some((schedule) => schedule.enabled !== false),
+    ),
 );
 const formatNumber = (value, digits = 2) =>
   value === null || value === undefined || value === ""
@@ -759,24 +751,6 @@ const temperatureText = (x) =>
 const modeLabel = (x) => modes.find((i) => i.value === x)?.label || x;
 const fanLabel = (x) => fanSpeeds.find((i) => i.value === x)?.label || x;
 
-function loadStrategy() {
-  try {
-    strategyStore.value = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
-  } catch {
-    strategyStore.value = {};
-  }
-}
-function saveStrategyLocal() {
-  strategyStore.value = {
-    ...strategyStore.value,
-    __page_strategy__: {
-      ...strategy,
-      deviceIds: [...strategy.deviceIds],
-      schedules: strategy.schedules.map((x) => ({ ...x })),
-    },
-  };
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(strategyStore.value));
-}
 async function loadTenants() {
   if (!isAdmin.value) return;
   const r = await tenantAPI.getTenants({
@@ -1069,194 +1043,244 @@ async function batchTemperature() {
     batchLoading.value = false;
   }
 }
-function resetSchedule() {
-  Object.assign(schedule, {
-    name: "",
-    action: "power_on",
-    time: "",
-    mode: strategy.mode,
-    targetTemp: strategy.targetTemp,
-    repeat: [1, 2, 3, 4, 5],
-    enabled: true,
-  });
+const mapStrategyDevice = (item) => ({
+  id: item.id,
+  name: item.name || "未命名空调",
+  deviceId: item.device_id || "",
+  imei: item.imei || "",
+  status: item.status || "offline",
+  tenantId: String(item.tenant_id || ""),
+  tenantName: item.tenant_name || "",
+  projectBuildingId: String(item.project_building_id || ""),
+  projectBuildingName: item.project_building_name || "",
+  projectGroupId: String(item.project_group_id || ""),
+  projectGroupName: item.project_group_name || "",
+});
+
+function strategyRepeatLabel(item) {
+  if (item.repeatType === "daily") return "每天";
+  if (item.repeatType === "weekly") {
+    return item.weekDays
+      .map((value) => `周${weekOptions.find((day) => day.value === Number(value))?.label || ""}`)
+      .join("、");
+  }
+  if (item.repeatType === "custom") return `指定 ${item.customDates.length} 天`;
+  return "仅一次";
 }
-function openStrategy() {
-  const localSaved = savedStrategy.value;
-  const serverSaved = devices.value.find((item) => item.strategyConfig)?.strategyConfig || {};
-  const saved = Object.keys(localSaved || {}).length ? localSaved : {
-    enabled: serverSaved.enabled,
-    mode: serverSaved.mode,
-    fanSpeed: serverSaved.fan_speed,
-    targetTemp: serverSaved.target_temperature,
-    minTemp: serverSaved.temperature_range?.min,
-    maxTemp: serverSaved.temperature_range?.max,
-    startTime: serverSaved.active_period?.start,
-    endTime: serverSaved.active_period?.end,
-    autoEco: serverSaved.auto_eco,
-    offlineProtect: serverSaved.offline_protect,
-    description: serverSaved.description,
-    schedules: (serverSaved.schedules || []).map((item, index) => ({
+
+function normalizeStrategy(item) {
+  const customDates = (item.customDates || []).map((date) => String(date).slice(0, 10));
+  return {
+    ...item,
+    deviceNames: (item.devices || []).map((device) => device.name).join("、") || "未关联设备",
+    repeatType: item.repeatType || "once",
+    weekDays: (item.weekDays || []).map(Number),
+    customDates,
+    targetTemperature: Number(item.targetTemperature ?? 24),
+    repeatLabel: strategyRepeatLabel({
       ...item,
-      id: item.id || `server_schedule_${index}`,
-      targetTemp: item.targetTemp ?? item.target_temperature,
-    })),
+      repeatType: item.repeatType || "once",
+      weekDays: (item.weekDays || []).map(Number),
+      customDates,
+    }),
   };
-  Object.assign(strategyFilters, {
-    tenantId: filters.tenantId || "",
-    buildingId: filters.buildingId || "",
-    groupId: filters.projectGroupId || "",
-  });
-  Object.assign(strategy, {
-    scope: saved.scope || "filtered",
-    deviceIds: Array.isArray(saved.deviceIds)
-      ? saved.deviceIds.filter((id) =>
-          strategyDevices.value.some((x) => x.id === id),
-        )
-      : [],
-    enabled: saved.enabled || false,
-    mode: saved.mode || "cool",
-    fanSpeed: saved.fanSpeed || "auto",
-    targetTemp: saved.targetTemp || 24,
-    minTemp: saved.minTemp || 22,
-    maxTemp: saved.maxTemp || 27,
-    startTime: saved.startTime || "08:00",
-    endTime: saved.endTime || "18:00",
-    autoEco: saved.autoEco !== false,
-    offlineProtect: saved.offlineProtect !== false,
-    description: saved.description || "",
-    schedules: Array.isArray(saved.schedules)
-      ? saved.schedules.map((x) => ({ ...x }))
-      : [],
-  });
-  resetSchedule();
-  strategyTab.value = "base";
-  strategyVisible.value = true;
 }
+
+async function loadStrategyManagement() {
+  loadingStrategies.value = true;
+  try {
+    const [strategyResponse, deviceResponse] = await Promise.all([
+      airConditionerControlAPI.getStrategies(),
+      airConditionerControlAPI.getStrategyDevices(),
+    ]);
+    if (!strategyResponse.success) throw new Error(strategyResponse.message || "加载策略失败");
+    if (!deviceResponse.success) throw new Error(deviceResponse.message || "加载策略设备失败");
+    strategyList.value = (strategyResponse.data || []).map(normalizeStrategy);
+    strategyDeviceOptions.value = (deviceResponse.data || []).map(mapStrategyDevice);
+  } catch (error) {
+    strategyList.value = [];
+    strategyDeviceOptions.value = [];
+    ElMessage.error(error.message || "加载空调策略失败");
+  } finally {
+    loadingStrategies.value = false;
+  }
+}
+
+async function openStrategy() {
+  strategyVisible.value = true;
+  await loadStrategyManagement();
+}
+
+function resetStrategyForm() {
+  Object.assign(strategyForm, {
+    id: null,
+    name: "",
+    deviceIds: [],
+    executeTime: "",
+    repeatType: "once",
+    weekDays: [],
+    customDates: [],
+    action: "power_on",
+    mode: "cool",
+    fanSpeed: "auto",
+    targetTemperature: 24,
+    enabled: true,
+    description: "",
+  });
+  Object.assign(strategyFilters, {
+    keyword: "",
+    tenantId: "",
+    buildingId: "",
+    groupId: "",
+    status: "",
+  });
+  strategyFormRef.value?.clearValidate();
+}
+
+async function openStrategyEditor(item = null) {
+  if (!strategyDeviceOptions.value.length) await loadStrategyManagement();
+  resetStrategyForm();
+  if (item) {
+    Object.assign(strategyForm, {
+      id: item.id,
+      name: item.name,
+      deviceIds: (item.devices || []).map((device) => device.id),
+      executeTime: item.executeTime,
+      repeatType: item.repeatType,
+      weekDays: [...item.weekDays],
+      customDates: [...item.customDates],
+      action: item.action,
+      mode: item.mode || "cool",
+      fanSpeed: item.fanSpeed || "auto",
+      targetTemperature: Number(item.targetTemperature ?? 24),
+      enabled: item.enabled !== false,
+      description: item.description || "",
+    });
+  }
+  strategyEditorVisible.value = true;
+}
+
 function strategyTenantChanged() {
   strategyFilters.buildingId = "";
   strategyFilters.groupId = "";
-  strategy.deviceIds = strategy.deviceIds.filter((id) =>
-    strategyDevices.value.some((x) => x.id === id),
-  );
-}
-function strategyBuildingChanged() {
   if (
-    strategyFilters.groupId &&
-    !strategyGroups.value.some((x) => sameId(x.id, strategyFilters.groupId))
-  )
-    strategyFilters.groupId = "";
-  strategy.deviceIds = strategy.deviceIds.filter((id) =>
-    strategyDevices.value.some((x) => x.id === id),
-  );
+    strategyFilters.tenantId &&
+    strategyForm.deviceIds.some((id) => {
+      const device = strategyDeviceOptions.value.find((item) => item.id === id);
+      return !sameId(device?.tenantId, strategyFilters.tenantId);
+    })
+  ) {
+    strategyForm.deviceIds = [];
+  }
 }
-function strategyPayload() {
-  return {
-    enabled: strategy.enabled,
-    mode: strategy.mode,
-    fan_speed: strategy.fanSpeed,
-    target_temperature: strategy.targetTemp,
-    temperature_range: { min: strategy.minTemp, max: strategy.maxTemp },
-    active_period: { start: strategy.startTime, end: strategy.endTime },
-    auto_eco: strategy.autoEco,
-    offline_protect: strategy.offlineProtect,
-    description: strategy.description,
-    schedules: strategy.schedules.map((x) => ({
-      enabled: x.enabled,
-      name: x.name,
-      action: x.action,
-      time: x.time,
-      repeat: x.repeat,
-      mode: x.mode,
-      target_temperature: x.targetTemp,
-    })),
-  };
+
+function strategyBuildingChanged() {
+  strategyFilters.groupId = "";
 }
-async function applyStrategy() {
-  const list =
-    strategy.scope === "selected"
-      ? strategyDevices.value.filter((x) => strategy.deviceIds.includes(x.id))
-      : strategyDevices.value;
-  if (!list.length) return ElMessage.warning("请选择需要应用策略的设备");
+
+function strategyDeviceChanged(deviceIds) {
+  if (deviceIds.length < 2) return;
+  const first = strategyDeviceOptions.value.find((item) => item.id === deviceIds[0]);
+  const sameTenantIds = deviceIds.filter((id) => {
+    const device = strategyDeviceOptions.value.find((item) => item.id === id);
+    return sameId(device?.tenantId, first?.tenantId);
+  });
+  if (sameTenantIds.length !== deviceIds.length) {
+    strategyForm.deviceIds = sameTenantIds;
+    ElMessage.warning("同一策略只能选择同一租户的设备");
+  }
+}
+
+function selectFilteredStrategyDevices() {
+  strategyForm.deviceIds = [
+    ...new Set([
+      ...strategyForm.deviceIds,
+      ...filteredStrategyDevices.value.map((item) => item.id),
+    ]),
+  ];
+  strategyDeviceChanged(strategyForm.deviceIds);
+}
+
+function strategyDeviceLabel(item) {
+  const location = [item.projectBuildingName, item.projectGroupName].filter(Boolean).join(" / ");
+  return [item.name, item.deviceId || item.imei, location].filter(Boolean).join(" - ");
+}
+
+function strategyActionText(item) {
+  if (item.action === "power_off") return "关机";
+  if (item.action === "temperature") return `调温 ${item.targetTemperature}°C`;
+  return `开机 ${item.targetTemperature}°C`;
+}
+
+async function submitStrategy() {
+  const valid = await strategyFormRef.value?.validate().catch(() => false);
+  if (!valid) return;
+  if (strategyForm.repeatType === "weekly" && !strategyForm.weekDays.length) {
+    return ElMessage.warning("请选择每周执行日期");
+  }
+  if (strategyForm.repeatType === "custom" && !strategyForm.customDates.length) {
+    return ElMessage.warning("请选择自定义执行日期");
+  }
   savingStrategy.value = true;
   try {
-    const response = await airConditionerControlAPI.saveStrategy({
-      deviceIds: list.map((item) => item.id),
-      strategy: strategyPayload(),
-    });
-    if (!response.success) throw new Error(response.message || "策略保存失败");
-    const savedConfig = strategyPayload();
-    list.forEach((item) => { item.strategyConfig = savedConfig; });
-    saveStrategyLocal();
-    ElMessage.success(`策略已保存到 ${response.data?.count || list.length} 台设备`);
-  } catch (e) {
-    ElMessage.error(e.message || "策略下发失败");
+    const payload = {
+      name: strategyForm.name,
+      deviceIds: strategyForm.deviceIds,
+      executeTime: strategyForm.executeTime,
+      repeatType: strategyForm.repeatType,
+      weekDays: strategyForm.repeatType === "weekly" ? strategyForm.weekDays : [],
+      customDates: strategyForm.repeatType === "custom" ? strategyForm.customDates : [],
+      action: strategyForm.action,
+      mode: strategyForm.action === "power_off" ? null : strategyForm.mode,
+      fanSpeed: strategyForm.action === "power_off" ? null : strategyForm.fanSpeed,
+      targetTemperature:
+        strategyForm.action === "power_off" ? null : strategyForm.targetTemperature,
+      enabled: strategyForm.enabled,
+      description: strategyForm.description,
+    };
+    const response = strategyForm.id
+      ? await airConditionerControlAPI.updateStrategy(strategyForm.id, payload)
+      : await airConditionerControlAPI.createStrategy(payload);
+    if (!response.success) throw new Error(response.message || "保存策略失败");
+    ElMessage.success(strategyForm.id ? "策略更新成功" : "策略创建成功");
+    strategyEditorVisible.value = false;
+    await loadStrategyManagement();
+  } catch (error) {
+    ElMessage.error(error.message || "保存空调策略失败");
   } finally {
     savingStrategy.value = false;
   }
 }
-function actionText(x) {
-  return x.action === "power_on"
-    ? `开机 ${x.targetTemp}°C`
-    : x.action === "power_off"
-      ? "关机"
-      : `调温 ${x.targetTemp}°C`;
+
+async function toggleStrategy(item) {
+  try {
+    const response = await airConditionerControlAPI.toggleStrategy(item.id, item.enabled);
+    if (!response.success) throw new Error(response.message || "切换策略失败");
+    ElMessage.success(item.enabled ? "策略已启用" : "策略已停用");
+  } catch (error) {
+    item.enabled = !item.enabled;
+    ElMessage.error(error.message || "切换策略失败");
+  }
 }
-function repeatText(days) {
-  if (!days?.length) return "仅一次";
-  if (days.length === 7) return "每天";
-  return days
-    .map((v) => weekOptions.find((x) => x.value === v)?.label)
-    .filter(Boolean)
-    .join("、");
-}
-function openScheduleEditor(item = null) {
-  editingScheduleId.value = item?.id || null;
-  if (item) {
-    Object.assign(schedule, {
-      name: item.name,
-      action: item.action,
-      time: item.time,
-      mode: item.mode || strategy.mode,
-      targetTemp: item.targetTemp ?? strategy.targetTemp,
-      repeat: [...(item.repeat || [])],
-      enabled: item.enabled !== false,
+
+async function deleteStrategy(item) {
+  try {
+    await ElMessageBox.confirm(`确定要删除策略“${item.name}”吗？`, "确认删除", {
+      type: "warning",
+      confirmButtonText: "删除",
+      cancelButtonText: "取消",
     });
-  } else {
-    resetSchedule();
+    const response = await airConditionerControlAPI.deleteStrategy(item.id);
+    if (!response.success) throw new Error(response.message || "删除策略失败");
+    ElMessage.success("策略已删除");
+    await loadStrategyManagement();
+  } catch (error) {
+    if (error !== "cancel" && error !== "close") {
+      ElMessage.error(error.message || "删除策略失败");
+    }
   }
-  scheduleDialogVisible.value = true;
-}
-function saveSchedule() {
-  if (!schedule.time) return ElMessage.warning("请选择执行时间");
-  const item = {
-    id: editingScheduleId.value || `schedule_${Date.now()}`,
-    name: schedule.name || `${schedule.time} ${actionText(schedule)}`,
-    action: schedule.action,
-    time: schedule.time,
-    mode: schedule.mode,
-    targetTemp: schedule.targetTemp,
-    repeat: [...schedule.repeat],
-    enabled: schedule.enabled,
-  };
-  if (editingScheduleId.value) {
-    const index = strategy.schedules.findIndex((row) => row.id === editingScheduleId.value);
-    if (index >= 0) strategy.schedules.splice(index, 1, item);
-  } else {
-    strategy.schedules.push(item);
-  }
-  saveStrategyLocal();
-  scheduleDialogVisible.value = false;
-  resetSchedule();
-  ElMessage.success(editingScheduleId.value ? "定时策略已更新" : "定时策略已添加");
-  editingScheduleId.value = null;
-}
-function removeSchedule(item) {
-  strategy.schedules = strategy.schedules.filter((x) => x.id !== item.id);
-  saveStrategyLocal();
-  ElMessage.success("定时策略已删除");
 }
 onMounted(async () => {
-  loadStrategy();
   await Promise.all([loadTenants(), loadProject()]);
   await loadDevices();
 });
@@ -1441,11 +1465,28 @@ onBeforeUnmount(disposeElectricalChart);
   gap: 16px;
   min-width: 0;
 }
-.strategy-tabs {
-  min-width: 0;
+.strategy-guide {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+  border-left: 3px solid var(--el-color-primary);
+  background: var(--fill-lighter, #f5f7fa);
 }
-.strategy-form {
-  max-width: 760px;
+.strategy-guide strong {
+  font-size: 15px;
+}
+.strategy-guide span {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.strategy-form-section {
+  margin: 18px 0 14px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-lighter, #ebeef5);
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 650;
 }
 .schedule-toolbar {
   display: flex;
@@ -1529,61 +1570,43 @@ onBeforeUnmount(disposeElectricalChart);
   height: 320px;
   min-height: 320px;
 }
-.range-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-}
-.range-row .el-select,
-.range-row .el-date-editor {
-  flex: 1;
-}
 .wide-control {
   width: 100%;
 }
-.strategy-filter-row {
+.strategy-device-filters {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
   width: 100%;
+  margin-bottom: 10px;
 }
-.selection-block {
-  width: 100%;
-}
-.selection-actions {
-  display: flex;
-  gap: 8px;
-  margin-top: 8px;
-}
-.schedule-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.schedule-item {
+
+.strategy-device-summary {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  border: 1px solid var(--border-lighter, #ebeef5);
-  border-radius: 6px;
-  padding: 10px;
-}
-.schedule-item span {
-  display: block;
+  gap: 12px;
+  width: 100%;
+  margin-top: 6px;
   color: var(--text-secondary);
   font-size: 12px;
-  margin-top: 3px;
 }
-.schedule-actions {
+
+.strategy-device-summary > div,
+.strategy-actions {
   display: flex;
   align-items: center;
   gap: 8px;
+  white-space: nowrap;
 }
-.schedule-form {
-  border-top: 1px solid var(--border-lighter, #ebeef5);
-  padding-top: 16px;
+
+.strategy-actions .el-button {
+  margin-left: 0;
+}
+
+.control-unit {
+  margin-left: 8px;
+  color: var(--text-secondary);
 }
 @media (max-width: 768px) {
   .toolbar {
@@ -1607,10 +1630,6 @@ onBeforeUnmount(disposeElectricalChart);
   .device-grid {
     grid-template-columns: 1fr;
   }
-  .range-row {
-    align-items: stretch;
-    flex-direction: column;
-  }
   .batch-bar {
     align-items: stretch;
     flex-direction: column;
@@ -1630,6 +1649,13 @@ onBeforeUnmount(disposeElectricalChart);
   .analysis-controls,
   .schedule-toolbar {
     align-items: stretch;
+    flex-direction: column;
+  }
+  .strategy-device-filters {
+    grid-template-columns: 1fr;
+  }
+  .strategy-device-summary {
+    align-items: flex-start;
     flex-direction: column;
   }
   .electrical-chart {

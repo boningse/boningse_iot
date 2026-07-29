@@ -11,6 +11,7 @@ class ScheduleService {
    * 获取租户的所有计划
    */
   async getScheduleList(tenantId) {
+    const tenantWhere = tenantId ? 'WHERE ts.tenant_id = $1' : '';
     const query = `
       SELECT 
         ts.*,
@@ -29,13 +30,13 @@ class ScheduleService {
       FROM thermostat_schedules ts
       LEFT JOIN thermostat_schedule_devices tsd ON ts.id = tsd.schedule_id
       LEFT JOIN devices d ON tsd.device_id = d.id
-      WHERE ts.tenant_id = $1
+      ${tenantWhere}
       GROUP BY ts.id
       ORDER BY ts.created_at DESC
     `;
 
     try {
-      const result = await db.query(query, [tenantId]);
+      const result = await db.query(query, tenantId ? [tenantId] : []);
       return result.rows;
     } catch (error) {
       logger.error('获取计划列表失败:', error);
@@ -47,6 +48,9 @@ class ScheduleService {
    * 获取设备计划（兼容旧接口）
    */
   async getDeviceSchedules(deviceId, tenantId) {
+    const tenantWhere = tenantId
+      ? 'WHERE ts.tenant_id = $1 AND tsd.device_id = $2'
+      : 'WHERE tsd.device_id = $1';
     const query = `
       SELECT 
         ts.*,
@@ -65,13 +69,13 @@ class ScheduleService {
       FROM thermostat_schedules ts
       LEFT JOIN thermostat_schedule_devices tsd ON ts.id = tsd.schedule_id
       LEFT JOIN devices d ON tsd.device_id = d.id
-      WHERE ts.tenant_id = $1 AND tsd.device_id = $2
+      ${tenantWhere}
       GROUP BY ts.id
       ORDER BY ts.created_at DESC
     `;
 
     try {
-      const result = await db.query(query, [tenantId, deviceId]);
+      const result = await db.query(query, tenantId ? [tenantId, deviceId] : [deviceId]);
       return result.rows;
     } catch (error) {
       logger.error('获取设备计划失败:', error);
@@ -84,33 +88,41 @@ class ScheduleService {
    */
   async createSchedule(scheduleData, tenantId) {
     return await db.transaction(async (client) => {
-      
-      // 验证设备是否属于该租户
-      if (scheduleData.deviceIds && scheduleData.deviceIds.length > 0) {
-        const deviceCheck = await client.query(
-          `SELECT id FROM devices 
-           WHERE id = ANY($1) AND tenant_id = $2`,
-          [scheduleData.deviceIds, tenantId]
-        );
-        
-        if (deviceCheck.rows.length !== scheduleData.deviceIds.length) {
-          throw new Error('部分设备不存在或无权限');
-        }
+      if (!scheduleData.deviceIds?.length) {
+        throw new Error('请选择至少一个温控设备');
+      }
+      const deviceParams = [scheduleData.deviceIds];
+      const tenantClause = tenantId ? ' AND tenant_id = $2' : '';
+      if (tenantId) deviceParams.push(tenantId);
+      const deviceCheck = await client.query(
+        `SELECT id, tenant_id FROM devices
+         WHERE id = ANY($1)${tenantClause}`,
+        deviceParams
+      );
+      if (deviceCheck.rows.length !== scheduleData.deviceIds.length) {
+        throw new Error('部分设备不存在或无权限');
+      }
+      const tenantIds = [...new Set(deviceCheck.rows.map((device) => String(device.tenant_id)))];
+      if (tenantIds.length !== 1) throw new Error('同一策略只能选择同一租户的设备');
+      const resolvedTenantId = tenantId || deviceCheck.rows[0].tenant_id;
+      const lockAction = scheduleData.lockAction || 'none';
+      if (!['lock', 'unlock', 'none'].includes(lockAction)) {
+        throw new Error('无效的童锁动作');
       }
 
       // 创建计划
       const scheduleQuery = `
         INSERT INTO thermostat_schedules (
           name, tenant_id, execute_time, repeat_type, week_days, custom_dates,
-          power_action, ac_mode, target_temp, fan_speed, enabled, description
+          power_action, ac_mode, target_temp, fan_speed, lock_action, enabled, description
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
         RETURNING *
       `;
 
       const scheduleResult = await client.query(scheduleQuery, [
         scheduleData.name,
-        tenantId,
+        resolvedTenantId,
         scheduleData.executeTime,
         scheduleData.repeatType,
         scheduleData.weekDays || [],
@@ -119,6 +131,7 @@ class ScheduleService {
         scheduleData.acMode,
         scheduleData.targetTemp,
         scheduleData.fanSpeed,
+        lockAction,
         scheduleData.enabled !== false,
         scheduleData.description
       ]);
@@ -162,7 +175,7 @@ class ScheduleService {
         GROUP BY ts.id
       `;
       
-      const result = await client.query(query, [schedule.id, tenantId]);
+      const result = await client.query(query, [schedule.id, resolvedTenantId]);
       return result.rows[0];
     });
   }
@@ -172,23 +185,28 @@ class ScheduleService {
    */
   async updateSchedule(scheduleId, scheduleData, tenantId) {
     return await db.transaction(async (client) => {
-      
-      // 验证计划是否属于该租户
+      const scheduleParams = [scheduleId];
+      const scheduleTenantClause = tenantId ? ' AND tenant_id = $2' : '';
+      if (tenantId) scheduleParams.push(tenantId);
       const scheduleCheck = await client.query(
-        'SELECT id FROM thermostat_schedules WHERE id = $1 AND tenant_id = $2',
-        [scheduleId, tenantId]
+        `SELECT id, tenant_id FROM thermostat_schedules
+         WHERE id = $1${scheduleTenantClause}`,
+        scheduleParams
       );
-      
       if (scheduleCheck.rows.length === 0) {
         throw new Error('计划不存在或无权限');
       }
-      
-      // 验证设备是否属于该租户
+      const resolvedTenantId = scheduleCheck.rows[0].tenant_id;
+      const lockAction = scheduleData.lockAction || 'none';
+      if (!['lock', 'unlock', 'none'].includes(lockAction)) {
+        throw new Error('无效的童锁动作');
+      }
+
       if (scheduleData.deviceIds && scheduleData.deviceIds.length > 0) {
         const deviceCheck = await client.query(
           `SELECT id FROM devices 
            WHERE id = ANY($1) AND tenant_id = $2`,
-          [scheduleData.deviceIds, tenantId]
+          [scheduleData.deviceIds, resolvedTenantId]
         );
         
         if (deviceCheck.rows.length !== scheduleData.deviceIds.length) {
@@ -209,10 +227,11 @@ class ScheduleService {
           ac_mode = $7,
           target_temp = $8,
           fan_speed = $9,
-          enabled = $10,
-          description = $11,
+          lock_action = $10,
+          enabled = $11,
+          description = $12,
           updated_at = NOW()
-        WHERE id = $12 AND tenant_id = $13
+        WHERE id = $13 AND tenant_id = $14
         RETURNING *
       `;
 
@@ -226,10 +245,11 @@ class ScheduleService {
         scheduleData.acMode,
         scheduleData.targetTemp,
         scheduleData.fanSpeed,
+        lockAction,
         scheduleData.enabled,
         scheduleData.description,
         scheduleId,
-        tenantId
+        resolvedTenantId
       ]);
       
       if (scheduleResult.rows.length === 0) {
@@ -260,7 +280,7 @@ class ScheduleService {
       }
       
       // 返回完整的计划信息
-      return await this.getScheduleById(scheduleId, tenantId);
+      return await this.getScheduleById(scheduleId, resolvedTenantId);
     });
   }
 
@@ -268,13 +288,14 @@ class ScheduleService {
    * 删除计划
    */
   async deleteSchedule(scheduleId, tenantId) {
+    const tenantClause = tenantId ? ' AND tenant_id = $2' : '';
     const query = `
       DELETE FROM thermostat_schedules 
-      WHERE id = $1 AND tenant_id = $2
+      WHERE id = $1${tenantClause}
     `;
 
     try {
-      const result = await db.query(query, [scheduleId, tenantId]);
+      const result = await db.query(query, tenantId ? [scheduleId, tenantId] : [scheduleId]);
       return result.rowCount > 0;
     } catch (error) {
       logger.error('删除计划失败:', error);
@@ -286,15 +307,17 @@ class ScheduleService {
    * 启用/禁用计划
    */
   async toggleSchedule(scheduleId, enabled, tenantId) {
+    const tenantClause = tenantId ? ' AND tenant_id = $3' : '';
     const query = `
       UPDATE thermostat_schedules 
       SET enabled = $1, updated_at = NOW()
-      WHERE id = $2 AND tenant_id = $3
+      WHERE id = $2${tenantClause}
       RETURNING *
     `;
 
     try {
-      const result = await db.query(query, [enabled, scheduleId, tenantId]);
+      const params = tenantId ? [enabled, scheduleId, tenantId] : [enabled, scheduleId];
+      const result = await db.query(query, params);
       if (result.rows.length === 0) {
         return null;
       }
@@ -311,6 +334,7 @@ class ScheduleService {
    * 根据ID获取计划详情
    */
   async getScheduleById(scheduleId, tenantId) {
+    const tenantClause = tenantId ? ' AND ts.tenant_id = $2' : '';
     const query = `
       SELECT 
         ts.*,
@@ -329,12 +353,12 @@ class ScheduleService {
       FROM thermostat_schedules ts
       LEFT JOIN thermostat_schedule_devices tsd ON ts.id = tsd.schedule_id
       LEFT JOIN devices d ON tsd.device_id = d.id
-      WHERE ts.id = $1 AND ts.tenant_id = $2
+      WHERE ts.id = $1${tenantClause}
       GROUP BY ts.id
     `;
 
     try {
-      const result = await db.query(query, [scheduleId, tenantId]);
+      const result = await db.query(query, tenantId ? [scheduleId, tenantId] : [scheduleId]);
       if (result.rows.length === 0) {
         return null;
       }

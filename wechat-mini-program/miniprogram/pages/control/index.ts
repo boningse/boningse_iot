@@ -6,6 +6,7 @@ import {
 } from "../../api/control";
 import { session } from "../../services/session";
 import { canAccess } from "../../utils/permission";
+import { pad } from "../../utils/format";
 
 interface ModuleCard {
   key: string;
@@ -22,7 +23,7 @@ const baseModules: ModuleCard[] = [
   {
     key: "switch",
     title: "开关控制",
-    subtitle: "回路状态与电气数据",
+    subtitle: "定时开关统一控制",
     permission: "switch-control",
     icon: "/assets/icons/switch.png",
     tone: "green",
@@ -32,7 +33,7 @@ const baseModules: ModuleCard[] = [
   {
     key: "lighting",
     title: "照明控制",
-    subtitle: "照明回路与实时状态",
+    subtitle: "室内照明统一控制",
     permission: "lighting",
     icon: "/assets/icons/lighting.png",
     tone: "amber",
@@ -42,7 +43,7 @@ const baseModules: ModuleCard[] = [
   {
     key: "thermostat",
     title: "温控控制",
-    subtitle: "室温、模式与运行趋势",
+    subtitle: "风机盘管统一控制",
     permission: "thermostat",
     icon: "/assets/icons/thermostat.png",
     tone: "blue",
@@ -52,7 +53,7 @@ const baseModules: ModuleCard[] = [
   {
     key: "airConditioner",
     title: "空调控制",
-    subtitle: "挂机与柜机统一控制",
+    subtitle: "挂机柜机统一控制",
     permission: "air-conditioner",
     icon: "/assets/icons/air-conditioner.png",
     tone: "coral",
@@ -70,9 +71,28 @@ Page({
     updatedAt: ""
   },
 
+  _timer: 0 as unknown as number,
+
   onShow() {
     void this.load();
     void getApp<IAppOption>().refreshUnreadCount?.();
+    this.updateTime();
+    this._timer = setInterval(() => this.updateTime(), 30000);
+  },
+
+  onHide() {
+    clearInterval(this._timer);
+  },
+
+  onUnload() {
+    clearInterval(this._timer);
+  },
+
+  updateTime() {
+    const now = new Date();
+    this.setData({
+      updatedAt: `${pad(now.getHours())}:${pad(now.getMinutes())}`
+    });
   },
 
   onPullDownRefresh() {
@@ -114,7 +134,6 @@ Page({
     this.setData({
       modules: modules.map((item, index) => ({ ...item, total: counts[index] })),
       loading: false,
-      updatedAt: new Date().toTimeString().slice(0, 5)
     });
   },
 

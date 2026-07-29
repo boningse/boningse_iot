@@ -10,7 +10,7 @@ import {
 } from "../../utils/device-view";
 
 interface LightingCircuit {
-  key: string;
+  key: "key1" | "key2" | "key3";
   label: string;
   on: boolean;
 }
@@ -45,7 +45,8 @@ Page({
     total: 0,
     totalPages: 1,
     loading: false,
-    loadingMore: false
+    loadingMore: false,
+    controllingKey: ""
   },
 
   onLoad() {
@@ -89,7 +90,7 @@ Page({
         ...this.data.filters,
         keyword: this.data.keyword,
         page,
-        pageSize: 20
+        pageSize: 3000
       });
       const incoming = result.list.map((item) => {
         const device = toDeviceView(item);
@@ -136,6 +137,36 @@ Page({
     });
 
     if (changed) this.setData({ devices });
+  },
+
+  async toggleCircuit(event: WechatMiniprogram.TouchEvent) {
+    const deviceIndex = Number(event.currentTarget.dataset.deviceIndex);
+    const circuitIndex = Number(event.currentTarget.dataset.circuitIndex);
+    const device = this.data.devices[deviceIndex];
+    const circuit = device?.circuits[circuitIndex];
+    if (!device || !circuit || !device.online || this.data.controllingKey) return;
+
+    const controllingKey = `${device.routeId}:${circuit.key}`;
+    const next = !circuit.on;
+    this.setData({ controllingKey });
+    try {
+      await lightingApi.control(device.routeImei || device.routeId, {
+        type: "event",
+        [circuit.key]: next ? 1 : 0
+      });
+
+      const updated = { ...device };
+      if (circuit.key === "key1") updated.switch1On = next;
+      if (circuit.key === "key2") updated.switch2On = next;
+      if (circuit.key === "key3") updated.switch3On = next;
+      updated.circuits = lightingCircuits(updated);
+      this.setData({ [`devices[${deviceIndex}]`]: updated });
+      wx.showToast({ title: next ? "已发送开灯命令" : "已发送关灯命令", icon: "none" });
+    } catch (error) {
+      wx.showToast({ title: error instanceof Error ? error.message : "控制失败", icon: "none" });
+    } finally {
+      this.setData({ controllingKey: "" });
+    }
   },
 
   openDetail(event: WechatMiniprogram.TouchEvent) {

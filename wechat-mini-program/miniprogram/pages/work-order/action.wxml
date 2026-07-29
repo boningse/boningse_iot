@@ -38,15 +38,7 @@
   </view>
 
   <view class="field">
-    <view class="location-row">
-      <view>
-        <text class="field-label">现场位置</text>
-        <text class="location-state">{{latitude ? "坐标已记录" : "选填"}}</text>
-      </view>
-      <button class="location-button" loading="{{locating}}" bindtap="captureLocation">
-        <image src="/assets/icons/map.png" mode="aspectFit"></image><text>获取位置</text>
-      </button>
-    </view>
+    <text class="field-label">现场位置（选填）</text>
     <input class="field-input" value="{{locationText}}" placeholder="位置说明，例如 1 号楼 3 层配电间" placeholder-class="field-placeholder" bindinput="onLocationTextInput" />
   </view>
 

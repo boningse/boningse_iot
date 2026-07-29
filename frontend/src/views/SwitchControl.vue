@@ -159,149 +159,151 @@
       />
     </div>
 
-    <el-drawer v-model="strategyVisible" title="开关策略统一管理" size="560px">
+    <el-dialog v-model="strategyVisible" title="开关策略管理" width="1080px">
       <div class="strategy-panel">
-        <el-form label-width="92px">
-          <el-form-item label="设备筛选">
-            <div class="strategy-filter-row">
-              <el-select
-                v-if="isAdmin"
-                v-model="strategyFilters.tenantId"
-                placeholder="所属租户"
-                clearable
-                filterable
-                @change="strategyTenantChanged"
-                ><el-option label="全部租户" value="" /><el-option
-                  v-for="item in tenants"
-                  :key="item.id"
-                  :label="item.name"
-                  :value="item.id"
-              /></el-select>
-              <el-select
-                v-model="strategyFilters.buildingId"
-                placeholder="所属建筑"
-                clearable
-                filterable
-                @change="strategyBuildingChanged"
-                ><el-option label="全部建筑" value="" /><el-option
-                  v-for="item in strategyBuildings"
-                  :key="item.id"
-                  :label="item.name"
-                  :value="item.id"
-              /></el-select>
-              <el-select
-                v-model="strategyFilters.groupId"
-                placeholder="所属分组"
-                clearable
-                filterable
-                ><el-option label="全部分组" value="" /><el-option
-                  v-for="item in strategyGroups"
-                  :key="item.id"
-                  :label="item.name"
-                  :value="item.id"
-              /></el-select>
-            </div>
-          </el-form-item>
-          <el-form-item label="选择设备"
-            ><div class="selection-block">
-              <el-select
-                v-model="selectedIds"
-                multiple
-                filterable
-                collapse-tags
-                collapse-tags-tooltip
-                placeholder="请选择开关设备"
-                class="wide"
-                @change="loadSelectedTimers"
-                ><el-option
-                  v-for="item in strategyDevices"
-                  :key="item.id"
-                  :label="item.name"
-                  :value="item.id"
-              /></el-select>
-              <div class="selection-actions">
-                <el-button size="small" @click="selectAll"
-                  >全选当前筛选</el-button
-                ><el-button size="small" @click="clearSelection"
-                  >清空</el-button
-                >
+        <div class="strategy-guide">
+          <strong>开关运行策略</strong>
+          <span>按设备范围设置执行时间、周期和开关动作。策略仅作用于开关控制模块。</span>
+        </div>
+        <div class="strategy-header">
+          <el-button type="primary" :icon="Plus" @click="openStrategyEditor()">新增策略</el-button>
+        </div>
+        <el-table :data="strategies" v-loading="strategyLoading" class="strategy-table">
+          <el-table-column prop="name" label="策略名称" min-width="150" />
+          <el-table-column label="设备" min-width="210">
+            <template #default="{ row }">{{ strategyDeviceText(row) }}</template>
+          </el-table-column>
+          <el-table-column label="动作" width="100">
+            <template #default="{ row }">
+              <el-tag :type="row.action === 'on' ? 'success' : 'danger'" size="small">
+                {{ row.action === "on" ? "开启" : "关闭" }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="executeTime" label="执行时间" width="110" />
+          <el-table-column label="重复" min-width="140">
+            <template #default="{ row }">{{ repeatText(row) }}</template>
+          </el-table-column>
+          <el-table-column label="状态" width="90">
+            <template #default="{ row }">
+              <el-switch v-model="row.enabled" @change="toggleStrategy(row)" />
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="180" fixed="right">
+            <template #default="{ row }">
+              <div class="strategy-actions">
+                <el-button type="primary" size="small" @click="openStrategyEditor(row)">编辑</el-button>
+                <el-button type="danger" size="small" @click="removeStrategy(row)">删除</el-button>
               </div>
-            </div></el-form-item
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
+    </el-dialog>
+
+    <el-dialog
+      v-model="strategyEditorVisible"
+      :title="strategyForm.id ? '编辑开关策略' : '新增开关策略'"
+      width="760px"
+      class="strategy-editor-dialog"
+      @closed="resetStrategyForm"
+    >
+      <el-form ref="strategyFormRef" :model="strategyForm" :rules="strategyRules" label-width="120px">
+        <div class="strategy-form-section">设备范围</div>
+        <el-form-item label="策略名称" prop="name">
+          <el-input v-model="strategyForm.name" maxlength="50" show-word-limit placeholder="请输入策略名称" />
+        </el-form-item>
+        <el-form-item label="选择设备" prop="deviceIds">
+          <div class="strategy-device-filters">
+            <el-input v-model="strategyFilters.keyword" placeholder="搜索设备名称或设备ID" clearable>
+              <template #prefix><el-icon><Search /></el-icon></template>
+            </el-input>
+            <el-select v-if="isAdmin" v-model="strategyFilters.tenantId" placeholder="所属租户" clearable filterable @change="strategyTenantChanged">
+              <el-option v-for="item in tenants" :key="item.id" :label="item.name" :value="item.id" />
+            </el-select>
+            <el-select v-model="strategyFilters.buildingId" placeholder="所属建筑" clearable filterable @change="strategyBuildingChanged">
+              <el-option v-for="item in strategyBuildings" :key="item.id" :label="item.name" :value="item.id" />
+            </el-select>
+            <el-select v-model="strategyFilters.groupId" placeholder="所属分组" clearable filterable>
+              <el-option v-for="item in strategyGroups" :key="item.id" :label="item.name" :value="item.id" />
+            </el-select>
+            <el-select v-model="strategyFilters.status" placeholder="设备状态" clearable>
+              <el-option label="在线" value="online" />
+              <el-option label="离线" value="offline" />
+              <el-option label="故障" value="error" />
+            </el-select>
+          </div>
+          <el-select
+            v-model="strategyForm.deviceIds"
+            multiple
+            filterable
+            collapse-tags
+            collapse-tags-tooltip
+            :max-collapse-tags="3"
+            placeholder="请选择一台或多台设备"
+            class="wide"
+            @change="strategyDeviceChanged"
           >
-          <el-form-item label="相位类型"
-            ><el-segmented v-model="strategy.phaseType" :options="phaseOptions"
-          /></el-form-item>
-          <el-form-item label="分组"
-            ><el-input v-model="strategy.group" placeholder="例如：一楼走廊"
-          /></el-form-item>
-          <el-form-item label="排序"
-            ><el-input-number v-model="strategy.order" :min="0" :max="999"
-          /></el-form-item>
-          <el-button
-            type="primary"
-            :loading="savingStrategy"
-            @click="saveStrategy"
-            >保存策略</el-button
-          >
-        </el-form>
-        <el-divider />
-        <div class="timer-list">
-          <div v-for="item in timers" :key="item.id" class="timer-item">
-            <div>
-              <strong>{{
-                item.name || (item.action === "on" ? "开启" : "关闭")
-              }}</strong
-              ><span
-                >{{ item.time }} ·
-                {{ item.action === "on" ? "开启" : "关闭" }} ·
-                {{ repeatText(item.repeat) }}</span
-              >
-            </div>
-            <div class="timer-actions">
-              <el-switch
-                v-model="item.enabled"
-                @change="toggleTimer(item)"
-              /><el-button type="danger" text @click="removeTimer(item)"
-                >删除</el-button
-              >
+            <el-option
+              v-for="item in strategyDevices"
+              :key="item.id"
+              :label="strategyDeviceLabel(item)"
+              :value="item.id"
+            />
+          </el-select>
+          <div class="strategy-device-summary">
+            <span>筛选结果 {{ strategyDevices.length }} 台，已选 {{ strategyForm.deviceIds.length }} 台</span>
+            <div class="strategy-actions">
+              <el-button type="primary" link @click="selectAllStrategyDevices">选择筛选结果</el-button>
+              <el-button link @click="strategyForm.deviceIds = []">清空已选</el-button>
             </div>
           </div>
-        </div>
-        <el-form class="timer-form" label-width="92px">
-          <el-form-item label="名称"
-            ><el-input v-model="timer.name" placeholder="定时名称"
-          /></el-form-item>
-          <el-form-item label="动作"
-            ><el-radio-group v-model="timer.action"
-              ><el-radio-button label="on">开启</el-radio-button
-              ><el-radio-button label="off"
-                >关闭</el-radio-button
-              ></el-radio-group
-            ></el-form-item
-          >
-          <el-form-item label="时间"
-            ><el-time-picker
-              v-model="timer.time"
-              value-format="HH:mm"
-              format="HH:mm"
-              placeholder="选择时间"
-          /></el-form-item>
-          <el-form-item label="重复"
-            ><el-checkbox-group v-model="timer.repeat"
-              ><el-checkbox-button
-                v-for="day in weekOptions"
-                :key="day.value"
-                :label="day.value"
-                >{{ day.label }}</el-checkbox-button
-              ></el-checkbox-group
-            ></el-form-item
-          >
-          <el-button type="primary" :loading="savingTimer" @click="addTimer"
-            >添加定时</el-button
-          >
-        </el-form>
-      </div>
-    </el-drawer>
+        </el-form-item>
+
+        <div class="strategy-form-section">触发条件</div>
+        <el-form-item label="执行时间" prop="executeTime">
+          <el-time-picker v-model="strategyForm.executeTime" value-format="HH:mm" format="HH:mm" placeholder="选择执行时间" />
+        </el-form-item>
+        <el-form-item label="重复设置" prop="repeatType">
+          <el-radio-group v-model="strategyForm.repeatType">
+            <el-radio label="once">仅执行一次</el-radio>
+            <el-radio label="daily">每天</el-radio>
+            <el-radio label="weekly">每周</el-radio>
+            <el-radio label="custom">自定义</el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item v-if="strategyForm.repeatType === 'weekly'" label="重复日期">
+          <el-checkbox-group v-model="strategyForm.weekDays">
+            <el-checkbox v-for="day in weekOptions" :key="day.value" :label="day.value">周{{ day.label }}</el-checkbox>
+          </el-checkbox-group>
+        </el-form-item>
+        <el-form-item v-if="strategyForm.repeatType === 'custom'" label="自定义日期">
+          <el-date-picker v-model="strategyForm.customDates" type="dates" value-format="YYYY-MM-DD" format="YYYY-MM-DD" placeholder="选择执行日期" class="wide" />
+        </el-form-item>
+
+        <div class="strategy-form-section">执行动作</div>
+        <el-form-item label="开关控制">
+          <el-radio-group v-model="strategyForm.action">
+            <el-radio label="on">开启</el-radio>
+            <el-radio label="off">关闭</el-radio>
+          </el-radio-group>
+        </el-form-item>
+
+        <div class="strategy-form-section">策略状态</div>
+        <el-form-item label="启用状态">
+          <el-switch v-model="strategyForm.enabled" active-text="启用" inactive-text="禁用" />
+        </el-form-item>
+        <el-form-item label="备注">
+          <el-input v-model="strategyForm.description" type="textarea" :rows="3" maxlength="200" show-word-limit placeholder="请输入策略备注（可选）" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="strategyEditorVisible = false">取消</el-button>
+        <el-button type="primary" :loading="strategySaving" @click="saveStrategy">
+          {{ strategyForm.id ? "保存修改" : "保存策略" }}
+        </el-button>
+      </template>
+    </el-dialog>
 
     <el-dialog v-model="addVisible" title="添加开关设备" width="760px">
       <div v-if="isAdmin" class="dialog-filter">
@@ -408,14 +410,10 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref } from "vue";
-import { DataAnalysis, Plus, Refresh, Setting } from "@element-plus/icons-vue";
+import { DataAnalysis, Plus, Refresh, Search, Setting } from "@element-plus/icons-vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import {
-  del,
-  get,
-  post,
   projectManagementAPI,
-  put,
   switchControlAPI,
   tenantAPI,
 } from "@/api";
@@ -436,19 +434,36 @@ const filters = reactive({
 });
 const pagination = reactive({ page: 1, pageSize: 24, total: 0 });
 const strategyVisible = ref(false),
-  selectedIds = ref([]),
-  savingStrategy = ref(false),
-  savingTimer = ref(false);
-const strategy = reactive({ phaseType: "single_phase", group: "", order: 0 });
-const strategyFilters = reactive({ tenantId: "", buildingId: "", groupId: "" });
-const timers = ref([]);
-const timer = reactive({
-  name: "",
-  action: "on",
-  time: "",
-  repeat: [],
-  enabled: true,
+  strategyEditorVisible = ref(false),
+  strategyLoading = ref(false),
+  strategySaving = ref(false),
+  strategyDeviceOptions = ref([]),
+  strategies = ref([]);
+const strategyFormRef = ref(null);
+const strategyFilters = reactive({
+  keyword: "",
+  tenantId: "",
+  buildingId: "",
+  groupId: "",
+  status: "",
 });
+const strategyForm = reactive({
+  id: null,
+  name: "",
+  deviceIds: [],
+  action: "on",
+  executeTime: "",
+  repeatType: "once",
+  weekDays: [],
+  customDates: [],
+  enabled: true,
+  description: "",
+});
+const strategyRules = {
+  name: [{ required: true, message: "请输入策略名称", trigger: "blur" }],
+  deviceIds: [{ type: "array", required: true, min: 1, message: "请选择设备", trigger: "change" }],
+  executeTime: [{ required: true, message: "请选择执行时间", trigger: "change" }],
+};
 const addVisible = ref(false),
   addTenantId = ref(""),
   availableLoading = ref(false),
@@ -458,10 +473,6 @@ const detailVisible = ref(false),
   detailDevice = ref(null),
   detailData = ref(null),
   history = ref([]);
-const phaseOptions = [
-  { label: "单相", value: "single_phase" },
-  { label: "三相", value: "three_phase" },
-];
 const weekOptions = [
   { label: "一", value: 1 },
   { label: "二", value: 2 },
@@ -513,15 +524,22 @@ const strategyGroups = computed(() =>
   ),
 );
 const strategyDevices = computed(() =>
-  devices.value.filter(
-    (x) =>
+  strategyDeviceOptions.value.filter((x) => {
+    const keyword = strategyFilters.keyword.trim().toLowerCase();
+    return (
+      (!keyword ||
+        [x.name, x.device_id, x.imei].some((value) =>
+          String(value || "").toLowerCase().includes(keyword),
+        )) &&
       (!strategyFilters.tenantId ||
-        sameId(x.tenantId, strategyFilters.tenantId)) &&
+        sameId(x.tenant_id, strategyFilters.tenantId)) &&
       (!strategyFilters.buildingId ||
-        sameId(x.projectBuildingId, strategyFilters.buildingId)) &&
+        sameId(x.project_building_id, strategyFilters.buildingId)) &&
       (!strategyFilters.groupId ||
-        sameId(x.projectGroupId, strategyFilters.groupId)),
-  ),
+        sameId(x.project_group_id, strategyFilters.groupId)) &&
+      (!strategyFilters.status || x.status === strategyFilters.status)
+    );
+  }),
 );
 const detailPhaseRows = computed(() =>
   ["a", "b", "c"].map((phase) => ({
@@ -776,36 +794,66 @@ function pageSizeChanged(size) {
   pagination.page = 1;
   loadDevices();
 }
-function openStrategy() {
-  const first = devices.value[0];
-  if (!first) return ElMessage.warning("当前没有可配置策略的开关设备");
-  selectedIds.value = [first.id];
-  Object.assign(strategyFilters, {
-    tenantId: filters.tenantId || "",
-    buildingId: filters.buildingId || "",
-    groupId: filters.projectGroupId || "",
-  });
-  Object.assign(strategy, {
-    phaseType: first.phaseType,
-    group: first.group,
-    order: first.order,
-  });
+async function openStrategy() {
   strategyVisible.value = true;
-  loadTimers(first);
+  strategyLoading.value = true;
+  try {
+    const [strategyResult, deviceResult] = await Promise.all([
+      switchControlAPI.getStrategies(),
+      switchControlAPI.getStrategyDevices(),
+    ]);
+    strategies.value = strategyResult.success ? strategyResult.data || [] : [];
+    strategyDeviceOptions.value = deviceResult.success ? deviceResult.data || [] : [];
+  } catch (error) {
+    ElMessage.error(error.message || "加载开关策略失败");
+  } finally {
+    strategyLoading.value = false;
+  }
 }
-function selectAll() {
-  selectedIds.value = strategyDevices.value.map((x) => x.id);
+function resetStrategyForm() {
+  Object.assign(strategyForm, {
+    id: null,
+    name: "",
+    deviceIds: [],
+    action: "on",
+    executeTime: "",
+    repeatType: "once",
+    weekDays: [],
+    customDates: [],
+    enabled: true,
+    description: "",
+  });
+  Object.assign(strategyFilters, {
+    keyword: "",
+    tenantId: "",
+    buildingId: "",
+    groupId: "",
+    status: "",
+  });
+  strategyFormRef.value?.clearValidate();
 }
-function clearSelection() {
-  selectedIds.value = [];
-  timers.value = [];
+function openStrategyEditor(item = null) {
+  resetStrategyForm();
+  if (item) {
+    Object.assign(strategyForm, {
+      id: item.id,
+      name: item.name,
+      deviceIds: (item.devices || []).map((device) => device.id),
+      action: item.action,
+      executeTime: item.executeTime,
+      repeatType: item.repeatType || "once",
+      weekDays: (item.weekDays || []).map(Number),
+      customDates: item.customDates || [],
+      enabled: item.enabled !== false,
+      description: item.description || "",
+    });
+    strategyFilters.tenantId = item.tenantId || "";
+  }
+  strategyEditorVisible.value = true;
 }
 function strategyTenantChanged() {
   strategyFilters.buildingId = "";
   strategyFilters.groupId = "";
-  selectedIds.value = selectedIds.value.filter((id) =>
-    strategyDevices.value.some((x) => x.id === id),
-  );
 }
 function strategyBuildingChanged() {
   if (
@@ -813,116 +861,100 @@ function strategyBuildingChanged() {
     !strategyGroups.value.some((x) => sameId(x.id, strategyFilters.groupId))
   )
     strategyFilters.groupId = "";
-  selectedIds.value = selectedIds.value.filter((id) =>
-    strategyDevices.value.some((x) => x.id === id),
-  );
 }
-async function loadSelectedTimers() {
-  const device = devices.value.find((x) => x.id === selectedIds.value[0]);
-  if (device) await loadTimers(device);
-  else timers.value = [];
-}
-async function loadTimers(device) {
-  const result = await get(`/lighting-timer/${device.deviceId}`);
-  timers.value = result.success ? result.data || [] : [];
-}
-function repeatText(days) {
-  if (!days?.length) return "仅一次";
-  if (days.length === 7) return "每天";
-  return days
-    .map((value) => weekOptions.find((x) => x.value === value)?.label)
-    .filter(Boolean)
-    .join("、");
-}
-async function toggleTimer(item) {
-  try {
-    const result = await put(`/lighting-timer/${item.id}/toggle`, {
-      enabled: item.enabled,
-    });
-    if (!result.success) throw new Error(result.message || "更新定时失败");
-  } catch (error) {
-    item.enabled = !item.enabled;
-    ElMessage.error(error.message || "更新定时失败");
+function strategyDeviceChanged(ids) {
+  if (ids.length < 2) return;
+  const first = strategyDeviceOptions.value.find((item) => item.id === ids[0]);
+  const sameTenantIds = ids.filter((id) => {
+    const device = strategyDeviceOptions.value.find((item) => item.id === id);
+    return sameId(device?.tenant_id, first?.tenant_id);
+  });
+  if (sameTenantIds.length !== ids.length) {
+    strategyForm.deviceIds = sameTenantIds;
+    ElMessage.warning("同一策略只能选择同一租户的设备");
   }
 }
-async function removeTimer(item) {
+function selectAllStrategyDevices() {
+  strategyForm.deviceIds = [
+    ...new Set([...strategyForm.deviceIds, ...strategyDevices.value.map((item) => item.id)]),
+  ];
+  strategyDeviceChanged(strategyForm.deviceIds);
+}
+function strategyDeviceLabel(item) {
+  const location = [item.project_building_name, item.project_group_name]
+    .filter(Boolean)
+    .join(" / ");
+  return [item.name, item.device_id || item.imei, location].filter(Boolean).join(" - ");
+}
+function strategyDeviceText(item) {
+  const names = (item.devices || []).map((device) => device.name);
+  if (names.length <= 2) return names.join("、") || "未关联设备";
+  return `${names.slice(0, 2).join("、")} 等 ${names.length} 台`;
+}
+function repeatText(item) {
+  if (item.repeatType === "daily") return "每天";
+  if (item.repeatType === "custom") return `指定 ${item.customDates?.length || 0} 天`;
+  if (item.repeatType !== "weekly") return "仅一次";
+  return (item.weekDays || [])
+    .map((value) => weekOptions.find((option) => option.value === Number(value))?.label)
+    .filter(Boolean)
+    .map((label) => `周${label}`)
+    .join("、");
+}
+async function toggleStrategy(item) {
   try {
-    await ElMessageBox.confirm("确定删除这个定时策略吗？", "删除确认", {
+    const result = await switchControlAPI.toggleStrategy(item.id, item.enabled);
+    if (!result.success) throw new Error(result.message || "更新策略状态失败");
+    ElMessage.success(item.enabled ? "策略已启用" : "策略已停用");
+  } catch (error) {
+    item.enabled = !item.enabled;
+    ElMessage.error(error.message || "更新策略状态失败");
+  }
+}
+async function removeStrategy(item) {
+  try {
+    await ElMessageBox.confirm(`确定删除策略“${item.name}”吗？`, "删除确认", {
       type: "warning",
     });
-    const result = await del(`/lighting-timer/${item.id}`);
-    if (!result.success) throw new Error(result.message || "删除定时失败");
-    await loadSelectedTimers();
-    ElMessage.success("定时策略已删除");
+    const result = await switchControlAPI.deleteStrategy(item.id);
+    if (!result.success) throw new Error(result.message || "删除策略失败");
+    await openStrategy();
+    ElMessage.success("策略已删除");
   } catch (error) {
     if (error !== "cancel") ElMessage.error(error.message || "删除失败");
   }
 }
 async function saveStrategy() {
-  const list = devices.value.filter((x) => selectedIds.value.includes(x.id));
-  if (!list.length) return ElMessage.warning("请选择需要保存策略的设备");
-  savingStrategy.value = true;
+  const valid = await strategyFormRef.value?.validate().catch(() => false);
+  if (!valid) return;
+  if (strategyForm.repeatType === "weekly" && !strategyForm.weekDays.length)
+    return ElMessage.warning("请选择每周执行日期");
+  if (strategyForm.repeatType === "custom" && !strategyForm.customDates.length)
+    return ElMessage.warning("请选择自定义执行日期");
+  strategySaving.value = true;
   try {
-    const rs = await Promise.all(
-      list.map((x) =>
-        switchControlAPI.updateSwitchDevice(x.id, {
-          phase_type: strategy.phaseType,
-          lighting_type: phaseToLighting(strategy.phaseType),
-          group_name: strategy.group,
-          display_order: strategy.order,
-        }),
-      ),
-    );
-    const failed = rs.filter((x) => !x.success);
-    if (failed.length) throw new Error(`${failed.length} 台设备保存策略失败`);
-    list.forEach((x) =>
-      Object.assign(x, {
-        phaseType: strategy.phaseType,
-        group: strategy.group,
-        order: strategy.order,
-      }),
-    );
-    ElMessage.success(`策略已保存到 ${list.length} 台设备`);
+    const payload = {
+      name: strategyForm.name,
+      deviceIds: strategyForm.deviceIds,
+      action: strategyForm.action,
+      executeTime: strategyForm.executeTime,
+      repeatType: strategyForm.repeatType,
+      weekDays: strategyForm.repeatType === "weekly" ? strategyForm.weekDays : [],
+      customDates: strategyForm.repeatType === "custom" ? strategyForm.customDates : [],
+      enabled: strategyForm.enabled,
+      description: strategyForm.description,
+    };
+    const result = strategyForm.id
+      ? await switchControlAPI.updateStrategy(strategyForm.id, payload)
+      : await switchControlAPI.createStrategy(payload);
+    if (!result.success) throw new Error(result.message || "策略保存失败");
+    strategyEditorVisible.value = false;
+    await openStrategy();
+    ElMessage.success(strategyForm.id ? "策略更新成功" : "策略创建成功");
   } catch (e) {
     ElMessage.error(e.message);
   } finally {
-    savingStrategy.value = false;
-  }
-}
-async function addTimer() {
-  const list = devices.value.filter((x) => selectedIds.value.includes(x.id));
-  if (!list.length || !timer.time)
-    return ElMessage.warning("请选择设备和定时时间");
-  savingTimer.value = true;
-  try {
-    const rs = await Promise.all(
-      list.map((x) =>
-        post("/lighting-timer", {
-          deviceId: x.deviceId,
-          action: timer.action,
-          time: timer.time,
-          repeat: timer.repeat,
-          enabled: timer.enabled,
-          name:
-            timer.name ||
-            `${x.name} ${timer.action === "on" ? "开启" : "关闭"}`,
-        }),
-      ),
-    );
-    if (rs.some((x) => !x.success)) throw new Error("部分设备添加定时失败");
-    Object.assign(timer, {
-      name: "",
-      action: "on",
-      time: "",
-      repeat: [],
-      enabled: true,
-    });
-    await loadSelectedTimers();
-    ElMessage.success(`定时策略已添加到 ${list.length} 台设备`);
-  } catch (e) {
-    ElMessage.error(e.message);
-  } finally {
-    savingTimer.value = false;
+    strategySaving.value = false;
   }
 }
 async function openAdd() {
@@ -1116,6 +1148,80 @@ onMounted(async () => {
   flex-direction: column;
   gap: 16px;
 }
+.strategy-guide {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+  border-left: 3px solid var(--el-color-primary);
+  background: var(--fill-lighter, #f5f7fa);
+}
+.strategy-header {
+  display: flex;
+  justify-content: flex-end;
+}
+.strategy-table {
+  width: 100%;
+}
+.strategy-form-section {
+  margin: 18px 0 14px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-lighter, #ebeef5);
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 650;
+}
+.strategy-device-filters {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  width: 100%;
+  margin-bottom: 10px;
+}
+.strategy-device-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  margin-top: 6px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.strategy-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+.strategy-actions :deep(.el-button) {
+  margin-left: 0;
+}
+:deep(.strategy-editor-dialog) {
+  margin-top: 4vh;
+}
+:deep(.strategy-editor-dialog .el-dialog__body) {
+  max-height: calc(92vh - 150px);
+  overflow-y: auto;
+}
+.strategy-guide strong {
+  font-size: 15px;
+}
+.strategy-guide span,
+.strategy-section-head span {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.strategy-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.strategy-section-head > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
 .selection-block,
 .wide {
   width: 100%;
@@ -1200,6 +1306,13 @@ onMounted(async () => {
   .pagination-bar {
     justify-content: flex-start;
     overflow-x: auto;
+  }
+  .strategy-device-filters {
+    grid-template-columns: 1fr;
+  }
+  .strategy-device-summary {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }
 </style>

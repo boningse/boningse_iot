@@ -52,7 +52,7 @@ Page({
         ...this.data.filters,
         keyword: this.data.keyword,
         page,
-        pageSize: 20
+        pageSize: 3000
       });
       const incoming = result.list.map(toDeviceView);
       this.setData({

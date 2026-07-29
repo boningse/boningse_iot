@@ -17,8 +17,6 @@ interface SubmitWithPhotosOptions {
   assignedTo?: string;
   photos: LocalPhoto[];
   capturedAt?: string;
-  latitude?: number;
-  longitude?: number;
   locationText?: string;
 }
 
@@ -90,8 +88,6 @@ export const submitActionWithPhotos = async (
   addField("assignedTo", options.assignedTo);
   addField("clientType", "mini_program");
   addField("capturedAt", options.capturedAt);
-  addField("latitude", options.latitude);
-  addField("longitude", options.longitude);
   addField("locationText", options.locationText);
 
   options.photos.forEach((photo, index) => {

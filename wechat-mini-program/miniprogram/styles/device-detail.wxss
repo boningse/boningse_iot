@@ -4,7 +4,7 @@
 
 .device-hero {
   padding: 26rpx;
-  background: #1d2a24;
+  background: linear-gradient(135deg, #13795b 0%, #1a8f6d 45%, #1f7d5f 100%);
   border-radius: 12rpx;
   color: #ffffff;
 }
@@ -42,7 +42,7 @@
   display: flex;
   align-items: center;
   gap: 10rpx;
-  border-top: 1rpx solid #35443d;
+  border-top: 1rpx solid #f0f6f4;
   color: #b5c1bb;
   font-size: 21rpx;
 }

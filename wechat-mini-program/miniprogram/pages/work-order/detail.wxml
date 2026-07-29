@@ -37,7 +37,7 @@
   </view>
 
   <view wx:if="{{photos.length}}" class="section-title">现场照片</view>
-  <scroll-view wx:if="{{photos.length}}" class="photo-strip" scroll-x enhanced show-scrollbar="{{false}}">
+  <scroll-view wx:if="{{photos.length}}" class="photo-strip" scroll-y enhanced show-scrollbar="{{false}}">
     <view class="photo-strip__inner">
       <image wx:for="{{photos}}" wx:key="id" class="order-photo" src="{{item.localPath}}" mode="aspectFill" data-path="{{item.localPath}}" bindtap="previewPhoto"></image>
     </view>

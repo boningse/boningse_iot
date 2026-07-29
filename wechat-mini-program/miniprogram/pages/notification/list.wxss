@@ -15,28 +15,30 @@
   border-radius: 8rpx;
   font-size: 21rpx;
 }
-
+.page-title{
+  margin-right:20rpx;
+}
 .message-filter {
-  width: 236rpx;
+
   margin: 28rpx 0 20rpx;
-  padding: 5rpx;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+  display: flex;
   gap: 5rpx;
-  background: #e7ece9;
-  border-radius: 9rpx;
 }
 
 .message-filter button {
+  flex: 1;
+  width: 236rpx;
   height: 52rpx;
   display: flex;
   align-items: center;
   justify-content: center;
   color: #74807a;
   background: transparent;
-  border-radius: 7rpx;
+  border: none;
+  border-radius: 9rpx;
   font-size: 21rpx;
 }
+
 
 .message-filter .message-filter__active {
   color: #17211d;

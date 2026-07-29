@@ -9,6 +9,7 @@ dist.*
 *.out
 *.bak*
 *.backup*
+/wechat-mini-program.zip
 logs/
 backups/
 releases/

@@ -12,11 +12,12 @@
 
 .filter-chip {
   height: 64rpx;
-  max-width: 240rpx;
+  width:225rpx;
   padding: 0 18rpx;
   display: flex;
   align-items: center;
-  gap: 8rpx;
+  /* gap: 70rpx; */
+  justify-content: space-between;
   color: #626d67;
   background: #ffffff;
   border: 1rpx solid #dce2df;

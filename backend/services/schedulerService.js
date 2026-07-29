@@ -224,9 +224,18 @@ class SchedulerService {
   async executeThermostatAction(thermostatService, device, schedule) {
     try {
       const { device_id, device_name } = device;
-      const { power_action, ac_mode, target_temp, fan_speed, tenant_id } = schedule;
-      
-      logger.info(`执行设备 ${device_name} (${device_id}) 的温控器动作: ${power_action}`);
+      const {
+        power_action,
+        ac_mode,
+        target_temp,
+        fan_speed,
+        lock_action = 'none',
+        tenant_id
+      } = schedule;
+
+      logger.info(
+        `执行设备 ${device_name} (${device_id}) 的温控器动作: 电源=${power_action}, 童锁=${lock_action}`
+      );
       
       if (power_action === 'on') {
         // 开机动作
@@ -249,10 +258,18 @@ class SchedulerService {
         await thermostatService.powerOffDevice(device_id, tenant_id, null);
         logger.info(`设备 ${device_name} 关机指令已发送`);
         
-      } else {
+      } else if (power_action !== 'none') {
         logger.warn(`未知的温控器动作: ${power_action}`);
       }
       
+      if (lock_action === 'lock' || lock_action === 'unlock') {
+        const locked = lock_action === 'lock';
+        await thermostatService.toggleTempLock(device_id, locked, tenant_id, null);
+        logger.info(`设备 ${device_name} 现场操作已${locked ? '锁定' : '解锁'}`);
+      } else if (lock_action !== 'none') {
+        logger.warn(`未知的温控器童锁动作: ${lock_action}`);
+      }
+
     } catch (error) {
       logger.error(`执行设备 ${device.device_name} 的温控器动作失败:`, error);
     }

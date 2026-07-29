@@ -50,20 +50,20 @@ Page({
         thermostatApi.getDetail(this.data.id),
         thermostatApi.getStatus(this.data.id)
       ]);
-      const detail = sourceRecord(detailResult.device || detailResult.data || detailResult);
-      const status = sourceRecord(statusResult.status || statusResult.data || statusResult);
+      const detail = sourceRecord(detailResult);
+      const status = sourceRecord(statusResult);
       const merged = { ...detail, ...status };
       this.setData({
-        powerOn: powerValue(merged.power_status ?? merged.powerState ?? merged.power),
-        currentTemperature: Number.isFinite(Number(merged.current_temperature))
-          ? Number(merged.current_temperature).toFixed(1)
+        powerOn: powerValue(merged.isOn ?? merged.is_on),
+        currentTemperature: Number.isFinite(Number(merged.currentTemperature ?? merged.current_temperature))
+          ? Number(merged.currentTemperature ?? merged.current_temperature).toFixed(1)
           : "--",
-        targetTemperature: Number(merged.target_temperature ?? merged.target_temp ?? 24),
-        mode: String(merged.mode || merged.ac_mode || "cool"),
-        fanSpeed: Number(merged.fan_speed ?? 0),
+        targetTemperature: Number(merged.targetTemperature ?? merged.target_temperature ?? 24),
+        mode: String(merged.acMode || merged.mode || "cool"),
+        fanSpeed: Number(merged.fanSpeed ?? merged.fan_speed ?? 0),
         locked: powerValue(merged.temp_lock ?? merged.locked),
         updatedAt: formatRelativeTime(String(
-          merged.updated_at || merged.measured_at || merged.timestamp || ""
+          merged.updatedAt || merged.updated_at || merged.last_update || ""
         ))
       });
       void this.loadRuntime();

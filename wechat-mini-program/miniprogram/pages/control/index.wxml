@@ -24,19 +24,13 @@
 
   <view class="section-row">
     <text class="section-title">设备控制</text>
-    <text class="section-meta">4 个业务模块</text>
+    <text class="section-meta">{{modules.length}}个业务模块</text>
   </view>
 
   <view class="module-list">
-    <view
-      wx:for="{{modules}}"
-      wx:key="key"
-      class="module-row module-row--{{item.tone}}"
-      data-url="{{item.url}}"
-      bindtap="openModule"
-    >
+    <view wx:for="{{modules}}" wx:key="key" class="module-row module-row--{{item.tone}}" data-url="{{item.url}}" bindtap="openModule">
       <view class="module-row__accent"></view>
-      <view class="module-row__icon module-row__icon--{{item.key}}">
+      <view class="module-row__icon">
         <image src="{{item.icon}}" mode="aspectFit"></image>
       </view>
       <view class="module-row__copy">
@@ -44,8 +38,8 @@
         <text class="module-row__subtitle">{{item.subtitle}}</text>
       </view>
       <view class="module-row__aside">
-        <text wx:if="{{item.total !== null}}" class="module-row__count numeric">{{item.total}}</text>
-        <text wx:else class="module-row__count module-row__count--muted">--</text>
+        <text class="module-row__count numeric">{{item.total || '--'}}</text>
+        <!-- <text wx:else class="module-row__count module-row__count--muted">--</text> -->
         <text class="module-row__unit">台设备</text>
       </view>
       <image class="module-row__arrow" src="/assets/icons/arrow-right.png" mode="aspectFit"></image>
@@ -59,4 +53,5 @@
       <text class="permission-note__text">请联系租户管理员调整模块权限</text>
     </view>
   </view>
+
 </view>

@@ -18,9 +18,6 @@ Page({
     assigneeIndex: -1,
     photos: [] as LocalPhoto[],
     locationText: "",
-    latitude: undefined as number | undefined,
-    longitude: undefined as number | undefined,
-    locating: false,
     submitting: false,
     photoRequired: false,
     noteRequired: false
@@ -118,22 +115,6 @@ Page({
     wx.previewImage({ current, urls: this.data.photos.map((item) => item.path) });
   },
 
-  async captureLocation() {
-    this.setData({ locating: true });
-    try {
-      const result = await wx.getLocation({ type: "gcj02" });
-      this.setData({
-        latitude: result.latitude,
-        longitude: result.longitude
-      });
-      wx.showToast({ title: "位置已记录", icon: "success" });
-    } catch (_) {
-      wx.showToast({ title: "未获得定位权限", icon: "none" });
-    } finally {
-      this.setData({ locating: false });
-    }
-  },
-
   async submit() {
     if (this.data.noteRequired && !this.data.note.trim()) {
       wx.showToast({ title: "请填写处理说明", icon: "none" });
@@ -163,8 +144,6 @@ Page({
           assignedTo,
           photos: this.data.photos,
           capturedAt: new Date().toISOString(),
-          latitude: this.data.latitude,
-          longitude: this.data.longitude,
           locationText: this.data.locationText.trim()
         });
       } else {

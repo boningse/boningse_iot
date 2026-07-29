@@ -1,8 +1,8 @@
 const { Pool } = require('pg');
 const logger = require('../utils/logger');
-const mqttService = require('./mqttService');
 const moment = require('moment');
 const { getPoolConfig } = require('../config/database');
+const { executeLightingControl } = require('./lightingControlExecutor');
 
 // 创建数据库连接池
 const pool = new Pool({
@@ -18,18 +18,27 @@ async function checkAndExecuteLightingTimers() {
   try {
     const now = moment();
     const currentTime = now.format('HH:mm:00');
-    const currentDayOfWeek = now.format('dddd').toLowerCase();
-    
-    logger.debug(`检查照明设备定时任务: ${currentTime}, ${currentDayOfWeek}`);
+    const currentDayOfWeek = now.day();
+    const currentDate = now.format('YYYY-MM-DD');
     
     // 查询当前时间需要执行的定时任务
     const query = `
       SELECT * FROM lighting_device_timers
       WHERE time = $1
       AND enabled = true
+      AND (
+        repeat_type = 'once'
+        OR repeat_type = 'daily'
+        OR (repeat_type = 'weekly' AND $2::smallint = ANY(repeat_days))
+        OR (repeat_type = 'custom' AND $3::date = ANY(custom_dates))
+      )
+      AND (
+        last_executed_at IS NULL
+        OR last_executed_at < date_trunc('minute', CURRENT_TIMESTAMP)
+      )
     `;
     
-    const result = await pool.query(query, [currentTime]);
+    const result = await pool.query(query, [currentTime, currentDayOfWeek, currentDate]);
     
     if (result.rows.length === 0) {
       return;
@@ -40,13 +49,15 @@ async function checkAndExecuteLightingTimers() {
     // 执行每个定时任务
     for (const timer of result.rows) {
       try {
-        // 检查是否需要在当前日期执行
-        const repeat = timer.repeat || [];
-        
-        // 如果重复数组为空或包含当前星期几，则执行
-        if (repeat.length === 0 || repeat.includes(currentDayOfWeek)) {
-          await executeTimerAction(timer);
-        }
+        await executeTimerAction(timer);
+        await pool.query(
+          `UPDATE lighting_device_timers
+           SET last_executed_at = CURRENT_TIMESTAMP,
+               enabled = CASE WHEN repeat_type = 'once' THEN false ELSE enabled END,
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = $1`,
+          [timer.id]
+        );
       } catch (error) {
         logger.error(`执行照明设备定时任务失败 ID: ${timer.id}:`, error);
       }
@@ -66,15 +77,28 @@ async function executeTimerAction(timer) {
     
     logger.info(`执行照明设备定时任务: 设备 ${device_id}, 动作 ${action}`);
     
-    // 构建MQTT消息
-    const message = {
-      deviceId: device_id,
-      status: action === 'on' ? true : false,
-      timestamp: new Date().toISOString()
-    };
-    
-    // 发送MQTT消息控制设备
-    await mqttService.publishLightingControl(device_id, message);
+    const result = await pool.query(
+      `SELECT d.id, d.imei, d.device_id AS device_code, d.name, d.tenant_id,
+              d.manufacturer_code, d.connection_config, assignment.subtype, pc.command_config
+       FROM devices d
+       JOIN control_device_assignments assignment
+         ON assignment.device_id = d.id
+        AND assignment.module_type = 'lighting'
+        AND assignment.is_active = true
+       LEFT JOIN protocol_configs pc ON pc.id = d.protocol_config_id
+       WHERE d.id::text = $1 OR d.imei = $1 OR d.device_id = $1
+       LIMIT 1`,
+      [device_id]
+    );
+    const device = result.rows[0];
+    if (!device) throw new Error('照明设备不存在或未加入照明控制模块');
+    const value = action === 'on' ? 1 : 0;
+    const command = device.subtype === 'single'
+      ? { type: 'event', key2: value }
+      : device.subtype === 'double'
+        ? { type: 'event', key1: value, key3: value }
+        : { type: 'event', key1: value, key2: value, key3: value };
+    await executeLightingControl(device, command);
     
     // 记录执行日志
     await logTimerExecution(timer.id, true);

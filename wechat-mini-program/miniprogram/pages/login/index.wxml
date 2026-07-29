@@ -1,68 +1,55 @@
 <view class="login-page">
-  <view class="login-top">
-    <view class="brand-mark">
-      <view class="brand-mark__bar"></view>
-      <view class="brand-mark__grid">
-        <view></view><view></view><view></view><view></view>
-      </view>
-    </view>
-    <view>
-      <text class="brand-name">伯宁智控</text>
-      <text class="brand-caption">现场设备与工单</text>
+
+
+  <view class="login-form-container">
+    <view class="login-form">
+      <view class="login-top">
+        <image src="/assets/images/logo.png" class="company-logo"/>
+      <view>
+      <text class="brand-name">伯宁云控</text>
+      <text class="brand-caption">伯宁智慧运维管理</text>
     </view>
   </view>
-
-  <view class="login-status">
-    <view class="login-status__signal">
-      <view class="signal-line signal-line--one"></view>
-      <view class="signal-line signal-line--two"></view>
-      <view class="signal-line signal-line--three"></view>
-    </view>
-    <view class="login-status__copy">
-      <text class="login-status__label">安全连接</text>
-      <text class="login-status__value">bnyk.boningse.com</text>
-    </view>
-    <view class="login-status__dot"></view>
-  </view>
-
-  <view class="login-form">
-    <text class="login-heading">登录</text>
-    <view class="field">
-      <text class="field-label">账号</text>
-      <input
-        class="field-input"
-        value="{{username}}"
-        placeholder="请输入账号"
-        placeholder-class="field-placeholder"
-        bindinput="onUsernameInput"
-        confirm-type="next"
-      />
-    </view>
-    <view class="field">
-      <text class="field-label">密码</text>
-      <view class="password-field">
+      <view class="field">
+        <text class="field-label">账号</text>
         <input
-          class="password-input"
-          value="{{password}}"
-          password="{{!passwordVisible}}"
-          placeholder="请输入密码"
+          class="field-input"
+          value="{{username}}"
+          placeholder="请输入账号"
           placeholder-class="field-placeholder"
-          bindinput="onPasswordInput"
-          bindconfirm="submit"
-          confirm-type="done"
+          bindinput="onUsernameInput"
+          confirm-type="next"
         />
-        <button class="password-toggle" bindtap="togglePassword">
-          {{passwordVisible ? "隐藏" : "显示"}}
-        </button>
       </view>
+      <view class="field">
+        <text class="field-label">密码</text>
+        <view class="password-field">
+          <input
+            class="password-input"
+            value="{{password}}"
+            password="{{!passwordVisible}}"
+            placeholder="请输入密码"
+            placeholder-class="field-placeholder"
+            bindinput="onPasswordInput"
+            bindconfirm="submit"
+            confirm-type="done"
+          />
+          <!-- <button class="password-toggle" bindtap="togglePassword">
+            {{passwordVisible ? "隐藏" : "显示"}}
+          </button> -->
+          <image wx:if="{{!passwordVisible}}" class="password-toggle" src="/assets/icons/eye_open.png" bindtap="togglePassword"/>
+          <image wx:else class="password-toggle" src="/assets/icons/eye_close.png" bindtap="togglePassword"/>
+        </view>
+      </view>
+      <button class="primary-button login-button" loading="{{submitting}}" disabled="{{submitting}}" bindtap="submit">
+        {{submitting ? "正在登录" : "进入系统"}}
+      </button>
+
     </view>
-    <button class="primary-button login-button" loading="{{submitting}}" disabled="{{submitting}}" bindtap="submit">
-      {{submitting ? "正在登录" : "进入系统"}}
-    </button>
   </view>
 
   <view class="login-footer">
     <view class="login-footer__line"></view>
-    <text>Boning Smart Operations</text>
+    <text>山东伯宁节能技术有限公司</text>
   </view>
 </view>

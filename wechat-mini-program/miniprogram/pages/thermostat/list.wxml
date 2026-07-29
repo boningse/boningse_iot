@@ -1,23 +1,26 @@
 <view class="page device-page">
-  <view class="toolbar">
-    <view class="search-box">
-      <image src="/assets/icons/search.png" mode="aspectFit"></image>
+  <view class="list-toolbar">
+    <view class="list-search-box">
+      <image src="/assets/icons/search.png" class="search-icon" mode="aspectFit"></image>
       <input class="search-input" value="{{keyword}}" placeholder="名称、设备 ID" confirm-type="search" bindinput="onKeywordInput" bindconfirm="search" />
     </view>
-    <button class="icon-button" bindtap="search" aria-label="刷新"><image src="/assets/icons/refresh.png" mode="aspectFit"></image></button>
+    <button class="list-icon-button" bindtap="search" aria-label="刷新">
+      <image src="/assets/icons/refresh.png" class="search-icon" mode="aspectFit"></image>
+    </button>
   </view>
 
   <scope-filter bind:change="onScopeChange"></scope-filter>
 
   <view class="device-summary">
-    <view>
-      <text class="page-title">温控控制</text>
-      <text class="page-subtitle">室温、模式与运行状态</text>
+    <view class="bounary-line">
+      <!-- <text class="page-title">温控控制</text>
+      <text class="page-subtitle">室温、模式与运行状态</text> -->
     </view>
-    <view class="device-total"><text class="numeric">{{total}}</text>台</view>
   </view>
-
-  <view class="device-list">
+  <view wx:if="{{!loading && !devices.length}}">
+    <empty-state  title="暂无温控设备" description="仅显示已加入模块的空调温控器"></empty-state>
+  </view>
+  <view wx:else class="device-list">
     <view wx:for="{{devices}}" wx:key="routeId" class="device-card">
       <view class="device-card__head">
         <view class="device-card__identity">
@@ -45,7 +48,6 @@
     </view>
   </view>
 
-  <empty-state wx:if="{{!loading && !devices.length}}" title="暂无温控设备" description="仅显示已加入模块的空调温控器"></empty-state>
   <view wx:if="{{loading || loadingMore}}" class="load-footer">正在同步设备...</view>
-  <view wx:elif="{{devices.length && page >= totalPages}}" class="load-footer">已显示全部设备</view>
+  <view wx:elif="{{devices.length && page >= totalPages}}" class="load-footer"><text class="numeric">设备总数：{{total}}</text>台</view>
 </view>

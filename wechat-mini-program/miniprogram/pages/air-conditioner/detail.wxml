@@ -1,5 +1,5 @@
 <view class="page detail-page">
-  <view class="device-hero air-hero">
+  <view class="device-hero">
     <view class="device-hero__head">
       <view class="device-hero__copy"><text class="device-hero__name">{{name}}</text><text class="device-hero__code">{{imei}}</text></view>
       <status-badge status="{{status}}"></status-badge>
