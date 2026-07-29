@@ -238,7 +238,16 @@ class WebSocketService {
       user,
       lastPing: Date.now(),
       connectedAt: Date.now(),
-      subscriptions: new Set(['device_data', 'device_status_update', 'device_offline', 'device_response', 'device_event', 'communication_log'])
+      subscriptions: new Set([
+        'device_data',
+        'device_status_update',
+        'device_offline',
+        'device_response',
+        'device_event',
+        'communication_log',
+        'work_order_updated',
+        'work_order_assigned'
+      ])
     };
     
     this.clients.set(clientId, clientInfo);

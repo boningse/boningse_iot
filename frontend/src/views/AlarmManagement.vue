@@ -357,6 +357,7 @@ import {
 } from "lucide-vue-next";
 import { alarmAPI, projectManagementAPI, tenantAPI } from "@/api";
 import { formatDateTime, getRelativeTime } from "@/utils/date";
+import websocketService from "@/utils/websocket";
 
 const moduleOptions = [
   { value: "switch", label: "开关控制" },
@@ -422,6 +423,7 @@ const buildings = ref([]);
 const groups = ref([]);
 const assignees = ref([]);
 let refreshTimer = null;
+let realtimeRefreshTimer = null;
 const photoObjectUrls = new Map();
 
 const filters = reactive({
@@ -524,6 +526,34 @@ const loadAlarms = async () => {
 
 const refreshAll = async () => {
   await Promise.all([loadAlarms(), loadSummary()]);
+};
+
+const handleWorkOrderUpdated = (payload = {}) => {
+  const alarmId = payload.alarm_id || payload.alarmId;
+  if (!alarmId) return;
+
+  const alarm = alarms.value.find((item) => String(item.id) === String(alarmId));
+  if (alarm) {
+    alarm.status = payload.status || alarm.status;
+    alarm.assigned_to = payload.assigned_to ?? alarm.assigned_to;
+    alarm.updated_at = payload.updated_at || alarm.updated_at;
+  }
+  if (currentAlarm.value && String(currentAlarm.value.id) === String(alarmId)) {
+    currentAlarm.value = {
+      ...currentAlarm.value,
+      status: payload.status || currentAlarm.value.status,
+      assigned_to: payload.assigned_to ?? currentAlarm.value.assigned_to,
+      updated_at: payload.updated_at || currentAlarm.value.updated_at,
+    };
+  }
+
+  window.clearTimeout(realtimeRefreshTimer);
+  realtimeRefreshTimer = window.setTimeout(async () => {
+    await refreshAll();
+    if (detailVisible.value && currentAlarm.value?.id === alarmId) {
+      await openDetail({ id: alarmId });
+    }
+  }, 150);
 };
 
 const loadOptions = async () => {
@@ -739,10 +769,15 @@ onMounted(async () => {
   await loadOptions();
   await refreshAll();
   if (route.query.alarmId) await openDetail({ id: route.query.alarmId });
+  websocketService.on("work_order_updated", handleWorkOrderUpdated);
+  websocketService.connect();
+  websocketService.subscribe(["work_order_updated"]);
   refreshTimer = window.setInterval(refreshAll, 30000);
 });
 onUnmounted(() => {
   window.clearInterval(refreshTimer);
+  window.clearTimeout(realtimeRefreshTimer);
+  websocketService.off("work_order_updated", handleWorkOrderUpdated);
   revokeAlarmPhotoUrls();
 });
 
