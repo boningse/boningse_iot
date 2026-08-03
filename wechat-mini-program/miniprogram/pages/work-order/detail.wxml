@@ -1,0 +1,74 @@
+<view class="page order-detail-page">
+  <view wx:if="{{alarm}}" class="order-overview panel">
+    <view class="order-overview__head">
+      <view class="order-overview__severity order-overview__severity--{{alarm.severity}}">{{alarm.severityText}}</view>
+      <text>{{alarm.moduleText}}</text>
+      <status-badge status="{{alarm.status}}"></status-badge>
+    </view>
+    <text class="order-overview__title">{{alarm.title}}</text>
+    <text class="order-overview__message">{{alarm.message || "暂无补充说明"}}</text>
+    <view class="order-device">
+      <view class="order-device__icon"><image src="/assets/icons/building.png" mode="aspectFit"></image></view>
+      <view class="order-device__copy">
+        <text class="order-device__name">{{alarm.device_name}}</text>
+        <text class="order-device__location">{{alarm.building_name || "未分配建筑"}} · {{alarm.group_name || "未分配分组"}}</text>
+      </view>
+      <status-badge status="{{alarm.device_status}}"></status-badge>
+    </view>
+    <view class="order-info">
+      <view><text>告警时间</text><text>{{alarm.occurredText}}</text></view>
+      <view><text>当前处理人</text><text>{{alarm.assigned_to_name || "暂未派单"}}</text></view>
+      <view wx:if="{{alarm.alarm_code}}"><text>告警编号</text><text>{{alarm.alarm_code}}</text></view>
+    </view>
+  </view>
+
+  <view wx:if="{{alarm}}" class="workflow-panel panel">
+    <view class="workflow-panel__head">
+      <text>处理流程</text>
+      <text>{{alarm.statusText}}</text>
+    </view>
+    <view class="workflow-steps">
+      <view wx:for="{{workflowSteps}}" wx:key="key" class="workflow-step workflow-step--{{item.state}}">
+        <view class="workflow-step__marker">{{item.state === "done" ? "✓" : index + 1}}</view>
+        <text>{{item.label}}</text>
+      </view>
+    </view>
+    <text class="workflow-panel__hint">{{workflowHint}}</text>
+  </view>
+
+  <view wx:if="{{photos.length}}" class="section-title">现场照片</view>
+  <scroll-view wx:if="{{photos.length}}" class="photo-strip" scroll-y enhanced show-scrollbar="{{false}}">
+    <view class="photo-strip__inner">
+      <image wx:for="{{photos}}" wx:key="id" class="order-photo" src="{{item.localPath}}" mode="aspectFill" data-path="{{item.localPath}}" bindtap="previewPhoto"></image>
+    </view>
+  </scroll-view>
+
+  <view class="section-title">处理记录</view>
+  <view class="timeline">
+    <view wx:for="{{actions}}" wx:key="id" class="timeline-item">
+      <view class="timeline-item__axis"><view class="timeline-item__dot"></view><view class="timeline-item__line"></view></view>
+      <view class="timeline-item__content panel">
+        <view class="timeline-item__head"><text>{{item.actionText}}</text><text>{{item.timeText}}</text></view>
+        <text class="timeline-item__operator">{{item.operator_name || item.operator_username || "系统"}}</text>
+        <text wx:if="{{item.note}}" class="timeline-item__note">{{item.note}}</text>
+        <view wx:if="{{item.photos.length}}" class="timeline-item__photos">
+          <text>{{item.photos.length}} 张现场照片</text>
+        </view>
+      </view>
+    </view>
+    <view wx:if="{{!actions.length && !loading}}" class="timeline-empty">暂无处理记录</view>
+  </view>
+
+  <view wx:if="{{actionButtons.length}}" class="action-dock">
+    <view class="action-dock__inner">
+      <button
+        wx:for="{{actionButtons}}"
+        wx:key="key"
+        class="action-button action-button--{{item.tone}}"
+        disabled="{{submitting}}"
+        data-action="{{item.key}}"
+        bindtap="performAction"
+      >{{item.label}}</button>
+    </view>
+  </view>
+</view>

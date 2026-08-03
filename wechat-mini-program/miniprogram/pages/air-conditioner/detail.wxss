@@ -1,0 +1,98 @@
+@import "../../styles/device-detail.wxss";
+
+.air-hero {
+  background: #3b2926;
+}
+
+.air-state {
+  margin-top: 28rpx;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+}
+
+.air-state__label,
+.air-state__value,
+.air-state__secondary text {
+  display: block;
+}
+
+.air-state__label {
+  color: #d0b8b3;
+  font-size: 20rpx;
+}
+
+.air-state__value {
+  margin-top: 7rpx;
+  font-size: 58rpx;
+  line-height: 1;
+  font-weight: 720;
+}
+
+.air-state__value text {
+  margin-left: 5rpx;
+  font-size: 24rpx;
+  font-weight: 500;
+}
+
+.air-state__secondary {
+  color: #d8c8c4;
+  font-size: 21rpx;
+  line-height: 1.8;
+  text-align: right;
+}
+
+.control-row--stack {
+  padding: 20rpx 0;
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 16rpx;
+}
+
+.control-row__label {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.stepper {
+  width: 236rpx;
+  flex: 0 0 236rpx;
+  justify-content: space-between;
+  gap: 8rpx;
+}
+
+.stepper__button {
+  width: 54rpx;
+  height: 54rpx;
+  margin: 0;
+  flex: 0 0 54rpx;
+}
+
+.stepper__value {
+  min-width: 76rpx;
+}
+
+.mode-segments {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6rpx;
+}
+
+.mode-segments .segment {
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 0 8rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.protocol-empty {
+  padding: 42rpx 24rpx;
+  color: #8a938f;
+  font-size: 22rpx;
+  text-align: center;
+}

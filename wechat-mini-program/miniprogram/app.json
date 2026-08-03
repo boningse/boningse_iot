@@ -1,0 +1,61 @@
+{
+  "pages": [
+    "pages/control/index",
+    "pages/work-order/list",
+    "pages/notification/list",
+    "pages/profile/index",
+    "pages/login/index",
+    "pages/switch/list",
+    "pages/switch/detail",
+    "pages/lighting/list",
+    "pages/lighting/detail",
+    "pages/thermostat/list",
+    "pages/thermostat/detail",
+    "pages/air-conditioner/list",
+    "pages/air-conditioner/detail",
+    "pages/work-order/detail",
+    "pages/work-order/action"
+  ],
+  "window": {
+    "navigationBarTitleText": "伯宁智控",
+    "navigationBarBackgroundColor": "#F4F6F5",
+    "navigationBarTextStyle": "black",
+    "backgroundColor": "#F4F6F5",
+    "backgroundTextStyle": "dark"
+  },
+  "tabBar": {
+    "color": "#77817C",
+    "selectedColor": "#13795B",
+    "backgroundColor": "#FFFFFF",
+    "borderStyle": "black",
+    "list": [
+      {
+        "pagePath": "pages/control/index",
+        "text": "控制",
+        "iconPath": "assets/tab/control.png",
+        "selectedIconPath": "assets/tab/control-active.png"
+      },
+      {
+        "pagePath": "pages/work-order/list",
+        "text": "工单",
+        "iconPath": "assets/tab/work-order.png",
+        "selectedIconPath": "assets/tab/work-order-selected.png"
+      },
+      {
+        "pagePath": "pages/notification/list",
+        "text": "消息",
+        "iconPath": "assets/tab/notification.png",
+        "selectedIconPath": "assets/tab/notification-active.png"
+      },
+      {
+        "pagePath": "pages/profile/index",
+        "text": "我的",
+        "iconPath": "assets/tab/profile.png",
+        "selectedIconPath": "assets/tab/profile-active.png"
+      }
+    ]
+  },
+  "style": "v2",
+  "sitemapLocation": "sitemap.json",
+  "lazyCodeLoading": "requiredComponents"
+}

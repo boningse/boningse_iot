@@ -1,0 +1,8 @@
+<view class="empty">
+  <view class="empty__mark">
+    <view class="empty__line"></view>
+    <view class="empty__line empty__line--short"></view>
+  </view>
+  <text class="empty__title">{{title}}</text>
+  <text class="empty__description">{{description}}</text>
+</view>

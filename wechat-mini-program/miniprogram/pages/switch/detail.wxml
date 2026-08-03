@@ -1,0 +1,46 @@
+<view class="page detail-page">
+  <view class="device-hero">
+    <view class="device-hero__head">
+      <view class="device-hero__copy">
+        <text class="device-hero__name">{{name}}</text>
+        <text class="device-hero__code">{{imei}}</text>
+      </view>
+      <status-badge status="{{status}}"></status-badge>
+    </view>
+    <view class="device-hero__meta">
+      <image src="/assets/icons/map.png" mode="aspectFit"></image>
+      <text>{{building}} · {{group}}</text>
+    </view>
+  </view>
+
+  <view class="section-title">关键电气数据</view>
+  <view class="metric-grid">
+    <view class="metric-cell">
+      <view class="metric-cell__head"><image src="/assets/icons/energy.png" mode="aspectFit"></image><text>累计电量</text></view>
+      <text class="metric-cell__value numeric">{{energy}}<text class="metric-cell__unit">kWh</text></text>
+    </view>
+    <view class="metric-cell">
+      <view class="metric-cell__head"><image src="/assets/icons/activity.png" mode="aspectFit"></image><text>总功率</text></view>
+      <text class="metric-cell__value numeric">{{power}}<text class="metric-cell__unit">W</text></text>
+    </view>
+    <view class="metric-cell">
+      <view class="metric-cell__head"><image src="/assets/icons/leakage.png" mode="aspectFit"></image><text>漏电电流</text></view>
+      <text class="metric-cell__value numeric">{{leakage}}<text class="metric-cell__unit">mA</text></text>
+    </view>
+    <view class="metric-cell">
+      <view class="metric-cell__head"><image src="/assets/icons/frequency.png" mode="aspectFit"></image><text>频率</text></view>
+      <text class="metric-cell__value numeric">{{frequency}}<text class="metric-cell__unit">Hz</text></text>
+    </view>
+  </view>
+
+  <view class="section-title">开关控制</view>
+  <view class="control-panel panel">
+    <view class="control-row">
+      <text class="control-row__label">设备开关</text>
+      <button class="power-control {{powerOn ? 'power-control--on' : ''}}" disabled="{{status !== 'online' || controlling}}" bindtap="togglePower">
+        <image src="/assets/icons/power.png" mode="aspectFit"></image><text>{{powerOn ? "已开启" : "已关闭"}}</text>
+      </button>
+    </view>
+  </view>
+  <view class="updated-at">数据更新于 {{updatedAt}}</view>
+</view>

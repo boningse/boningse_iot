@@ -1,0 +1,55 @@
+<view class="login-page">
+
+
+  <view class="login-form-container">
+    <view class="login-form">
+      <view class="login-top">
+        <image src="/assets/images/logo.png" class="company-logo"/>
+      <view>
+      <text class="brand-name">伯宁云控</text>
+      <text class="brand-caption">伯宁智慧运维管理</text>
+    </view>
+  </view>
+      <view class="field">
+        <text class="field-label">账号</text>
+        <input
+          class="field-input"
+          value="{{username}}"
+          placeholder="请输入账号"
+          placeholder-class="field-placeholder"
+          bindinput="onUsernameInput"
+          confirm-type="next"
+        />
+      </view>
+      <view class="field">
+        <text class="field-label">密码</text>
+        <view class="password-field">
+          <input
+            class="password-input"
+            value="{{password}}"
+            password="{{!passwordVisible}}"
+            placeholder="请输入密码"
+            placeholder-class="field-placeholder"
+            bindinput="onPasswordInput"
+            bindconfirm="submit"
+            confirm-type="done"
+          />
+          <!-- <button class="password-toggle" bindtap="togglePassword">
+            {{passwordVisible ? "隐藏" : "显示"}}
+          </button> -->
+          <image wx:if="{{!passwordVisible}}" class="password-toggle" src="/assets/icons/eye_open.png" bindtap="togglePassword"/>
+          <image wx:else class="password-toggle" src="/assets/icons/eye_close.png" bindtap="togglePassword"/>
+        </view>
+      </view>
+      <button class="primary-button login-button" loading="{{submitting}}" disabled="{{submitting}}" bindtap="submit">
+        {{submitting ? "正在登录" : "进入系统"}}
+      </button>
+
+    </view>
+  </view>
+
+  <view class="login-footer">
+    <view class="login-footer__line"></view>
+    <text>山东伯宁节能技术有限公司</text>
+  </view>
+</view>

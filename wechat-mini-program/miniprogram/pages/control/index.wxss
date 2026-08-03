@@ -1,0 +1,253 @@
+.control-page {
+  padding-top: 32rpx;
+}
+
+.control-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  margin-bottom: 30rpx;
+}
+
+.control-kicker {
+  display: block;
+  margin-bottom: 8rpx;
+  color: #13795b;
+  font-size: 22rpx;
+  font-weight: 650;
+}
+.page-title{
+  margin-right:20rpx;
+}
+.sync-state {
+  height: 50rpx;
+  padding: 0 14rpx;
+  display: flex;
+  align-items: center;
+  gap: 9rpx;
+  color: #6f7974;
+  background: #e9eeeb;
+  border-radius: 8rpx;
+  font-size: 21rpx;
+}
+
+.sync-state__dot {
+  width: 10rpx;
+  height: 10rpx;
+  border-radius: 50%;
+  background: #35a27d;
+}
+
+.work-order-band {
+  min-height: 134rpx;
+  padding: 24rpx;
+  display: flex;
+  align-items: center;
+  background: linear-gradient(135deg, #13795b 0%, #1a8f6d 45%, #1f7d5f 100%);
+  border-radius: 14rpx;
+  color: #ffffff;
+  box-shadow: 0 4rpx 16rpx rgba(19,121,91,0.35);
+}
+
+.work-order-band__icon {
+  width: 72rpx;
+  height: 72rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255,255,255,0.2);
+  border-radius: 10rpx;
+}
+
+.work-order-band__icon image {
+  width: 42rpx;
+  height: 42rpx;
+  filter: brightness(0) invert(1);
+}
+
+.work-order-band__copy {
+  flex: 1;
+  margin-left: 20rpx;
+}
+
+.work-order-band__title,
+.work-order-band__text {
+  display: block;
+}
+
+.work-order-band__title {
+  font-size: 28rpx;
+  font-weight: 650;
+  letter-spacing: 2rpx;
+}
+
+.work-order-band__text {
+  margin-top: 7rpx;
+  color: rgba(255,255,255,0.75);
+  font-size: 22rpx;
+}
+
+.work-order-band__arrow {
+  width: 30rpx;
+  height: 30rpx;
+  filter: brightness(0) invert(1);
+  opacity: 0.8;
+}
+
+.section-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.section-meta {
+  color: #89928e;
+  font-size: 21rpx;
+}
+
+.module-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14rpx;
+}
+
+.module-row {
+  min-height: 132rpx;
+  padding: 22rpx 20rpx 22rpx 24rpx;
+  position: relative;
+  display: flex;
+  align-items: center;
+  background: #ffffff;
+  border: 1rpx solid #e0e5e2;
+  border-radius: 12rpx;
+  overflow: hidden;
+}
+
+.module-row__accent {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 7rpx;
+  background: #13795b;
+}
+
+.module-row--amber .module-row__accent {
+  background: #d9822b;
+}
+
+.module-row--blue .module-row__accent {
+  background: #4d79b7;
+}
+
+.module-row--coral .module-row__accent {
+  background: #c85d53;
+}
+
+.module-row__icon {
+  width: 72rpx;
+  height: 72rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8rpx;
+  background: #e8f3ef;
+}
+
+.module-row--amber .module-row__icon {
+  background: #fff0de;
+}
+
+.module-row--blue .module-row__icon {
+  background: #eaf1fa;
+}
+
+.module-row--coral .module-row__icon {
+  background: #f8eae8;
+}
+
+.module-row__icon image {
+  width: 42rpx;
+  height: 42rpx;
+}
+
+.module-row__copy {
+  flex: 1;
+  min-width: 0;
+  margin-left: 20rpx;
+}
+
+.module-row__title,
+.module-row__subtitle {
+  display: block;
+}
+
+.module-row__title {
+  font-weight: 680;
+}
+
+.module-row__subtitle {
+  margin-top: 7rpx;
+  color: #7b8580;
+  font-size: 21rpx;
+}
+
+.module-row__aside {
+  width: 88rpx;
+  text-align: right;
+}
+
+.module-row__count,
+.module-row__unit {
+  display: block;
+}
+
+.module-row__count {
+  font-size: 34rpx;
+  line-height: 1.1;
+  font-weight: 700;
+}
+
+.module-row__count--muted,
+.module-row__unit {
+  color: #909995;
+}
+
+.module-row__unit {
+  margin-top: 5rpx;
+  font-size: 18rpx;
+}
+
+.module-row__arrow {
+  width: 26rpx;
+  height: 26rpx;
+  margin-left: 10rpx;
+}
+
+.permission-note {
+  margin-top: 24rpx;
+  padding: 28rpx;
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+}
+
+.permission-note image {
+  width: 42rpx;
+  height: 42rpx;
+}
+
+.permission-note__title,
+.permission-note__text {
+  display: block;
+}
+
+.permission-note__title {
+  font-weight: 650;
+}
+
+.permission-note__text {
+  margin-top: 6rpx;
+  color: #7b8580;
+  font-size: 22rpx;
+}

@@ -1,0 +1,7 @@
+{
+  "navigationBarTitleText": "温控详情",
+  "enablePullDownRefresh": true,
+  "usingComponents": {
+    "status-badge": "/components/status-badge/index"
+  }
+}

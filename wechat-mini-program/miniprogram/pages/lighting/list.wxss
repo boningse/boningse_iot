@@ -1,0 +1,133 @@
+@import "../../styles/device-list.wxss";
+
+.lighting-type {
+  padding: 9rpx 12rpx;
+  color: #a45b15;
+  background: #fff1df;
+  border-radius: 7rpx;
+  font-size: 20rpx;
+}
+
+.lighting-diagram {
+  margin-top: 20rpx;
+  padding: 16rpx 0;
+  display: flex;
+  justify-content: space-evenly;
+  gap: 10rpx;
+  border-top: 1rpx solid #edf0ee;
+  border-bottom: 1rpx solid #edf0ee;
+}
+.search-icon{
+  width:30rpx;
+  height:30rpx;
+}
+.list-toolbar {
+  display: flex;
+  gap: 14rpx;
+  align-items: center;
+  margin-bottom: 20rpx;
+}
+.list-search-box{
+  width: 100%;
+  height: 72rpx;
+  padding: 0 20rpx;
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  background: #ffffff;
+  border: 1rpx solid #dde3df;
+  border-radius: 10rpx;
+}
+.list-icon-button{
+  width: 22rpx;
+  height: 68rpx;
+  padding: 0;
+  border-radius: 10rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #eef2f0;
+}
+.bounary-line{
+  width:100%;
+  height:1rpx;
+  border-bottom: 1px solid #ccc;
+  margin:15rpx 0;
+}
+.lighting-circuit {
+  min-width: 0;
+  height: 66rpx;
+  padding: 0 30rpx;
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+  color: #747e79;
+  background: #f1f4f2;
+  border-radius: 8rpx;
+}
+
+.lighting-circuit__lamp {
+  width: 36rpx;
+  height: 36rpx;
+  flex: 0 0 36rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #e1e6e3;
+  border-radius: 50%;
+}
+
+.lighting-circuit__lamp image {
+  width: 22rpx;
+  height: 22rpx;
+  opacity: 0.55;
+}
+
+.lighting-circuit__copy {
+  min-width: 0;
+}
+
+.lighting-circuit__copy text {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lighting-circuit__copy text:first-child {
+  color: #303a35;
+  font-size: 19rpx;
+  font-weight: 650;
+}
+
+.lighting-circuit__copy text:last-child {
+  margin-top: 2rpx;
+  font-size: 17rpx;
+}
+
+.lighting-circuit--on {
+  color: #a45b15;
+  background: #fff4e2;
+}
+
+.lighting-circuit--on .lighting-circuit__lamp {
+  background: #f4b95d;
+  box-shadow: 0 0 14rpx rgba(225, 145, 35, 0.32);
+}
+
+.lighting-circuit--on .lighting-circuit__lamp image {
+  filter: brightness(0) invert(1);
+  opacity: 1;
+}
+
+.lighting-circuit--on .lighting-circuit__copy text:first-child {
+  color: #8b4d13;
+}
+
+.device-card__footer {
+  margin-top: 16rpx;
+}
+
+.device-card__footer .detail-link {
+  margin: 0 0 0 auto;
+}
