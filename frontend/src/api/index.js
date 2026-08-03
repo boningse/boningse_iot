@@ -192,6 +192,34 @@ const patch = (url, data = {}) => {
   });
 };
 
+const downloadBlob = async (url, params = {}) => {
+  const token = localStorage.getItem("token");
+  const queryString = new URLSearchParams(params).toString();
+  const finalUrl = queryString ? `${url}?${queryString}` : url;
+  const response = await fetch(`${API_BASE_URL}${finalUrl}`, {
+    credentials: "include",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+
+  if (!response.ok) {
+    const contentType = response.headers.get("content-type") || "";
+    const result = contentType.includes("application/json")
+      ? await response.json()
+      : { message: await response.text() };
+    throw new Error(result.message || "文件下载失败");
+  }
+
+  const disposition = response.headers.get("content-disposition") || "";
+  const encodedName = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+  const fallbackName = disposition.match(/filename="?([^";]+)"?/i)?.[1];
+  return {
+    blob: await response.blob(),
+    fileName: encodedName
+      ? decodeURIComponent(encodedName)
+      : fallbackName || "download.xlsx",
+  };
+};
+
 // 认证相关API
 const authAPI = {
   /**
@@ -318,6 +346,15 @@ const deviceAPI = {
    */
   getGateways: () => get("/devices/gateways"),
 
+  downloadImportTemplate: () => downloadBlob("/devices/import-template"),
+
+  exportDevices: (params = {}) => downloadBlob("/devices/export", params),
+
+  importDevices: (formData) =>
+    request("/devices/import", {
+      method: "POST",
+      body: formData,
+    }),
 };
 
 // 租户管理API
@@ -481,7 +518,7 @@ const deviceTypeAPI = {
    */
   getDeviceTypes: (params = {}) => {
     // 设备类型数据变化较少，可以缓存较长时间
-    const shouldCache = !params.keyword;
+    const shouldCache = !params.keyword && !params.name && !params.tenantId && !params.description;
     return get("/device-types", params, {
       cache: shouldCache,
       ttl: 15 * 60 * 1000,
@@ -704,14 +741,16 @@ const lightingControlAPI = {
   controlDevice: (deviceId, controlData) =>
     post(`/lighting-control/${deviceId}/control`, controlData),
 
-  /**
-   * 批量控制照明设备（群控）
-   * @param {string[]} devices - 设备IMEI数组
-   * @param {object} command - 控制命令 { switch: 0|1 }
-   * @returns {Promise} 控制结果
-   */
   batchControl: (devices, command) =>
     post("/lighting-control/batch/control", { devices, command }),
+
+  getStrategies: () => get("/lighting-timer/strategies"),
+  getStrategyDevices: () => get("/lighting-timer/strategy-devices"),
+  createStrategy: (data) => post("/lighting-timer/strategies", data),
+  updateStrategy: (id, data) => put(`/lighting-timer/strategies/${id}`, data),
+  toggleStrategy: (id, enabled) =>
+    put(`/lighting-timer/strategies/${id}/toggle`, { enabled }),
+  deleteStrategy: (id) => del(`/lighting-timer/strategies/${id}`),
 };
 
 // 开关控制API
@@ -728,6 +767,19 @@ const switchControlAPI = {
   getElectricalHistory: (id, params = {}) =>
     get(`/switch-control/${id}/electrical/history`, params),
   controlDevice: (id, data) => post(`/switch-control/${id}/control`, data),
+  getStrategies: (params = {}) => get("/switch-control/strategies", params),
+  getStrategyDevices: () => get("/switch-control/strategy-devices"),
+  createStrategy: (data) => post("/switch-control/strategies", data),
+  updateStrategy: (id, data) => put(`/switch-control/strategies/${id}`, data),
+  toggleStrategy: (id, enabled) =>
+    put(`/switch-control/strategies/${id}/toggle`, { enabled }),
+  deleteStrategy: (id) => del(`/switch-control/strategies/${id}`),
+  getScenes: (params = {}) => get("/switch-control/scenes", params),
+  getSceneDevices: (params = {}) => get("/switch-control/scene-devices", params),
+  createScene: (data) => post("/switch-control/scenes", data),
+  updateScene: (id, data) => put(`/switch-control/scenes/${id}`, data),
+  deleteScene: (id) => del(`/switch-control/scenes/${id}`),
+  executeScene: (id) => post(`/switch-control/scenes/${id}/execute`),
 };
 
 // 分散空调控制API
@@ -735,7 +787,14 @@ const airConditionerControlAPI = {
   getDevices: (params = {}) => get("/air-conditioner-control", params),
   syncDevices: (params = {}) =>
     post("/air-conditioner-control/sync-devices", params),
-  saveStrategy: (data) => put("/air-conditioner-control/strategy", data),
+  getStrategies: () => get("/air-conditioner-control/strategies"),
+  getStrategyDevices: () => get("/air-conditioner-control/strategy-devices"),
+  createStrategy: (data) => post("/air-conditioner-control/strategies", data),
+  updateStrategy: (id, data) =>
+    put(`/air-conditioner-control/strategies/${id}`, data),
+  toggleStrategy: (id, enabled) =>
+    post(`/air-conditioner-control/strategies/${id}/toggle`, { enabled }),
+  deleteStrategy: (id) => del(`/air-conditioner-control/strategies/${id}`),
   getDeviceDetail: (id, params = {}) =>
     get(`/air-conditioner-control/${id}/detail`, params),
   controlDevice: (id, data) =>

@@ -12,6 +12,10 @@
           <el-icon><Setting /></el-icon>
           情景模式
         </el-button>
+        <el-button type="primary" plain @click="openLightingStrategy">
+          <el-icon><Clock /></el-icon>
+          策略管理
+        </el-button>
         <el-button type="primary" @click="openAddDialog">
           <el-icon><Plus /></el-icon>
           添加照明设备
@@ -59,8 +63,8 @@
         </div>
         
         <div class="stats-info">
-          <span class="device-count">共 {{ filteredDevices.length }} 个设备</span>
-          <span class="online-count">在线: {{ onlineDevicesCount }}</span>
+          <span class="device-count">共 {{ deviceTotal }} 个设备</span>
+          <span class="online-count">本页在线: {{ onlineDevicesCount }}</span>
         </div>
       </div>
     </div>
@@ -76,24 +80,18 @@
         <template #header>
           <div class="card-header">
             <div class="header-left">
-              <el-button 
-                class="delete-btn"
-                type="danger" 
-                size="small" 
-                circle 
-                @click="deleteDevice(device)"
-                :icon="Close"
-              />
               <div class="device-info">
                 <span class="device-name">{{ device.name }}</span>
-                <span class="device-group" v-if="device.group">{{ device.group }}</span>
+                <span class="device-meta">{{ device.deviceId || device.imei || '-' }}</span>
+                <span class="device-meta device-location">
+                  {{ device.projectBuildingName || '-' }} · {{ device.projectGroupName || '-' }}
+                </span>
               </div>
             </div>
             <div class="header-right">
-              <el-icon v-if="device.loading" class="loading-icon is-loading">
-                <Loading />
-              </el-icon>
-              <el-tag :type="getDeviceTypeTag(device.type)" size="small">{{ getDeviceTypeName(device.type) }}</el-tag>
+              <el-tag :type="device.status === 'online' ? 'success' : 'info'" size="small">
+                {{ device.status === 'online' ? '在线' : '离线' }}
+              </el-tag>
             </div>
           </div>
         </template>
@@ -183,15 +181,6 @@
         <!-- 操作按钮 -->
         <div class="action-buttons">
           <el-button 
-            type="primary" 
-            size="small" 
-            @click="showTimerDialog = true; currentDevice = device"
-            :loading="device.loading"
-          >
-            <el-icon><Timer /></el-icon>
-            定时
-          </el-button>
-          <el-button 
             type="info" 
             size="small" 
             @click="showDeviceDetail(device)"
@@ -201,6 +190,18 @@
           </el-button>
         </div>
       </el-card>
+    </div>
+
+    <div class="pagination-container device-pagination">
+      <el-pagination
+        v-model:current-page="devicePage"
+        v-model:page-size="devicePageSize"
+        :page-sizes="[12, 24, 48, 96]"
+        :total="deviceTotal"
+        layout="total, sizes, prev, pager, next, jumper"
+        @size-change="handleDevicePageSizeChange"
+        @current-change="handleDevicePageChange"
+      />
     </div>
 
     <!-- 添加设备对话框 -->
@@ -493,101 +494,150 @@
       </div>
     </el-dialog>
 
-    <!-- 定时控制对话框 -->
-    <el-dialog
-      v-model="showTimerDialog"
-      title="定时控制"
-      width="700px"
-      :before-close="() => { showTimerDialog = false }"
-    >
-      <div class="timer-control-container">
-        <el-tabs v-model="activeTimerTab">
-          <el-tab-pane label="定时列表" name="list">
-            <div v-if="currentDevice && currentDevice.timers && currentDevice.timers.length > 0" class="timer-list">
-              <el-table :data="currentDevice.timers" style="width: 100%">
-                <el-table-column prop="name" label="定时名称" width="180" />
-                <el-table-column prop="time" label="执行时间" width="100" />
-                <el-table-column label="操作" width="100">
-                  <template #default="{ row }">
-                    <el-switch
-                      v-model="row.enabled"
-                      @change="toggleTimerStatus(row)"
-                      active-text="启用"
-                      inactive-text="禁用"
-                    />
-                  </template>
-                </el-table-column>
-                <el-table-column label="重复" min-width="180">
-                  <template #default="{ row }">
-                    <el-tag 
-                      v-for="day in row.repeat" 
-                      :key="day" 
-                      size="small" 
-                      class="repeat-tag"
-                    >
-                      {{ day }}
-                    </el-tag>
-                    <span v-if="!row.repeat || row.repeat.length === 0">不重复</span>
-                  </template>
-                </el-table-column>
-                <el-table-column label="操作" width="120">
-                  <template #default="{ row }">
-                    <el-button 
-                      type="danger" 
-                      size="small" 
-                      icon="Delete" 
-                      circle 
-                      @click="deleteTimer(row)"
-                    />
-                    <el-button 
-                      type="primary" 
-                      size="small" 
-                      icon="Edit" 
-                      circle 
-                      @click="editTimer(row)"
-                    />
-                  </template>
-                </el-table-column>
-              </el-table>
-            </div>
-            <el-empty v-else description="暂无定时设置" />
-            <div class="timer-actions">
-              <el-button type="primary" @click="activeTimerTab = 'add'">添加定时</el-button>
-            </div>
-          </el-tab-pane>
-          
-          <el-tab-pane label="添加定时" name="add">
-            <div class="timer-form">
-              <el-form :model="timerForm" label-width="100px">
-                <el-form-item label="开关状态">
-                  <el-radio-group v-model="timerForm.action">
-                    <el-radio :label="'on'">开启</el-radio>
-                    <el-radio :label="'off'">关闭</el-radio>
-                  </el-radio-group>
-                </el-form-item>
-                <el-form-item label="执行时间">
-                  <el-time-picker v-model="timerForm.time" format="HH:mm" placeholder="选择时间"></el-time-picker>
-                </el-form-item>
-                <el-form-item label="重复">
-                  <el-checkbox-group v-model="timerForm.repeat">
-                    <el-checkbox label="周一"></el-checkbox>
-                    <el-checkbox label="周二"></el-checkbox>
-                    <el-checkbox label="周三"></el-checkbox>
-                    <el-checkbox label="周四"></el-checkbox>
-                    <el-checkbox label="周五"></el-checkbox>
-                    <el-checkbox label="周六"></el-checkbox>
-                    <el-checkbox label="周日"></el-checkbox>
-                  </el-checkbox-group>
-                </el-form-item>
-              </el-form>
-              <div class="timer-actions">
-                <el-button @click="activeTimerTab = 'list'">返回</el-button>
-                <el-button type="primary" @click="saveTimerSettings">保存设置</el-button>
+    <el-dialog v-model="showTimerDialog" title="照明策略管理" width="1080px">
+      <div class="lighting-strategy-container">
+        <div class="strategy-guide">
+          <strong>照明运行策略</strong>
+          <span>按设备范围设置执行时间、周期和照明动作。策略仅作用于照明控制模块。</span>
+        </div>
+        <div class="strategy-header">
+          <el-button type="primary" :icon="Plus" @click="openLightingStrategyEditor()">新增策略</el-button>
+        </div>
+        <el-table :data="lightingStrategies" v-loading="strategyLoading" class="strategy-table">
+          <el-table-column prop="name" label="策略名称" min-width="150" />
+          <el-table-column label="设备" min-width="210">
+            <template #default="{ row }">{{ lightingStrategyDeviceText(row) }}</template>
+          </el-table-column>
+          <el-table-column label="动作" width="100">
+            <template #default="{ row }">
+              <el-tag :type="row.action === 'on' ? 'success' : 'danger'" size="small">
+                {{ row.action === 'on' ? '开启' : '关闭' }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="executeTime" label="执行时间" width="110" />
+          <el-table-column label="重复" min-width="140">
+            <template #default="{ row }">{{ lightingRepeatText(row) }}</template>
+          </el-table-column>
+          <el-table-column label="状态" width="90">
+            <template #default="{ row }">
+              <el-switch v-model="row.enabled" @change="toggleLightingStrategy(row)" />
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="180" fixed="right">
+            <template #default="{ row }">
+              <div class="strategy-actions">
+                <el-button type="primary" size="small" @click="openLightingStrategyEditor(row)">编辑</el-button>
+                <el-button type="danger" size="small" @click="deleteLightingStrategy(row)">删除</el-button>
               </div>
-            </div>
-          </el-tab-pane>
-        </el-tabs>
+            </template>
+          </el-table-column>
+        </el-table>
       </div>
+    </el-dialog>
+
+    <el-dialog
+      v-model="strategyEditorVisible"
+      :title="lightingStrategyForm.id ? '编辑照明策略' : '新增照明策略'"
+      width="760px"
+      class="strategy-editor-dialog"
+      @closed="resetLightingStrategyForm"
+    >
+      <el-form ref="lightingStrategyFormRef" :model="lightingStrategyForm" :rules="lightingStrategyRules" label-width="120px">
+        <div class="strategy-form-section">设备范围</div>
+        <el-form-item label="策略名称" prop="name">
+          <el-input v-model="lightingStrategyForm.name" maxlength="50" show-word-limit placeholder="请输入策略名称" />
+        </el-form-item>
+        <el-form-item label="选择设备" prop="deviceIds">
+          <div class="strategy-device-filters">
+            <el-input v-model="lightingStrategyFilters.keyword" placeholder="搜索设备名称或设备ID" clearable>
+              <template #prefix><el-icon><Search /></el-icon></template>
+            </el-input>
+            <el-select v-if="isAdmin" v-model="lightingStrategyFilters.tenantId" placeholder="所属租户" clearable filterable @change="lightingStrategyTenantChanged">
+              <el-option v-for="item in tenantOptions" :key="item.id" :label="item.name" :value="item.id" />
+            </el-select>
+            <el-select v-model="lightingStrategyFilters.buildingId" placeholder="所属建筑" clearable filterable @change="lightingStrategyBuildingChanged">
+              <el-option v-for="item in lightingStrategyBuildings" :key="item.id" :label="item.name" :value="item.id" />
+            </el-select>
+            <el-select v-model="lightingStrategyFilters.groupId" placeholder="所属分组" clearable filterable>
+              <el-option v-for="item in lightingStrategyGroups" :key="item.id" :label="item.name" :value="item.id" />
+            </el-select>
+            <el-select v-model="lightingStrategyFilters.status" placeholder="设备状态" clearable>
+              <el-option label="在线" value="online" />
+              <el-option label="离线" value="offline" />
+              <el-option label="故障" value="error" />
+            </el-select>
+          </div>
+          <el-select
+            v-model="lightingStrategyForm.deviceIds"
+            multiple
+            filterable
+            collapse-tags
+            collapse-tags-tooltip
+            :max-collapse-tags="3"
+            placeholder="请选择一台或多台设备"
+            class="wide-control"
+            @change="lightingStrategyDeviceChanged"
+          >
+            <el-option
+              v-for="item in filteredLightingStrategyDevices"
+              :key="item.id"
+              :label="lightingStrategyDeviceLabel(item)"
+              :value="item.id"
+            />
+          </el-select>
+          <div class="strategy-device-summary">
+            <span>筛选结果 {{ filteredLightingStrategyDevices.length }} 台，已选 {{ lightingStrategyForm.deviceIds.length }} 台</span>
+            <div class="strategy-actions">
+              <el-button type="primary" link @click="selectAllLightingStrategyDevices">选择筛选结果</el-button>
+              <el-button link @click="lightingStrategyForm.deviceIds = []">清空已选</el-button>
+            </div>
+          </div>
+        </el-form-item>
+
+        <div class="strategy-form-section">触发条件</div>
+        <el-form-item label="执行时间" prop="executeTime">
+          <el-time-picker v-model="lightingStrategyForm.executeTime" value-format="HH:mm" format="HH:mm" placeholder="选择执行时间" />
+        </el-form-item>
+        <el-form-item label="重复设置" prop="repeatType">
+          <el-radio-group v-model="lightingStrategyForm.repeatType">
+            <el-radio label="once">仅执行一次</el-radio>
+            <el-radio label="daily">每天</el-radio>
+            <el-radio label="weekly">每周</el-radio>
+            <el-radio label="custom">自定义</el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item v-if="lightingStrategyForm.repeatType === 'weekly'" label="重复日期">
+          <el-checkbox-group v-model="lightingStrategyForm.weekDays">
+            <el-checkbox v-for="day in lightingWeekOptions" :key="day.value" :label="day.value">周{{ day.label }}</el-checkbox>
+          </el-checkbox-group>
+        </el-form-item>
+        <el-form-item v-if="lightingStrategyForm.repeatType === 'custom'" label="自定义日期">
+          <el-date-picker v-model="lightingStrategyForm.customDates" type="dates" value-format="YYYY-MM-DD" format="YYYY-MM-DD" placeholder="选择执行日期" class="wide-control" />
+        </el-form-item>
+
+        <div class="strategy-form-section">执行动作</div>
+        <el-form-item label="照明控制">
+          <el-radio-group v-model="lightingStrategyForm.action">
+            <el-radio label="on">开启</el-radio>
+            <el-radio label="off">关闭</el-radio>
+          </el-radio-group>
+        </el-form-item>
+
+        <div class="strategy-form-section">策略状态</div>
+        <el-form-item label="启用状态">
+          <el-switch v-model="lightingStrategyForm.enabled" active-text="启用" inactive-text="禁用" />
+        </el-form-item>
+        <el-form-item label="备注">
+          <el-input v-model="lightingStrategyForm.description" type="textarea" :rows="3" maxlength="200" show-word-limit placeholder="请输入策略备注（可选）" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="strategyEditorVisible = false">取消</el-button>
+        <el-button type="primary" :loading="strategySaving" @click="saveLightingStrategy">
+          {{ lightingStrategyForm.id ? '保存修改' : '保存策略' }}
+        </el-button>
+      </template>
     </el-dialog>
     
     <!-- 情景模式对话框 -->
@@ -629,7 +679,7 @@
         <div class="custom-scenes-section">
           <div class="section-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
             <h3 style="margin: 0;">自定义情景模式</h3>
-            <el-button type="primary" @click="showCreateCustomScene = true">
+            <el-button type="primary" @click="openCreateCustomScene">
               <el-icon><Plus /></el-icon>
               创建自定义情景
             </el-button>
@@ -768,10 +818,26 @@
           </el-form-item>
         </div>
         
+        <el-form-item label="设备筛选">
+          <div class="scene-device-filters">
+            <el-select v-if="isAdmin" v-model="sceneDeviceFilters.tenantId" clearable filterable placeholder="所属租户" @change="sceneTenantChanged">
+              <el-option label="全部租户" value="" />
+              <el-option v-for="item in tenantOptions" :key="item.id" :label="item.name" :value="item.id" />
+            </el-select>
+            <el-select v-model="sceneDeviceFilters.buildingId" clearable filterable placeholder="所属建筑" @change="sceneBuildingChanged">
+              <el-option label="全部建筑" value="" />
+              <el-option v-for="item in sceneBuildingOptions" :key="item.id" :label="item.name" :value="item.id" />
+            </el-select>
+            <el-select v-model="sceneDeviceFilters.groupId" clearable filterable placeholder="所属分组">
+              <el-option label="全部分组" value="" />
+              <el-option v-for="item in sceneProjectGroupOptions" :key="item.id" :label="item.name" :value="item.id" />
+            </el-select>
+          </div>
+        </el-form-item>
         <el-form-item label="设备控制">
           <div class="device-control-list">
             <div 
-              v-for="device in filteredDevices" 
+              v-for="device in sceneFilteredDevices" 
               :key="'device-' + device.id" 
               class="device-control-item"
             >
@@ -891,6 +957,10 @@ const tenantOptions = ref([])
 const buildingOptions = ref([])
 const deviceGroups = ref([])
 const filteredDevices = ref([])
+const devicePage = ref(1)
+const devicePageSize = ref(24)
+const deviceTotal = ref(0)
+let searchTimer = null
 
 const filteredBuildingOptions = computed(() => selectedTenant.value
   ? buildingOptions.value.filter(item => String(item.tenant_id) === String(selectedTenant.value))
@@ -899,6 +969,20 @@ const filteredBuildingOptions = computed(() => selectedTenant.value
 const filteredProjectGroupOptions = computed(() => deviceGroups.value.filter(item =>
   (!selectedTenant.value || String(item.tenant_id) === String(selectedTenant.value)) &&
   (!selectedBuilding.value || !item.building_id || String(item.building_id) === String(selectedBuilding.value))
+))
+
+const sceneDeviceFilters = reactive({ tenantId: '', buildingId: '', groupId: '' })
+const sceneBuildingOptions = computed(() => sceneDeviceFilters.tenantId
+  ? buildingOptions.value.filter(item => String(item.tenant_id) === String(sceneDeviceFilters.tenantId))
+  : buildingOptions.value)
+const sceneProjectGroupOptions = computed(() => deviceGroups.value.filter(item =>
+  (!sceneDeviceFilters.tenantId || String(item.tenant_id) === String(sceneDeviceFilters.tenantId)) &&
+  (!sceneDeviceFilters.buildingId || !item.building_id || String(item.building_id) === String(sceneDeviceFilters.buildingId))
+))
+const sceneFilteredDevices = computed(() => lightingDevices.value.filter(device =>
+  (!sceneDeviceFilters.tenantId || String(device.tenantId) === String(sceneDeviceFilters.tenantId)) &&
+  (!sceneDeviceFilters.buildingId || String(device.projectBuildingId) === String(sceneDeviceFilters.buildingId)) &&
+  (!sceneDeviceFilters.groupId || String(device.projectGroupId) === String(sceneDeviceFilters.groupId))
 ))
 
 // 情景模式相关
@@ -974,236 +1058,235 @@ const commonCommands = {
   restart: { type: 'setting', system: 'restart' }
 }
 
-// 定时控制相关
-const currentDevice = ref(null)
 const showTimerDialog = ref(false)
-const activeTimerTab = ref('list')
-const timerForm = ref({
-  action: 'on',
-  time: '',
-  repeat: []
+const strategyEditorVisible = ref(false)
+const strategyLoading = ref(false)
+const strategySaving = ref(false)
+const lightingStrategies = ref([])
+const lightingStrategyDevices = ref([])
+const lightingStrategyFormRef = ref(null)
+const lightingStrategyFilters = reactive({
+  keyword: '',
+  tenantId: '',
+  buildingId: '',
+  groupId: '',
+  status: ''
 })
-const editingTimerId = ref(null)
+const lightingStrategyForm = reactive({
+  id: null,
+  name: '',
+  deviceIds: [],
+  action: 'on',
+  executeTime: '',
+  repeatType: 'once',
+  weekDays: [],
+  customDates: [],
+  enabled: true,
+  description: ''
+})
+const lightingStrategyRules = {
+  name: [{ required: true, message: '请输入策略名称', trigger: 'blur' }],
+  deviceIds: [{ type: 'array', required: true, min: 1, message: '请选择设备', trigger: 'change' }],
+  executeTime: [{ required: true, message: '请选择执行时间', trigger: 'change' }]
+}
+const lightingWeekOptions = [
+  { label: '一', value: 1 },
+  { label: '二', value: 2 },
+  { label: '三', value: 3 },
+  { label: '四', value: 4 },
+  { label: '五', value: 5 },
+  { label: '六', value: 6 },
+  { label: '日', value: 0 }
+]
+const lightingStrategyBuildings = computed(() => lightingStrategyFilters.tenantId
+  ? buildingOptions.value.filter(item => String(item.tenant_id) === String(lightingStrategyFilters.tenantId))
+  : buildingOptions.value)
+const lightingStrategyGroups = computed(() => deviceGroups.value.filter(item =>
+  (!lightingStrategyFilters.tenantId || String(item.tenant_id) === String(lightingStrategyFilters.tenantId)) &&
+  (!lightingStrategyFilters.buildingId || !item.building_id || String(item.building_id) === String(lightingStrategyFilters.buildingId))
+))
+const filteredLightingStrategyDevices = computed(() => {
+  const keyword = lightingStrategyFilters.keyword.trim().toLowerCase()
+  return lightingStrategyDevices.value.filter(item =>
+    (!keyword || [item.name, item.device_id, item.imei].some(value => String(value || '').toLowerCase().includes(keyword))) &&
+    (!lightingStrategyFilters.tenantId || String(item.tenant_id) === String(lightingStrategyFilters.tenantId)) &&
+    (!lightingStrategyFilters.buildingId || String(item.project_building_id) === String(lightingStrategyFilters.buildingId)) &&
+    (!lightingStrategyFilters.groupId || String(item.project_group_id) === String(lightingStrategyFilters.groupId)) &&
+    (!lightingStrategyFilters.status || item.status === lightingStrategyFilters.status)
+  )
+})
 
-// 获取设备定时列表
-const fetchDeviceTimers = async (device) => {
-  if (!device || !device.deviceId) return
-  
+const openLightingStrategy = async () => {
+  showTimerDialog.value = true
+  strategyLoading.value = true
   try {
-    device.loading = true
-    // 使用本地API路径
-    const response = await fetch(`/api/lighting-timer/${device.deviceId}`, {
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('token')}`
-      }
-    })
-    
-    if (!response.ok) {
-      throw new Error('获取定时列表失败')
-    }
-    
-    const result = await response.json()
-    
-    if (result.success && result.data) {
-      device.timers = result.data
-    } else {
-      device.timers = []
-    }
+    const [strategyResult, deviceResult] = await Promise.all([
+      lightingControlAPI.getStrategies(),
+      lightingControlAPI.getStrategyDevices()
+    ])
+    lightingStrategies.value = strategyResult.success ? strategyResult.data || [] : []
+    lightingStrategyDevices.value = deviceResult.success ? deviceResult.data || [] : []
   } catch (error) {
-    console.error('获取定时列表失败:', error)
-    ElMessage.error(`获取定时列表失败: ${error.message}`)
-    device.timers = []
+    ElMessage.error(error.message || '加载照明策略失败')
   } finally {
-    device.loading = false
+    strategyLoading.value = false
   }
 }
 
-// 切换定时状态
-const toggleTimerStatus = async (timer) => {
-  if (!currentDevice.value || !timer) return
-  
-  try {
-    currentDevice.value.loading = true
-    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api'
-    const response = await fetch(`${API_BASE_URL}/lighting-timer/${timer.id}/toggle`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('token')}`
-      },
-      body: JSON.stringify({ enabled: timer.enabled })
-    })
-    
-    if (!response.ok) {
-      throw new Error('更新定时状态失败')
-    }
-    
-    const result = await response.json()
-    
-    if (result.success) {
-      ElMessage.success(`定时${timer.enabled ? '启用' : '禁用'}成功`)
-    } else {
-      throw new Error(result.message || '更新定时状态失败')
-    }
-  } catch (error) {
-    console.error('更新定时状态失败:', error)
-    ElMessage.error(`更新定时状态失败: ${error.message}`)
-    // 恢复原状态
-    timer.enabled = !timer.enabled
-  } finally {
-    currentDevice.value.loading = false
-  }
-}
-
-// 删除定时
-const deleteTimer = async (timer) => {
-  if (!currentDevice.value || !timer) return
-  
-  try {
-    await ElMessageBox.confirm(
-      '确定要删除这个定时设置吗？',
-      '删除确认',
-      {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
-        type: 'warning'
-      }
-    )
-    
-    currentDevice.value.loading = true
-    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api'
-    const response = await fetch(`${API_BASE_URL}/lighting-timer/${timer.id}`, {
-      method: 'DELETE',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('token')}`
-      }
-    })
-    
-    if (!response.ok) {
-      throw new Error('删除定时失败')
-    }
-    
-    const result = await response.json()
-    
-    if (result.success) {
-      // 从列表中移除
-      currentDevice.value.timers = currentDevice.value.timers.filter(t => t.id !== timer.id)
-      ElMessage.success('定时设置已删除')
-    } else {
-      throw new Error(result.message || '删除定时失败')
-    }
-  } catch (error) {
-    if (error !== 'cancel') {
-      console.error('删除定时失败:', error)
-      ElMessage.error(`删除定时失败: ${error.message || error}`)
-    }
-  } finally {
-    currentDevice.value.loading = false
-  }
-}
-
-// 编辑定时
-const editTimer = (timer) => {
-  editingTimerId.value = timer.id
-  timerForm.value = {
-    action: timer.action,
-    time: timer.time,
-    repeat: [...timer.repeat]
-  }
-  activeTimerTab.value = 'add'
-}
-
-// 保存定时设置
-const saveTimerSettings = async () => {
-  if (!timerForm.value.time) {
-    ElMessage.warning('请选择执行时间')
-    return
-  }
-  
-  if (!currentDevice.value) {
-    ElMessage.warning('未选择设备')
-    return
-  }
-  
-  // 设置设备加载状态
-  currentDevice.value.loading = true
-  
-  // 构建定时任务数据
-  const timerData = {
-    deviceId: currentDevice.value.deviceId || currentDevice.value.imei,
-    action: timerForm.value.action,
-    time: timerForm.value.time,
-    repeat: timerForm.value.repeat,
+const resetLightingStrategyForm = () => {
+  Object.assign(lightingStrategyForm, {
+    id: null,
+    name: '',
+    deviceIds: [],
+    action: 'on',
+    executeTime: '',
+    repeatType: 'once',
+    weekDays: [],
+    customDates: [],
     enabled: true,
-    name: `${currentDevice.value.name || '未知设备'} ${timerForm.value.action === 'on' ? '开启' : '关闭'} ${timerForm.value.time}`
-  }
-  
-  try {
-    // 保存到设备定时任务列表
-    if (!currentDevice.value.timers) {
-      currentDevice.value.timers = []
-    }
-    
-    // 添加或更新定时任务
-    const existingTimerIndex = currentDevice.value.timers.findIndex(
-      t => t.time === timerData.time && t.action === timerData.action
-    )
-    
-    if (existingTimerIndex >= 0) {
-      currentDevice.value.timers[existingTimerIndex] = timerData
-    } else {
-      currentDevice.value.timers.push(timerData)
-    }
-    
-    // 发送到后端API保存到数据库
-    // 使用本地API路径
-    const response = await fetch(`/api/lighting-timer`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('token')}`
-      },
-      body: JSON.stringify(timerData)
+    description: ''
+  })
+  Object.assign(lightingStrategyFilters, {
+    keyword: '',
+    tenantId: '',
+    buildingId: '',
+    groupId: '',
+    status: ''
+  })
+  lightingStrategyFormRef.value?.clearValidate()
+}
+
+const openLightingStrategyEditor = (item = null) => {
+  resetLightingStrategyForm()
+  if (item) {
+    Object.assign(lightingStrategyForm, {
+      id: item.id,
+      name: item.name,
+      deviceIds: (item.devices || []).map(device => device.id),
+      action: item.action,
+      executeTime: item.executeTime,
+      repeatType: item.repeatType || 'once',
+      weekDays: (item.weekDays || []).map(Number),
+      customDates: item.customDates || [],
+      enabled: item.enabled !== false,
+      description: item.description || ''
     })
-    
-    if (!response.ok) {
-      throw new Error('保存定时设置失败')
-    }
-    
-    const result = await response.json()
-    
-    if (result.success) {
-      // 如果后端返回了ID，更新本地数据
-      if (result.data && result.data.id) {
-        const updatedTimer = { ...timerData, id: result.data.id }
-        
-        if (existingTimerIndex >= 0) {
-          currentDevice.value.timers[existingTimerIndex] = updatedTimer
-        } else {
-          // 替换最后添加的项
-          currentDevice.value.timers[currentDevice.value.timers.length - 1] = updatedTimer
-        }
-      }
-      
-      ElMessage.success(`设备 ${currentDevice.value.name || '未知'} 定时设置已保存`)
-      showTimerDialog.value = false
-      
-      // 清空表单
-      timerForm.value = {
-        action: 'on',
-        time: '',
-        repeat: []
-      }
-    } else {
-      throw new Error(result.message || '保存定时设置失败')
-    }
+    lightingStrategyFilters.tenantId = item.tenantId || ''
+  }
+  strategyEditorVisible.value = true
+}
+
+const lightingStrategyTenantChanged = () => {
+  lightingStrategyFilters.buildingId = ''
+  lightingStrategyFilters.groupId = ''
+}
+
+const lightingStrategyBuildingChanged = () => {
+  lightingStrategyFilters.groupId = ''
+}
+
+const lightingStrategyDeviceChanged = ids => {
+  if (ids.length < 2) return
+  const first = lightingStrategyDevices.value.find(item => item.id === ids[0])
+  const sameTenantIds = ids.filter(id => {
+    const device = lightingStrategyDevices.value.find(item => item.id === id)
+    return String(device?.tenant_id || '') === String(first?.tenant_id || '')
+  })
+  if (sameTenantIds.length !== ids.length) {
+    lightingStrategyForm.deviceIds = sameTenantIds
+    ElMessage.warning('同一策略只能选择同一租户的设备')
+  }
+}
+
+const selectAllLightingStrategyDevices = () => {
+  lightingStrategyForm.deviceIds = [
+    ...new Set([
+      ...lightingStrategyForm.deviceIds,
+      ...filteredLightingStrategyDevices.value.map(item => item.id)
+    ])
+  ]
+  lightingStrategyDeviceChanged(lightingStrategyForm.deviceIds)
+}
+
+const lightingStrategyDeviceLabel = item => {
+  const location = [item.project_building_name, item.project_group_name].filter(Boolean).join(' / ')
+  return [item.name, item.device_id || item.imei, location].filter(Boolean).join(' - ')
+}
+
+const lightingStrategyDeviceText = item => {
+  const names = (item.devices || []).map(device => device.name)
+  return names.length <= 2
+    ? names.join('、') || '未关联设备'
+    : `${names.slice(0, 2).join('、')} 等 ${names.length} 台`
+}
+
+const lightingRepeatText = item => {
+  if (item.repeatType === 'daily') return '每天'
+  if (item.repeatType === 'custom') return `指定 ${item.customDates?.length || 0} 天`
+  if (item.repeatType !== 'weekly') return '仅一次'
+  return (item.weekDays || [])
+    .map(value => lightingWeekOptions.find(option => option.value === Number(value))?.label)
+    .filter(Boolean)
+    .map(label => `周${label}`)
+    .join('、')
+}
+
+const toggleLightingStrategy = async item => {
+  try {
+    const result = await lightingControlAPI.toggleStrategy(item.id, item.enabled)
+    if (!result.success) throw new Error(result.message || '更新策略状态失败')
+    ElMessage.success(item.enabled ? '策略已启用' : '策略已停用')
   } catch (error) {
-    console.error('保存定时设置失败:', error)
-    ElMessage.error(`保存定时设置失败: ${error.message}`)
+    item.enabled = !item.enabled
+    ElMessage.error(error.message || '更新策略状态失败')
+  }
+}
+
+const deleteLightingStrategy = async item => {
+  try {
+    await ElMessageBox.confirm(`确定删除策略“${item.name}”吗？`, '删除确认', { type: 'warning' })
+    const result = await lightingControlAPI.deleteStrategy(item.id)
+    if (!result.success) throw new Error(result.message || '删除策略失败')
+    await openLightingStrategy()
+    ElMessage.success('策略已删除')
+  } catch (error) {
+    if (error !== 'cancel') ElMessage.error(error.message || '删除失败')
+  }
+}
+
+const saveLightingStrategy = async () => {
+  const valid = await lightingStrategyFormRef.value?.validate().catch(() => false)
+  if (!valid) return
+  if (lightingStrategyForm.repeatType === 'weekly' && !lightingStrategyForm.weekDays.length) {
+    return ElMessage.warning('请选择每周执行日期')
+  }
+  if (lightingStrategyForm.repeatType === 'custom' && !lightingStrategyForm.customDates.length) {
+    return ElMessage.warning('请选择自定义执行日期')
+  }
+  strategySaving.value = true
+  try {
+    const payload = {
+      name: lightingStrategyForm.name,
+      deviceIds: lightingStrategyForm.deviceIds,
+      action: lightingStrategyForm.action,
+      executeTime: lightingStrategyForm.executeTime,
+      repeatType: lightingStrategyForm.repeatType,
+      weekDays: lightingStrategyForm.repeatType === 'weekly' ? lightingStrategyForm.weekDays : [],
+      customDates: lightingStrategyForm.repeatType === 'custom' ? lightingStrategyForm.customDates : [],
+      enabled: lightingStrategyForm.enabled,
+      description: lightingStrategyForm.description
+    }
+    const result = lightingStrategyForm.id
+      ? await lightingControlAPI.updateStrategy(lightingStrategyForm.id, payload)
+      : await lightingControlAPI.createStrategy(payload)
+    if (!result.success) throw new Error(result.message || '策略保存失败')
+    strategyEditorVisible.value = false
+    await openLightingStrategy()
+    ElMessage.success(lightingStrategyForm.id ? '策略更新成功' : '策略创建成功')
+  } catch (error) {
+    ElMessage.error(error.message || '策略保存失败')
   } finally {
-    currentDevice.value.loading = false
+    strategySaving.value = false
   }
 }
 
@@ -1222,48 +1305,49 @@ const onlineDevicesCount = computed(() => {
   return filteredDevices.value.filter(device => device.status === 'online').length
 })
 
-// 过滤设备列表
+// 后端已按完整设备集筛选和分页，前端只展示当前页。
 const filterDevices = () => {
-  let filtered = lightingDevices.value
-  
-  // 按名称搜索
-  if (searchKeyword.value) {
-    filtered = filtered.filter(device => 
-      device.name.toLowerCase().includes(searchKeyword.value.toLowerCase())
-    )
-  }
-  
-  if (selectedTenant.value) filtered = filtered.filter(device => String(device.tenantId || '') === String(selectedTenant.value))
-  if (selectedBuilding.value) filtered = filtered.filter(device => String(device.projectBuildingId || '') === String(selectedBuilding.value))
-  if (selectedProjectGroup.value) filtered = filtered.filter(device => String(device.projectGroupId || '') === String(selectedProjectGroup.value))
-  if (selectedStatus.value) filtered = filtered.filter(device => device.status === selectedStatus.value)
-  
-  filteredDevices.value = filtered
+  filteredDevices.value = lightingDevices.value
 }
 
 // 搜索处理
 const handleSearch = () => {
-  filterDevices()
+  devicePage.value = 1
+  clearTimeout(searchTimer)
+  searchTimer = setTimeout(loadDevices, 300)
 }
 
 // 分组过滤处理
 const handleGroupFilter = () => {
-  filterDevices()
+  devicePage.value = 1
+  loadDevices()
 }
 
 const handleTenantFilter = () => {
   selectedBuilding.value = ''
   selectedProjectGroup.value = ''
-  filterDevices()
+  devicePage.value = 1
+  loadDevices()
 }
 
 const handleBuildingFilter = () => {
   if (selectedProjectGroup.value && !filteredProjectGroupOptions.value.some(item => String(item.id) === String(selectedProjectGroup.value))) selectedProjectGroup.value = ''
-  filterDevices()
+  devicePage.value = 1
+  loadDevices()
 }
 
 const handleStatusFilter = () => {
-  filterDevices()
+  devicePage.value = 1
+  loadDevices()
+}
+
+const handleDevicePageSizeChange = () => {
+  devicePage.value = 1
+  loadDevices()
+}
+
+const handleDevicePageChange = () => {
+  loadDevices()
 }
 
 // 获取灯泡状态
@@ -2719,11 +2803,24 @@ const loadTenants = async () => {
 // 加载设备列表
 const loadDevices = async () => {
   try {
-    // 从照明控制API获取设备列表
-    const result = await lightingControlAPI.getLightingDevices()
+    loading.value = true
+    const params = {
+      page: devicePage.value,
+      pageSize: devicePageSize.value
+    }
+    const keyword = searchKeyword.value.trim()
+    if (keyword) params.keyword = keyword
+    if (selectedTenant.value) params.tenantId = selectedTenant.value
+    if (selectedBuilding.value) params.buildingId = selectedBuilding.value
+    if (selectedProjectGroup.value) params.projectGroupId = selectedProjectGroup.value
+    if (selectedStatus.value) params.status = selectedStatus.value
+
+    const result = await lightingControlAPI.getLightingDevices(params)
     if (result.success && result.data) {
-      // 直接使用照明控制表中的设备，无需过滤
       const devices = result.data.devices || []
+      deviceTotal.value = Number(
+        result.data.pagination?.total ?? result.data.total ?? devices.length
+      )
       
       // 先快速显示设备基本信息，不等待数据加载
       lightingDevices.value = devices.map(device => {
@@ -2775,6 +2872,10 @@ const loadDevices = async () => {
     ElMessage.error('加载照明设备列表失败')
     // 如果API调用失败，使用空数组
     lightingDevices.value = []
+    filteredDevices.value = []
+    deviceTotal.value = 0
+  } finally {
+    loading.value = false
   }
 }
 
@@ -2799,18 +2900,15 @@ const deleteDevice = async (device) => {
       throw new Error(result.message || '删除设备失败')
     }
     
-    // 从设备列表中移除
-    const index = lightingDevices.value.findIndex(d => d.id === device.id)
-    if (index > -1) {
-      lightingDevices.value.splice(index, 1)
-      ElMessage.success('设备删除成功')
-      
-      // 如果删除的是当前查看详情的设备，关闭详情对话框
-      if (selectedDevice.value && selectedDevice.value.id === device.id) {
-        showDetailDialog.value = false
-        selectedDevice.value = null
-      }
+    if (selectedDevice.value && selectedDevice.value.id === device.id) {
+      showDetailDialog.value = false
+      selectedDevice.value = null
     }
+    const remainingTotal = Math.max(deviceTotal.value - 1, 0)
+    const lastPage = Math.max(Math.ceil(remainingTotal / devicePageSize.value), 1)
+    devicePage.value = Math.min(devicePage.value, lastPage)
+    await loadDevices()
+    ElMessage.success('设备删除成功')
   } catch (error) {
     if (error !== 'cancel') {
       console.error('删除设备失败:', error)
@@ -2871,6 +2969,7 @@ onMounted(async () => {
 
 // 组件卸载时清理资源
 onUnmounted(() => {
+  clearTimeout(searchTimer)
   // 移除WebSocket监听器
   websocketService.off('device_status_update', handleDeviceStatusUpdate)
   websocketService.off('device_offline', handleDeviceOffline)
@@ -3168,6 +3267,7 @@ const openCreateCustomScene = () => {
     endTime: '',
     repeatDays: []
   }
+  Object.assign(sceneDeviceFilters, { tenantId: '', buildingId: '', groupId: '' })
   // 初始化设备配置
   lightingDevices.value.forEach(device => {
     device.selected = false
@@ -3196,6 +3296,7 @@ const editCustomScene = (scene) => {
     endTime: scene.endTime || '',
     repeatDays: scene.repeatDays || []
   }
+  Object.assign(sceneDeviceFilters, { tenantId: '', buildingId: '', groupId: '' })
   // 恢复设备选择状态
   lightingDevices.value.forEach(device => {
     const sceneDevice = scene.devices.find(d => d.deviceId === device.deviceId)
@@ -3249,21 +3350,33 @@ const saveCustomScene = async () => {
   }
   
   // 收集选中的设备配置
-  const selectedDevices = lightingDevices.value
+  const selectedSourceDevices = lightingDevices.value
     .filter(device => device.selected)
-    .map(device => ({
+
+  if (selectedSourceDevices.length === 0) {
+    ElMessage.warning('请至少选择一个设备')
+    return
+  }
+
+  const tenantIds = [...new Set(selectedSourceDevices.map(device => String(device.tenantId || '')).filter(Boolean))]
+  if (tenantIds.length === 0) {
+    ElMessage.warning('所选设备缺少租户信息，无法创建情景')
+    return
+  }
+  if (!isAdmin.value && tenantIds.length !== 1) {
+    ElMessage.warning('普通租户用户只能选择本租户设备')
+    return
+  }
+
+  const selectedDevices = selectedSourceDevices.map(device => ({
       deviceId: device.deviceId,
       name: device.name,
       type: device.type,
       config: { ...device.sceneConfig }
     }))
   
-  if (selectedDevices.length === 0) {
-    ElMessage.warning('请至少选择一个设备')
-    return
-  }
-  
   const sceneData = {
+    tenant_id: tenantIds[0],
     scene_name: customSceneForm.value.name,
     scene_description: customSceneForm.value.description,
     devices_config: selectedDevices,
@@ -3352,6 +3465,15 @@ const cancelCustomScene = () => {
     device.selected = false
     device.sceneConfig = getDefaultSwitches(device.type)
   })
+}
+
+const sceneTenantChanged = () => {
+  sceneDeviceFilters.buildingId = ''
+  sceneDeviceFilters.groupId = ''
+}
+
+const sceneBuildingChanged = () => {
+  sceneDeviceFilters.groupId = ''
 }
 
 const formatRepeatDays = (days) => {
@@ -3550,7 +3672,33 @@ const getIconComponent = (iconName) => {
 
 .device-card.compact .device-name {
   font-size: 14px;
-  margin-bottom: 8px;
+  margin: 0;
+}
+
+.device-card.compact .header-left {
+  flex: 1;
+  min-width: 0;
+}
+
+.device-card.compact .header-left .device-info {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  min-width: 0;
+}
+
+.device-card.compact .device-meta {
+  display: block;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.25;
+}
+
+.device-card.compact .device-location {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .device-card.compact .device-group {
@@ -3620,9 +3768,11 @@ const getIconComponent = (iconName) => {
 .device-card.compact .action-buttons {
   margin-top: 10px;
   padding-top: 10px;
+  justify-content: flex-end;
 }
 
 .device-card.compact .action-buttons .el-button {
+  flex: 0 0 auto;
   padding: 6px 12px;
   font-size: 12px;
 }
@@ -3630,7 +3780,7 @@ const getIconComponent = (iconName) => {
 .card-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   position: relative;
   margin-bottom: 16px;
   padding-bottom: 12px;
@@ -3652,6 +3802,8 @@ const getIconComponent = (iconName) => {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-shrink: 0;
+  margin-top: 2px;
 }
 
 .loading-icon {
@@ -4367,6 +4519,18 @@ const getIconComponent = (iconName) => {
   padding: 20px 0;
 }
 
+.device-pagination {
+  margin-bottom: 8px;
+}
+
+@media (max-width: 768px) {
+  .device-pagination {
+    justify-content: flex-start;
+    overflow-x: auto;
+    padding: 14px 0 18px;
+  }
+}
+
 /* 空状态样式 */
 .empty-scenes {
   text-align: center;
@@ -4379,6 +4543,13 @@ const getIconComponent = (iconName) => {
   border: 1px solid #e4e7ed;
   border-radius: 4px;
   padding: 10px;
+}
+
+.scene-device-filters {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  width: 100%;
 }
 
 .device-control-item {
@@ -4694,6 +4865,92 @@ const getIconComponent = (iconName) => {
 }
 
 /* 定时器设置样式 */
+.strategy-guide {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+  border-left: 3px solid var(--el-color-primary);
+  background: var(--fill-lighter, #f5f7fa);
+}
+
+.strategy-guide strong {
+  font-size: 15px;
+}
+
+.strategy-guide span {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.lighting-strategy-container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.strategy-header {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.strategy-table {
+  width: 100%;
+}
+
+.strategy-form-section {
+  margin: 18px 0 14px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-lighter, #ebeef5);
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.strategy-device-filters {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  width: 100%;
+  margin-bottom: 10px;
+}
+
+.strategy-device-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  margin-top: 6px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.strategy-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.strategy-actions :deep(.el-button) {
+  margin-left: 0;
+}
+
+.wide-control {
+  width: 100%;
+}
+
+:deep(.strategy-editor-dialog) {
+  margin-top: 4vh;
+}
+
+:deep(.strategy-editor-dialog .el-dialog__body) {
+  max-height: calc(92vh - 150px);
+  overflow-y: auto;
+}
+
 .timer-settings {
   background: #f8fafc;
   border: 1px solid #e2e8f0;
@@ -4793,7 +5050,7 @@ const getIconComponent = (iconName) => {
 }
 
 .device-grid {
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   gap: 14px;
 }
 
@@ -4817,7 +5074,8 @@ const getIconComponent = (iconName) => {
 }
 
 .device-card.compact {
-  min-height: 330px;
+  min-height: 0;
+  height: auto;
 }
 
 .device-card.compact :deep(.el-card__body) {
@@ -4890,6 +5148,15 @@ const getIconComponent = (iconName) => {
 
   .page-header {
     align-items: stretch;
+  }
+
+  .strategy-device-filters {
+    grid-template-columns: 1fr;
+  }
+
+  .strategy-device-summary {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .header-actions {

@@ -5,6 +5,7 @@ const logger = require('../utils/logger');
 const { getPoolConfig } = require('../config/database');
 
 const router = express.Router();
+const isAdminUser = (user) => ['admin', 'super_admin'].includes(String(user?.role || '').toLowerCase());
 
 // 数据库连接 - 使用统一的配置
 const pool = new Pool(getPoolConfig());
@@ -13,6 +14,7 @@ const pool = new Pool(getPoolConfig());
 router.get('/', authenticateToken, async (req, res) => {
   try {
     const { tenant_id } = req.user;
+    const isAdmin = isAdminUser(req.user);
     const { scene_type } = req.query; // 可选：筛选情景类型
 
     let query = `
@@ -30,13 +32,13 @@ router.get('/', authenticateToken, async (req, res) => {
         created_at,
         updated_at
       FROM lighting_scenes 
-      WHERE tenant_id = $1
+      WHERE ${isAdmin ? 'TRUE' : 'tenant_id = $1'}
     `;
 
-    const params = [tenant_id];
+    const params = isAdmin ? [] : [tenant_id];
 
     if (scene_type) {
-      query += ' AND scene_type = $2';
+      query += ` AND scene_type = $${params.length + 1}`;
       params.push(scene_type);
     }
 
@@ -62,6 +64,7 @@ router.get('/', authenticateToken, async (req, res) => {
 router.get('/:id', authenticateToken, async (req, res) => {
   try {
     const { tenant_id } = req.user;
+    const isAdmin = isAdminUser(req.user);
     const { id } = req.params;
 
     const query = `
@@ -79,10 +82,10 @@ router.get('/:id', authenticateToken, async (req, res) => {
         created_at,
         updated_at
       FROM lighting_scenes 
-      WHERE id = $1 AND tenant_id = $2
+      WHERE id = $1${isAdmin ? '' : ' AND tenant_id = $2'}
     `;
 
-    const result = await pool.query(query, [id, tenant_id]);
+    const result = await pool.query(query, isAdmin ? [id] : [id, tenant_id]);
 
     if (result.rows.length === 0) {
       return res.status(404).json({
@@ -108,7 +111,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
 // 创建新的情景模式
 router.post('/', authenticateToken, async (req, res) => {
   try {
-    const { tenant_id, id: user_id } = req.user;
+    const { tenant_id: userTenantId, id: user_id } = req.user;
     const {
       scene_name,
       scene_description,
@@ -117,8 +120,10 @@ router.post('/', authenticateToken, async (req, res) => {
       start_time,
       end_time,
       repeat_days = [],
-      devices_config
+      devices_config,
+      tenant_id: requestedTenantId
     } = req.body;
+    const tenant_id = userTenantId || requestedTenantId;
 
     // 验证必填字段
     if (!scene_name || !scene_name.trim()) {
@@ -132,6 +137,13 @@ router.post('/', authenticateToken, async (req, res) => {
       return res.status(400).json({
         success: false,
         message: '设备配置不能为空'
+      });
+    }
+
+    if (!tenant_id) {
+      return res.status(400).json({
+        success: false,
+        message: '所选设备缺少租户信息，无法创建情景模式'
       });
     }
 
@@ -216,6 +228,7 @@ router.post('/', authenticateToken, async (req, res) => {
 router.put('/:id', authenticateToken, async (req, res) => {
   try {
     const { tenant_id } = req.user;
+    const isAdmin = isAdminUser(req.user);
     const { id } = req.params;
     const {
       scene_name,
@@ -228,8 +241,8 @@ router.put('/:id', authenticateToken, async (req, res) => {
     } = req.body;
 
     // 验证情景模式是否存在
-    const checkQuery = 'SELECT id FROM lighting_scenes WHERE id = $1 AND tenant_id = $2';
-    const checkResult = await pool.query(checkQuery, [id, tenant_id]);
+    const checkQuery = `SELECT id FROM lighting_scenes WHERE id = $1${isAdmin ? '' : ' AND tenant_id = $2'}`;
+    const checkResult = await pool.query(checkQuery, isAdmin ? [id] : [id, tenant_id]);
 
     if (checkResult.rows.length === 0) {
       return res.status(404).json({
@@ -280,7 +293,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
         repeat_days = $6,
         devices_config = $7,
         updated_at = CURRENT_TIMESTAMP
-      WHERE id = $8 AND tenant_id = $9
+      WHERE id = $8${isAdmin ? '' : ' AND tenant_id = $9'}
       RETURNING *
     `;
 
@@ -293,7 +306,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
       repeat_days || [],
       JSON.stringify(devices_config),
       id,
-      tenant_id
+      ...(isAdmin ? [] : [tenant_id])
     ]);
 
     logger.info('情景模式更新成功', {
@@ -330,11 +343,12 @@ router.put('/:id', authenticateToken, async (req, res) => {
 router.delete('/:id', authenticateToken, async (req, res) => {
   try {
     const { tenant_id } = req.user;
+    const isAdmin = isAdminUser(req.user);
     const { id } = req.params;
 
     // 验证情景模式是否存在
-    const checkQuery = 'SELECT id, scene_name FROM lighting_scenes WHERE id = $1 AND tenant_id = $2';
-    const checkResult = await pool.query(checkQuery, [id, tenant_id]);
+    const checkQuery = `SELECT id, scene_name FROM lighting_scenes WHERE id = $1${isAdmin ? '' : ' AND tenant_id = $2'}`;
+    const checkResult = await pool.query(checkQuery, isAdmin ? [id] : [id, tenant_id]);
 
     if (checkResult.rows.length === 0) {
       return res.status(404).json({
@@ -345,10 +359,10 @@ router.delete('/:id', authenticateToken, async (req, res) => {
 
     const query = `
       DELETE FROM lighting_scenes
-      WHERE id = $1 AND tenant_id = $2
+      WHERE id = $1${isAdmin ? '' : ' AND tenant_id = $2'}
     `;
 
-    await pool.query(query, [id, tenant_id]);
+    await pool.query(query, isAdmin ? [id] : [id, tenant_id]);
 
     logger.info('情景模式删除成功', {
       sceneId: id,
@@ -382,6 +396,7 @@ router.delete('/:id', authenticateToken, async (req, res) => {
 router.post('/:id/execute', authenticateToken, async (req, res) => {
   try {
     const { tenant_id } = req.user;
+    const isAdmin = isAdminUser(req.user);
     const { id } = req.params;
 
     // 获取情景模式配置
@@ -390,10 +405,10 @@ router.post('/:id/execute', authenticateToken, async (req, res) => {
         scene_name,
         devices_config
       FROM lighting_scenes 
-      WHERE id = $1 AND tenant_id = $2
+      WHERE id = $1${isAdmin ? '' : ' AND tenant_id = $2'}
     `;
 
-    const sceneResult = await pool.query(sceneQuery, [id, tenant_id]);
+    const sceneResult = await pool.query(sceneQuery, isAdmin ? [id] : [id, tenant_id]);
 
     if (sceneResult.rows.length === 0) {
       return res.status(404).json({

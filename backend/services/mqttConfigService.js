@@ -27,6 +27,11 @@ class MqttConfigService {
         }, {
           model: require('../models').Manufacturer,
           as: 'manufacturer'
+        }, {
+          model: Device,
+          as: 'parent_device',
+          attributes: ['id', 'name', 'device_id', 'imei', 'device_category'],
+          required: false
         }]
       });
 
@@ -60,10 +65,17 @@ class MqttConfigService {
    * @returns {Object} 构建的配置
    */
   buildDeviceConfig(device) {
-    const deviceId = device.device_id;
-    const imei = device.imei;
+    const communicationDevice = device.device_category === 'sub_device' && device.parent_device
+      ? device.parent_device
+      : device;
+    const deviceId = communicationDevice.device_id || communicationDevice.imei;
+    const imei = communicationDevice.imei || communicationDevice.device_id;
     const manufacturerCode = device.manufacturer?.code || 'UNKNOWN';
     const mqttConfig = device.mqtt_config || {};
+    const renderTopic = (topic) => String(topic || '')
+      .replace(/\{imei\}|\{IMEI\}/g, imei || '')
+      .replace(/\{deviceId\}|\{device_id\}/g, deviceId || '')
+      .replace(/\{manufacturerCode\}|\{manufacturer\}|\{code\}/g, manufacturerCode);
     
     // 获取厂商的订阅类型配置
     const subscriptionType = device.manufacturer?.subscription_type || 'imei_middle';
@@ -90,8 +102,16 @@ class MqttConfigService {
         const mfgConfig = device.manufacturer?.mqtt_config || {};
         const mSubs = mfgConfig.subscribeTopics || mfgConfig.subscribe_topics || [];
         const mPubs = mfgConfig.publishTopics || mfgConfig.publish_topics || [];
-        subscribeTopics = mSubs.map(t => ({...t}));
-        publishTopics = mPubs.map(t => ({...t}));
+        subscribeTopics = mSubs.map((topic) => (
+          typeof topic === 'string'
+            ? { topic: renderTopic(topic), qos: 1 }
+            : { ...topic, topic: renderTopic(topic.topic) }
+        ));
+        publishTopics = mPubs.map((topic) => (
+          typeof topic === 'string'
+            ? { topic: renderTopic(topic), qos: 1 }
+            : { ...topic, topic: renderTopic(topic.topic) }
+        ));
       } else if (subscriptionType === 'imei_last') {
         // IMEI在最后：zhhl/{厂商编号}/subscribe/{IMEI}
         subscribeTopics.push({

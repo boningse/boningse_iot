@@ -1,13 +1,129 @@
 const express = require('express');
-const { Op } = require('sequelize');
-const { Device, DeviceData, DeviceLog, Tenant, User, DeviceType, Manufacturer, sequelize } = require('../models');
+const multer = require('multer');
+const { Op, QueryTypes } = require('sequelize');
+const {
+  Device,
+  DeviceData,
+  DeviceLog,
+  Tenant,
+  User,
+  DeviceType,
+  Manufacturer,
+  ProtocolConfig,
+  sequelize
+} = require('../models');
 const { authenticateToken, checkPermission } = require('../middleware/auth');
 const { validateDevice, validateDeviceUpdate } = require('../middleware/validation');
 const mqttService = require('../services/mqttService');
 const mqttConfigService = require('../services/mqttConfigService');
 const websocketService = require('../services/websocketService');
+const {
+  CLEAR_VALUE,
+  buildWorkbook,
+  parseWorkbook
+} = require('../services/deviceExcelService');
 
 const router = express.Router();
+const excelUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024, files: 1 },
+  fileFilter: (req, file, callback) => {
+    const fileName = String(file.originalname || '').toLowerCase();
+    if (!fileName.endsWith('.xlsx')) {
+      return callback(new Error('只支持 .xlsx 格式的 Excel 文件'));
+    }
+    callback(null, true);
+  }
+});
+
+const categoryLabels = {
+  standalone: '独立设备',
+  gateway: '网关',
+  sub_device: '子设备'
+};
+const categoryValues = {
+  '独立设备': 'standalone',
+  '独立': 'standalone',
+  standalone: 'standalone',
+  '网关': 'gateway',
+  '网关设备': 'gateway',
+  gateway: 'gateway',
+  '子设备': 'sub_device',
+  sub_device: 'sub_device'
+};
+const statusLabels = {
+  online: '在线',
+  offline: '离线',
+  fault: '故障',
+  error: '故障',
+  maintenance: '维护'
+};
+const statusValues = {
+  '在线': 'online',
+  online: 'online',
+  '离线': 'offline',
+  offline: 'offline',
+  '故障': 'fault',
+  fault: 'fault',
+  error: 'fault',
+  '维护': 'maintenance',
+  maintenance: 'maintenance'
+};
+
+const normalizeText = (value) => (
+  value === undefined || value === null ? '' : String(value).trim()
+);
+const normalizeLookup = (value) => normalizeText(value).toLocaleLowerCase('zh-CN');
+const normalizeProjectLookup = (value) => normalizeLookup(value).replace(/\s+/g, '');
+const hasValue = (value) => normalizeText(value) !== '';
+const isClearValue = (value) => normalizeText(value) === CLEAR_VALUE;
+
+const makeLookup = (items, keys, scopeKey = null, normalize = normalizeLookup) => {
+  const lookup = new Map();
+  for (const item of items) {
+    const scope = scopeKey ? `${item[scopeKey]}|` : '';
+    for (const key of keys) {
+      const value = normalize(item[key]);
+      if (!value) continue;
+      const lookupKey = `${scope}${value}`;
+      if (!lookup.has(lookupKey)) {
+        lookup.set(lookupKey, item);
+        continue;
+      }
+      const existing = lookup.get(lookupKey);
+      if (existing === false) continue;
+      else if (existing.id !== item.id) lookup.set(lookupKey, false);
+    }
+  }
+  return lookup;
+};
+
+const resolveLookup = (lookup, value, label, scope = '', normalize = normalizeLookup) => {
+  const item = lookup.get(`${scope}${normalize(value)}`);
+  if (!item) throw new Error(`${label}“${value}”不存在或名称不唯一`);
+  return item;
+};
+
+const buildExportWhere = (req) => {
+  const where = {};
+  if (req.user.role !== 'admin') {
+    where.tenant_id = req.user.tenant_id;
+  } else if (req.query.tenantId) {
+    where.tenant_id = req.query.tenantId;
+  }
+  if (req.query.keyword) {
+    where[Op.or] = [
+      { name: { [Op.iLike]: `%${req.query.keyword}%` } },
+      { device_id: { [Op.iLike]: `%${req.query.keyword}%` } },
+      { imei: { [Op.iLike]: `%${req.query.keyword}%` } }
+    ];
+  }
+  if (req.query.status) where.status = req.query.status === 'error' ? 'fault' : req.query.status;
+  if (req.query.type) where.device_type_id = req.query.type;
+  if (req.query.buildingId) where.project_building_id = req.query.buildingId;
+  if (req.query.projectGroupId) where.project_group_id = req.query.projectGroupId;
+  return where;
+};
 
 /**
  * 获取设备列表
@@ -133,7 +249,7 @@ router.get('/', authenticateToken, async (req, res) => {
         {
           model: Device,
           as: 'parent_device',
-          attributes: ['id', 'name', 'device_id'],
+          attributes: ['id', 'name', 'device_id', 'imei'],
           required: false
         }
       ],
@@ -216,6 +332,515 @@ router.get('/gateways', authenticateToken, async (req, res) => {
       message: '获取网关设备列表失败',
       error: error.message
     });
+  }
+});
+
+/**
+ * 下载设备批量导入模板
+ * GET /api/devices/import-template
+ */
+router.get('/import-template', authenticateToken, (req, res) => {
+  try {
+    const buffer = buildWorkbook();
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="device-import-template.xlsx"; filename*=UTF-8''${encodeURIComponent('设备批量导入模板.xlsx')}`
+    );
+    res.send(buffer);
+  } catch (error) {
+    console.error('生成设备导入模板失败:', error);
+    res.status(500).json({ success: false, message: '生成设备导入模板失败', error: error.message });
+  }
+});
+
+/**
+ * 按当前筛选条件导出设备
+ * GET /api/devices/export
+ */
+router.get('/export', authenticateToken, async (req, res) => {
+  try {
+    const devices = await Device.findAll({
+      where: buildExportWhere(req),
+      attributes: {
+        include: [
+          [
+            sequelize.literal('(SELECT name FROM project_buildings WHERE project_buildings.id = "Device"."project_building_id")'),
+            'project_building_name'
+          ],
+          [
+            sequelize.literal('(SELECT name FROM project_groups WHERE project_groups.id = "Device"."project_group_id")'),
+            'project_group_name'
+          ]
+        ]
+      },
+      include: [
+        { model: Tenant, as: 'tenant', attributes: ['id', 'name', 'code'] },
+        { model: DeviceType, as: 'device_type', attributes: ['id', 'name', 'code'] },
+        { model: Manufacturer, as: 'manufacturer', attributes: ['id', 'name', 'code'] },
+        { model: ProtocolConfig, as: 'protocol_config', attributes: ['id', 'name'], required: false },
+        { model: Device, as: 'parent_device', attributes: ['id', 'device_id', 'imei'], required: false }
+      ],
+      order: [['created_at', 'DESC']]
+    });
+
+    const rows = devices.map((device) => ({
+      id: device.id,
+      name: device.name,
+      device_id: device.device_id,
+      imei: device.imei,
+      tenant: device.tenant?.name || device.tenant_id,
+      building: device.get('project_building_name') || '',
+      group: device.get('project_group_name') || '',
+      device_type: device.device_type?.name || device.device_type_id,
+      device_category: categoryLabels[device.device_category] || device.device_category,
+      manufacturer_code: device.manufacturer_code,
+      protocol: device.protocol_config?.name || '',
+      parent_device: device.parent_device?.device_id || device.parent_device?.imei || '',
+      sub_device_sequence: device.sub_device_sequence ?? '',
+      status: statusLabels[device.status] || device.status,
+      location: device.location || '',
+      description: device.description || ''
+    }));
+
+    const buffer = buildWorkbook(rows);
+    const date = new Date().toISOString().slice(0, 10);
+    const fileName = `设备清单-${date}.xlsx`;
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="devices-${date}.xlsx"; filename*=UTF-8''${encodeURIComponent(fileName)}`
+    );
+    res.send(buffer);
+  } catch (error) {
+    console.error('导出设备失败:', error);
+    res.status(500).json({ success: false, message: '导出设备失败', error: error.message });
+  }
+});
+
+/**
+ * 批量新增或更新设备
+ * POST /api/devices/import
+ */
+router.post('/import', authenticateToken, excelUpload.single('file'), async (req, res) => {
+  try {
+    if (!req.file?.buffer) {
+      return res.status(400).json({ success: false, message: '请选择要导入的 Excel 文件' });
+    }
+
+    const rows = parseWorkbook(req.file.buffer);
+    if (rows.length === 0) {
+      return res.status(400).json({ success: false, message: '导入文件中没有设备数据' });
+    }
+    if (rows.length > 5000) {
+      return res.status(400).json({ success: false, message: '单次最多导入 5000 台设备' });
+    }
+
+    const [
+      tenants,
+      deviceTypes,
+      manufacturers,
+      protocols,
+      buildingsResult,
+      groupsResult,
+      existingDevices
+    ] = await Promise.all([
+      Tenant.findAll({ attributes: ['id', 'name', 'code'] }),
+      DeviceType.findAll({ attributes: ['id', 'name', 'code'] }),
+      Manufacturer.findAll({ attributes: ['id', 'name', 'code'] }),
+      ProtocolConfig.findAll({ attributes: ['id', 'name', 'manufacturer_code', 'tenant_id'] }),
+      sequelize.query(
+        'SELECT id, tenant_id, name, code FROM project_buildings WHERE is_active = true',
+        { type: QueryTypes.SELECT }
+      ),
+      sequelize.query(
+        'SELECT id, tenant_id, building_id, name, code FROM project_groups WHERE is_active = true',
+        { type: QueryTypes.SELECT }
+      ),
+      Device.findAll({
+        attributes: [
+          'id',
+          'name',
+          'device_id',
+          'imei',
+          'tenant_id',
+          'device_type_id',
+          'manufacturer_code',
+          'protocol_config_id',
+          'device_category',
+          'parent_device_id',
+          'project_building_id',
+          'project_group_id',
+          'sub_device_sequence',
+          'status',
+          'location',
+          'description'
+        ]
+      })
+    ]);
+
+    const tenantLookup = makeLookup(tenants.map((item) => item.get({ plain: true })), ['id', 'name', 'code']);
+    const typeLookup = makeLookup(deviceTypes.map((item) => item.get({ plain: true })), ['id', 'name', 'code']);
+    const manufacturerLookup = makeLookup(
+      manufacturers.map((item) => item.get({ plain: true })),
+      ['id', 'name', 'code']
+    );
+    const buildingLookup = makeLookup(
+      buildingsResult,
+      ['id', 'name', 'code'],
+      'tenant_id',
+      normalizeProjectLookup
+    );
+    const groupLookup = makeLookup(
+      groupsResult,
+      ['id', 'name', 'code'],
+      'tenant_id',
+      normalizeProjectLookup
+    );
+    const protocolItems = protocols.map((item) => item.get({ plain: true }));
+    const deviceItems = existingDevices.map((item) => item.get({ plain: true }));
+    const devicesById = new Map(deviceItems.map((item) => [item.id, item]));
+    const devicesByDeviceId = new Map();
+    const devicesByImei = new Map();
+
+    const registerDeviceLookup = (item) => {
+      if (item.device_id) devicesByDeviceId.set(item.device_id, item);
+      if (item.imei) {
+        const matches = devicesByImei.get(item.imei) || [];
+        if (!matches.some((match) => match.id === item.id)) matches.push(item);
+        devicesByImei.set(item.imei, matches);
+      }
+      devicesById.set(item.id, item);
+    };
+    deviceItems.forEach(registerDeviceLookup);
+
+    const findExistingDevice = (row) => {
+      if (row.id) {
+        const matched = devicesById.get(row.id);
+        if (!matched) throw new Error(`系统ID“${row.id}”不存在`);
+        return matched;
+      }
+      const byDeviceId = row.device_id ? devicesByDeviceId.get(row.device_id) : null;
+      const imeiMatches = row.imei ? (devicesByImei.get(row.imei) || []) : [];
+      const visibleImeiMatches = imeiMatches.filter((item) => (
+        req.user.role === 'admin' || item.tenant_id === req.user.tenant_id
+      ));
+      if (visibleImeiMatches.length > 1 && !byDeviceId) {
+        throw new Error('IMEI 对应多个子设备，请填写系统ID或设备ID进行匹配');
+      }
+      const byImei = visibleImeiMatches[0] || null;
+      if (byDeviceId && byImei && byDeviceId.id !== byImei.id) {
+        throw new Error('设备ID与IMEI分别匹配到不同设备');
+      }
+      return byDeviceId || byImei;
+    };
+
+    const resolveProtocol = (value, manufacturerCode, tenantId) => {
+      if (!hasValue(value)) return null;
+      const normalized = normalizeLookup(value);
+      const candidates = protocolItems.filter((item) => (
+        [item.id, item.name].some((field) => normalizeLookup(field) === normalized)
+        && item.manufacturer_code === manufacturerCode
+        && (!item.tenant_id || item.tenant_id === tenantId)
+      ));
+      const tenantProtocol = candidates.find((item) => item.tenant_id === tenantId);
+      if (tenantProtocol) return tenantProtocol;
+      if (candidates.length === 1) return candidates[0];
+      throw new Error(`协议“${value}”不存在、厂商不匹配或名称不唯一`);
+    };
+
+    const resolveGateway = (value, tenantId) => {
+      const matches = deviceItems.filter((item) => (
+        item.tenant_id === tenantId
+        && item.device_category === 'gateway'
+        && [item.id, item.device_id, item.imei].some((field) => field && field === value)
+      ));
+      if (matches.length !== 1) throw new Error(`上级网关“${value}”不存在或不唯一`);
+      return matches[0];
+    };
+
+    const results = { total: rows.length, created: 0, updated: 0, failed: 0, errors: [] };
+
+    for (const row of rows) {
+      try {
+        const existing = findExistingDevice(row);
+        if (existing && req.user.role !== 'admin' && existing.tenant_id !== req.user.tenant_id) {
+          throw new Error('无权修改该设备');
+        }
+
+        let tenant;
+        if (req.user.role !== 'admin') {
+          tenant = tenants.find((item) => item.id === req.user.tenant_id)?.get({ plain: true });
+          if (!tenant) throw new Error('当前账号未绑定有效租户');
+        } else if (hasValue(row.tenant)) {
+          tenant = resolveLookup(tenantLookup, row.tenant, '所属租户');
+        } else if (existing) {
+          tenant = tenants.find((item) => item.id === existing.tenant_id)?.get({ plain: true });
+        } else {
+          throw new Error('新增设备必须填写所属租户');
+        }
+
+        const next = { ...(existing || {}) };
+        next.tenant_id = tenant.id;
+
+        if (hasValue(row.name)) next.name = row.name;
+        if (!existing && !hasValue(next.name)) throw new Error('新增设备必须填写设备名称');
+        if (next.name.length < 2 || next.name.length > 100) throw new Error('设备名称长度必须为 2-100 个字符');
+
+        if (hasValue(row.device_type)) {
+          next.device_type_id = resolveLookup(typeLookup, row.device_type, '设备类型').id;
+        }
+        if (!existing && !next.device_type_id) throw new Error('新增设备必须填写设备类型');
+        const selectedType = deviceTypes.find((item) => item.id === next.device_type_id)?.get({ plain: true });
+
+        if (hasValue(row.device_category)) {
+          next.device_category = categoryValues[normalizeLookup(row.device_category)];
+          if (!next.device_category) throw new Error(`设备分类“${row.device_category}”无效`);
+        } else if (!existing) {
+          next.device_category = selectedType?.name?.includes('网关') ? 'gateway' : 'standalone';
+        }
+
+        if (hasValue(row.manufacturer_code)) {
+          next.manufacturer_code = resolveLookup(
+            manufacturerLookup,
+            row.manufacturer_code,
+            '厂商'
+          ).code;
+        }
+        if (!existing && !next.manufacturer_code) throw new Error('新增设备必须填写厂商编号');
+
+        if (hasValue(row.status)) {
+          next.status = statusValues[normalizeLookup(row.status)];
+          if (!next.status) throw new Error(`设备状态“${row.status}”无效`);
+        } else if (!existing) {
+          next.status = 'offline';
+        }
+
+        if (hasValue(row.building)) {
+          next.project_building_id = isClearValue(row.building)
+            ? null
+            : resolveLookup(
+              buildingLookup,
+              row.building,
+              '所属建筑',
+              `${tenant.id}|`,
+              normalizeProjectLookup
+            ).id;
+        }
+        let selectedGroup = null;
+        if (hasValue(row.group)) {
+          if (isClearValue(row.group)) {
+            next.project_group_id = null;
+          } else {
+            selectedGroup = resolveLookup(
+              groupLookup,
+              row.group,
+              '所属分组',
+              `${tenant.id}|`,
+              normalizeProjectLookup
+            );
+            next.project_group_id = selectedGroup.id;
+            if (!next.project_building_id) next.project_building_id = selectedGroup.building_id;
+            if (next.project_building_id && selectedGroup.building_id !== next.project_building_id) {
+              throw new Error('所属分组不属于填写的建筑');
+            }
+          }
+        }
+
+        if (hasValue(row.protocol)) {
+          next.protocol_config_id = isClearValue(row.protocol)
+            ? null
+            : resolveProtocol(row.protocol, next.manufacturer_code, tenant.id).id;
+        }
+
+        if (hasValue(row.location)) next.location = isClearValue(row.location) ? null : row.location;
+        if (hasValue(row.description)) next.description = isClearValue(row.description) ? null : row.description;
+
+        if (hasValue(row.device_id)) next.device_id = row.device_id;
+        if (hasValue(row.imei)) next.imei = row.imei;
+
+        let parent = null;
+        if (hasValue(row.parent_device)) {
+          next.parent_device_id = isClearValue(row.parent_device)
+            ? null
+            : resolveGateway(row.parent_device, tenant.id).id;
+        }
+        if (next.parent_device_id) parent = devicesById.get(next.parent_device_id);
+
+        if (hasValue(row.sub_device_sequence)) {
+          const sequence = Number(row.sub_device_sequence);
+          if (!Number.isInteger(sequence) || sequence < 1) {
+            throw new Error('子设备序号必须是大于 0 的整数');
+          }
+          next.sub_device_sequence = sequence;
+        }
+
+        if (next.device_category === 'sub_device') {
+          if (!parent) throw new Error('子设备必须填写有效的上级网关设备ID');
+          if (!next.sub_device_sequence) throw new Error('子设备必须填写子设备序号');
+          if (!next.device_id) {
+            next.device_id = `${parent.device_id}-${String(next.sub_device_sequence).padStart(2, '0')}`;
+          }
+          if (!next.imei) next.imei = parent.imei || parent.device_id;
+        } else {
+          next.parent_device_id = null;
+          next.sub_device_sequence = null;
+          if (!next.device_id && next.imei) next.device_id = next.imei;
+          if (!next.imei && next.device_id) next.imei = next.device_id;
+          if (!next.device_id || !next.imei) throw new Error('新增设备必须填写设备ID或IMEI');
+        }
+
+        if (!/^[0-9a-zA-Z_-]+$/.test(next.device_id) || next.device_id.length > 100) {
+          throw new Error('设备ID只能包含数字、大小写字母、下划线或连字符，且最多 100 位');
+        }
+        if (next.imei && (!/^[0-9a-zA-Z_-]+$/.test(next.imei) || next.imei.length > 255)) {
+          throw new Error('IMEI只能包含数字、大小写字母、下划线或连字符，且最多 255 位');
+        }
+
+        const duplicateDeviceId = devicesByDeviceId.get(next.device_id);
+        if (duplicateDeviceId && duplicateDeviceId.id !== existing?.id) {
+          throw new Error(`设备ID“${next.device_id}”已存在`);
+        }
+        if (next.device_category !== 'sub_device') {
+          const duplicateImei = (devicesByImei.get(next.imei) || [])
+            .find((item) => item.id !== existing?.id && item.device_category !== 'sub_device');
+          if (duplicateImei) throw new Error(`IMEI“${next.imei}”已存在`);
+        }
+        if (next.device_category === 'sub_device') {
+          const duplicateSequence = deviceItems.find((item) => (
+            item.id !== existing?.id
+            && item.parent_device_id === next.parent_device_id
+            && Number(item.sub_device_sequence) === Number(next.sub_device_sequence)
+          ));
+          if (duplicateSequence) {
+            throw new Error(`上级网关下的子设备序号 ${next.sub_device_sequence} 已存在`);
+          }
+        }
+
+        const writableFields = [
+          'name',
+          'device_id',
+          'imei',
+          'tenant_id',
+          'device_type_id',
+          'manufacturer_code',
+          'protocol_config_id',
+          'device_category',
+          'parent_device_id',
+          'project_building_id',
+          'project_group_id',
+          'sub_device_sequence',
+          'status',
+          'location',
+          'description'
+        ];
+        const payload = Object.fromEntries(writableFields.map((key) => [key, next[key] ?? null]));
+
+        const previousDeviceId = existing?.device_id;
+        const previousImei = existing?.imei;
+        const savedDevice = await sequelize.transaction(async (transaction) => {
+          let device;
+          if (existing) {
+            device = await Device.findByPk(existing.id, { transaction });
+            await device.update(payload, { transaction });
+          } else {
+            device = await Device.create(
+              { ...payload, created_by: req.user.id },
+              { transaction }
+            );
+          }
+
+          if (!existing && selectedType?.name === '空调温控器') {
+            await sequelize.query(`
+              INSERT INTO thermostat_properties (
+                device_id, current_temperature, target_temp, ac_mode, power_status, created_at, updated_at
+              )
+              VALUES (:deviceId, 25.0, 24.0, 'cool', false, NOW(), NOW())
+              ON CONFLICT (device_id) DO NOTHING
+            `, { replacements: { deviceId: device.id }, transaction });
+          }
+
+          await DeviceLog.create({
+            device_id: device.id,
+            log_type: 'info',
+            message: existing ? '通过 Excel 批量更新设备' : '通过 Excel 批量创建设备',
+            details: mqttService.sanitizeDataForStorage({
+              operator: req.user.username,
+              import_row: row.rowNumber
+            }),
+            timestamp: new Date()
+          }, { transaction });
+          return device;
+        });
+
+        const plainDevice = savedDevice.get({ plain: true });
+        if (existing) {
+          if (previousDeviceId && previousDeviceId !== plainDevice.device_id) {
+            devicesByDeviceId.delete(previousDeviceId);
+          }
+          if (previousImei && previousImei !== plainDevice.imei) {
+            const oldMatches = (devicesByImei.get(previousImei) || [])
+              .filter((item) => item.id !== plainDevice.id);
+            if (oldMatches.length) devicesByImei.set(previousImei, oldMatches);
+            else devicesByImei.delete(previousImei);
+          }
+          Object.assign(existing, plainDevice);
+          results.updated += 1;
+        } else {
+          deviceItems.push(plainDevice);
+          results.created += 1;
+        }
+        registerDeviceLookup(plainDevice);
+
+        if (!existing) {
+          try {
+            const fullDevice = await Device.findByPk(savedDevice.id, {
+              include: [
+                { model: Manufacturer, as: 'manufacturer' },
+                {
+                  model: Device,
+                  as: 'parent_device',
+                  attributes: ['id', 'name', 'device_id', 'imei', 'device_category'],
+                  required: false
+                }
+              ]
+            });
+            const generatedConfig = mqttConfigService.buildDeviceConfig(fullDevice);
+            await fullDevice.update({ mqtt_config: generatedConfig });
+            await mqttService.subscribeNewDevice(fullDevice);
+          } catch (mqttError) {
+            console.error(`导入设备 ${plainDevice.device_id} 后初始化 MQTT 失败:`, mqttError);
+          }
+        }
+
+        try {
+          websocketService.broadcastToTenant(
+            plainDevice.tenant_id,
+            existing ? 'device_updated' : 'device_created',
+            plainDevice
+          );
+        } catch (broadcastError) {
+          console.error(`广播导入设备 ${plainDevice.device_id} 变更失败:`, broadcastError);
+        }
+      } catch (error) {
+        results.failed += 1;
+        results.errors.push({
+          row: row.rowNumber,
+          device: row.name || row.device_id || row.imei || '',
+          message: error.message
+        });
+      }
+    }
+
+    const httpStatus = results.failed === results.total ? 400 : 200;
+    res.status(httpStatus).json({
+      success: results.failed < results.total,
+      message: `导入完成：新增 ${results.created} 台，更新 ${results.updated} 台，失败 ${results.failed} 行`,
+      data: results
+    });
+  } catch (error) {
+    console.error('批量导入设备失败:', error);
+    res.status(400).json({ success: false, message: '批量导入设备失败', error: error.message });
   }
 });
 
@@ -627,7 +1252,7 @@ router.post('/', authenticateToken, validateDevice, async (req, res) => {
         {
           model: Device,
           as: 'parent_device',
-          attributes: ['id', 'name', 'device_id', 'device_category']
+          attributes: ['id', 'name', 'device_id', 'imei', 'device_category']
         }
       ]
     });
@@ -1094,6 +1719,7 @@ router.get('/:id/logs', authenticateToken, async (req, res) => {
       page = 1,
       pageSize = 20,
       logType,
+      level,
       startTime,
       endTime
     } = req.query;
@@ -1122,15 +1748,56 @@ router.get('/:id/logs', authenticateToken, async (req, res) => {
     const limit = parseInt(pageSize);
 
     // 构建查询条件
-    const where = { device_id: id };
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    const where = {
+      device_id: id,
+      timestamp: { [Op.gte]: startOfToday }
+    };
+
+    if (level) {
+      where.level = level;
+    }
 
     if (logType) {
-      where.level = logType;
+      const messageKeywords = {
+        online: ['上线', '连接', 'online'],
+        offline: ['下线', '离线', 'offline'],
+        data: ['数据', 'data'],
+        heartbeat: ['心跳', 'heartbeat'],
+        command: ['命令', '发送', 'command'],
+        error: ['错误', '失败', 'error']
+      };
+      const keywords = messageKeywords[logType] || [logType];
+      where[Op.and] = [{
+        [Op.or]: [
+          sequelize.where(sequelize.json('data.messageType'), logType),
+          ...keywords.map(keyword => ({
+            message: { [Op.iLike]: `%${keyword}%` }
+          }))
+        ]
+      }];
     }
 
     if (startTime && endTime) {
+      const requestedStart = new Date(startTime);
+      const requestedEnd = new Date(endTime);
+      const effectiveStart = requestedStart > startOfToday
+        ? requestedStart
+        : startOfToday;
       where.timestamp = {
-        [Op.between]: [new Date(startTime), new Date(endTime)]
+        [Op.between]: [effectiveStart, requestedEnd]
+      };
+    } else if (startTime) {
+      const requestedStart = new Date(startTime);
+      where.timestamp = {
+        [Op.gte]: requestedStart > startOfToday
+          ? requestedStart
+          : startOfToday
+      };
+    } else if (endTime) {
+      where.timestamp = {
+        [Op.between]: [startOfToday, new Date(endTime)]
       };
     }
 
@@ -1173,11 +1840,7 @@ router.post('/:id/command', authenticateToken, async (req, res) => {
     const { id } = req.params;
     const { command, params, timestamp, mqttTopic } = req.body;
 
-    const device = await Device.findByPk(id, {
-      attributes: {
-        exclude: ['device_category']  // 排除有问题的字段
-      }
-    });
+    const device = await Device.findByPk(id);
     if (!device) {
       return res.status(404).json({
         success: false,
@@ -1217,7 +1880,7 @@ router.post('/:id/command', authenticateToken, async (req, res) => {
     if (mqttTopic && typeof commandData === 'object' && commandData !== null) {
       commandData.mqttTopic = mqttTopic;
     }
-    await mqttService.sendCommandToDevice(device.imei, commandData, { mqttTopic });
+    await mqttService.sendCommandToDevice(device.device_id, commandData, { mqttTopic });
 
     // 记录命令日志
     await DeviceLog.create({

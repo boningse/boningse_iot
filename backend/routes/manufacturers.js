@@ -104,7 +104,7 @@ const buildManufacturerResponse = (manufacturerData) => {
  */
 router.get('/', authenticateToken, validatePagination, async (req, res) => {
   try {
-    const { page = 1, pageSize = 10, keyword, status, type } = req.query;
+    const { page = 1, pageSize = 10, keyword, name, tenantName, contact, status, type } = req.query;
     const offset = (page - 1) * pageSize;
 
     // 构建查询条件
@@ -114,19 +114,37 @@ router.get('/', authenticateToken, validatePagination, async (req, res) => {
 
     // 租户权限控制：非管理员只能查看自己租户的厂商
     if (req.user.role !== 'admin') {
-      whereConditions.push(`tenant_id = $${paramIndex}`);
+      whereConditions.push(`m.tenant_id = $${paramIndex}`);
       queryParams.push(req.user.tenant_id);
       paramIndex++;
     }
 
     if (keyword) {
-      whereConditions.push(`(name ILIKE $${paramIndex} OR code ILIKE $${paramIndex} OR contact ILIKE $${paramIndex})`);
+      whereConditions.push(`(m.name ILIKE $${paramIndex} OR m.code ILIKE $${paramIndex} OR m.contact ILIKE $${paramIndex})`);
       queryParams.push(`%${keyword}%`);
       paramIndex++;
     }
 
+    if (name) {
+      whereConditions.push(`m.name ILIKE $${paramIndex}`);
+      queryParams.push(`%${name}%`);
+      paramIndex++;
+    }
+
+    if (tenantName && req.user.role === 'admin') {
+      whereConditions.push(`EXISTS (SELECT 1 FROM tenants t_filter WHERE t_filter.id = m.tenant_id AND t_filter.name ILIKE $${paramIndex})`);
+      queryParams.push(`%${tenantName}%`);
+      paramIndex++;
+    }
+
+    if (contact) {
+      whereConditions.push(`m.contact ILIKE $${paramIndex}`);
+      queryParams.push(`%${contact}%`);
+      paramIndex++;
+    }
+
     if (status) {
-      whereConditions.push(`status = $${paramIndex}`);
+      whereConditions.push(`m.status = $${paramIndex}`);
       queryParams.push(status);
       paramIndex++;
     }
@@ -135,7 +153,7 @@ router.get('/', authenticateToken, validatePagination, async (req, res) => {
     const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
 
     // 查询总数
-    const countQuery = `SELECT COUNT(*) as total FROM manufacturers m ${whereClause.replace('manufacturers', 'm')}`;
+    const countQuery = `SELECT COUNT(*) as total FROM manufacturers m ${whereClause}`;
     const countResult = await db.query(countQuery, queryParams);
     const total = parseInt(countResult.rows[0].total);
 
@@ -146,7 +164,7 @@ router.get('/', authenticateToken, validatePagination, async (req, res) => {
              t.name as tenant_name
       FROM manufacturers m
       LEFT JOIN tenants t ON m.tenant_id = t.id
-      ${whereClause.replace('manufacturers', 'm')}
+      ${whereClause}
       ORDER BY m.created_at DESC
       LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
     `;

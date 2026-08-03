@@ -13,7 +13,7 @@
         </el-button>
         <el-button type="warning" @click="showScheduleDialog = true">
           <el-icon><Clock /></el-icon>
-          开关机计划
+          策略管理
         </el-button>
         <el-button type="info" @click="showStatsDialog = true">
           <el-icon><DataAnalysis /></el-icon>
@@ -102,33 +102,15 @@
             <div class="device-identity">
               <div class="device-meta">
                 <h3 class="device-title">{{ device.name }}</h3>
-                <div class="device-tags">
-                  <span class="group-tag" v-if="device.group">{{ device.group }}</span>
-                  <span class="status-indicator" :class="device.status">
-                    <i class="status-dot"></i>
-                    {{ getStatusText(device.status) }}
-                  </span>
-                </div>
+                <span class="device-info-line">{{ device.deviceId || device.device_id || device.imei || '-' }}</span>
+                <span class="device-info-line device-location">
+                  {{ device.projectBuildingName || '-' }} · {{ device.projectGroupName || '-' }}
+                </span>
               </div>
             </div>
-            <!-- 删除按钮移到右上角 -->
-            <el-button 
-              class="action-btn delete-btn top-right-delete"
-              type="danger" 
-              size="small" 
-              circle 
-              @click="deleteDevice(device)"
-              :icon="Close"
-            />
-            <!-- 加载状态按钮保持在原位置 -->
-            <el-button 
-              class="action-btn loading-btn"
-              v-if="device.loading" 
-              type="info" 
-              size="small" 
-              circle
-              loading
-            />
+            <el-tag :type="device.status === 'offline' ? 'info' : 'success'" size="small">
+              {{ device.status === 'offline' ? '离线' : '在线' }}
+            </el-tag>
           </div>
         </template>
 
@@ -343,16 +325,6 @@
             </el-button>
             
             <el-button 
-              class="action-btn schedule-btn"
-              type="warning" 
-              size="default" 
-              @click="showDeviceSchedule(device)"
-            >
-              <el-icon><Clock /></el-icon>
-              <span>计划</span>
-            </el-button>
-            
-            <el-button 
               class="action-btn detail-btn"
               type="info" 
               size="default" 
@@ -552,33 +524,51 @@
       </template>
     </el-dialog>
 
-    <!-- 开关机计划对话框 -->
+    <!-- 温控策略对话框 -->
     <el-dialog 
       v-model="showScheduleDialog" 
-      title="开关机计划管理" 
-      width="900px"
+      title="温控策略管理"
+      width="1080px"
     >
       <div class="schedule-container">
+        <div class="strategy-guide">
+          <strong>温控运行策略</strong>
+          <span>按设备范围设置执行时间、周期和运行参数。策略仅作用于温控控制模块。</span>
+        </div>
         <div class="schedule-header">
           <el-button type="primary" @click="showAddScheduleDialog = true">
             <el-icon><Plus /></el-icon>
-            添加计划
+            新增策略
           </el-button>
         </div>
         
-        <el-table :data="scheduleList" v-loading="loadingSchedules">
-          <el-table-column prop="name" label="计划名称" width="150" />
-          <el-table-column prop="deviceName" label="设备" width="150" />
-          <el-table-column prop="action" label="动作" width="100">
+        <el-table :data="scheduleList" v-loading="loadingSchedules" class="strategy-table">
+          <el-table-column prop="name" label="策略名称" min-width="150" />
+          <el-table-column prop="deviceName" label="设备" min-width="180" />
+          <el-table-column label="动作" width="160">
             <template #default="{ row }">
-              <el-tag :type="row.action === 'on' ? 'success' : 'danger'" size="small">
-                {{ row.action === 'on' ? '开机' : '关机' }}
-              </el-tag>
+              <div class="schedule-action-tags">
+                <el-tag
+                  v-if="row.powerAction !== 'none'"
+                  :type="row.powerAction === 'on' ? 'success' : 'danger'"
+                  size="small"
+                >
+                  {{ row.powerAction === 'on' ? '开机' : '关机' }}
+                </el-tag>
+                <el-tag
+                  v-if="row.lockAction !== 'none'"
+                  :type="row.lockAction === 'lock' ? 'warning' : 'info'"
+                  size="small"
+                >
+                  {{ row.lockAction === 'lock' ? '锁定' : '解锁' }}
+                </el-tag>
+                <span v-if="row.powerAction === 'none' && row.lockAction === 'none'">无动作</span>
+              </div>
             </template>
           </el-table-column>
-          <el-table-column prop="time" label="执行时间" width="120" />
-          <el-table-column prop="repeat" label="重复" width="150" />
-          <el-table-column prop="enabled" label="状态" width="80">
+          <el-table-column prop="time" label="执行时间" width="110" />
+          <el-table-column prop="repeatLabel" label="重复" min-width="140" />
+          <el-table-column prop="enabled" label="状态" width="90">
             <template #default="{ row }">
               <el-switch 
                 v-model="row.enabled" 
@@ -586,14 +576,16 @@
               />
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="120">
+          <el-table-column label="操作" width="180" fixed="right">
             <template #default="{ row }">
-              <el-button type="primary" size="small" @click="editSchedule(row)">
-                编辑
-              </el-button>
-              <el-button type="danger" size="small" @click="deleteSchedule(row)">
-                删除
-              </el-button>
+              <div class="strategy-actions">
+                <el-button type="primary" size="small" @click="editSchedule(row)">
+                  编辑
+                </el-button>
+                <el-button type="danger" size="small" @click="deleteSchedule(row)">
+                  删除
+                </el-button>
+              </div>
             </template>
           </el-table-column>
         </el-table>
@@ -603,7 +595,7 @@
     <!-- 添加/编辑计划对话框 -->
     <el-dialog 
       v-model="showAddScheduleDialog" 
-      :title="scheduleForm.id ? '编辑温控计划' : '添加温控计划'" 
+      :title="scheduleForm.id ? '编辑温控策略' : '新增温控策略'"
       width="700px"
       :before-close="resetScheduleForm"
     >
@@ -613,6 +605,7 @@
         :rules="scheduleRules" 
         label-width="120px"
       >
+        <div class="strategy-form-section">设备范围</div>
         <el-form-item label="计划名称" prop="name">
           <el-input 
             v-model="scheduleForm.name" 
@@ -623,22 +616,109 @@
         </el-form-item>
         
         <el-form-item label="选择设备" prop="deviceIds">
+          <div class="schedule-device-filters">
+            <el-input
+              v-model="scheduleDeviceFilters.keyword"
+              placeholder="搜索设备名称或设备ID"
+              clearable
+            >
+              <template #prefix>
+                <el-icon><Search /></el-icon>
+              </template>
+            </el-input>
+            <el-select
+              v-if="isAdmin"
+              v-model="scheduleDeviceFilters.tenantId"
+              placeholder="所属租户"
+              clearable
+              filterable
+              @change="handleScheduleTenantChange"
+            >
+              <el-option
+                v-for="tenant in tenantList"
+                :key="tenant.id"
+                :label="tenant.name"
+                :value="tenant.id"
+              />
+            </el-select>
+            <el-select
+              v-model="scheduleDeviceFilters.buildingId"
+              placeholder="所属建筑"
+              clearable
+              filterable
+              @change="handleScheduleBuildingChange"
+            >
+              <el-option
+                v-for="building in scheduleBuildingOptions"
+                :key="building.id"
+                :label="building.name"
+                :value="building.id"
+              />
+            </el-select>
+            <el-select
+              v-model="scheduleDeviceFilters.groupId"
+              placeholder="所属分组"
+              clearable
+              filterable
+            >
+              <el-option
+                v-for="group in scheduleGroupOptions"
+                :key="group.id"
+                :label="group.name"
+                :value="group.id"
+              />
+            </el-select>
+            <el-select
+              v-model="scheduleDeviceFilters.status"
+              placeholder="设备状态"
+              clearable
+            >
+              <el-option label="运行中" value="running" />
+              <el-option label="待机" value="standby" />
+              <el-option label="离线" value="offline" />
+            </el-select>
+          </div>
           <el-select 
             v-model="scheduleForm.deviceIds" 
             multiple 
-            placeholder="请选择要控制的设备"
+            filterable
+            collapse-tags
+            collapse-tags-tooltip
+            :max-collapse-tags="3"
+            placeholder="请选择一台或多台设备"
             style="width: 100%"
+            @change="handleScheduleDeviceChange"
           >
             <el-option
-              v-for="device in thermostatDevices"
+              v-for="device in filteredScheduleDevices"
               :key="device.id"
-              :label="device.name"
+              :label="getScheduleDeviceLabel(device)"
               :value="device.id"
             />
           </el-select>
-          <div class="form-tip">可选择多个设备同时执行计划</div>
+          <div class="schedule-device-summary">
+            <span>筛选结果 {{ filteredScheduleDevices.length }} 台，已选 {{ scheduleForm.deviceIds.length }} 台</span>
+            <div class="schedule-device-actions">
+              <el-button
+                type="primary"
+                link
+                :disabled="filteredScheduleDevices.length === 0"
+                @click="selectAllFilteredScheduleDevices"
+              >
+                选择筛选结果
+              </el-button>
+              <el-button
+                link
+                :disabled="scheduleForm.deviceIds.length === 0"
+                @click="clearScheduleDevices"
+              >
+                清空已选
+              </el-button>
+            </div>
+          </div>
         </el-form-item>
         
+        <div class="strategy-form-section">触发条件</div>
         <el-form-item label="执行时间" prop="executeTime">
           <el-time-picker
             v-model="scheduleForm.executeTime"
@@ -681,8 +761,7 @@
           />
         </el-form-item>
         
-        <el-divider content-position="left">控制设置</el-divider>
-        
+        <div class="strategy-form-section">执行动作</div>
         <el-form-item label="开关机控制">
           <el-radio-group v-model="scheduleForm.powerAction">
             <el-radio label="on">开机</el-radio>
@@ -722,8 +801,17 @@
             </el-radio-group>
           </el-form-item>
         </template>
+
+        <el-form-item label="现场童锁">
+          <el-radio-group v-model="scheduleForm.lockAction">
+            <el-radio label="lock">锁定现场操作</el-radio>
+            <el-radio label="unlock">解除锁定</el-radio>
+            <el-radio label="none">不控制</el-radio>
+          </el-radio-group>
+        </el-form-item>
         
-        <el-form-item label="计划状态">
+        <div class="strategy-form-section">策略状态</div>
+        <el-form-item label="启用状态">
           <el-switch 
             v-model="scheduleForm.enabled" 
             active-text="启用" 
@@ -751,7 +839,7 @@
             @click="submitSchedule"
             :loading="submittingSchedule"
           >
-            {{ scheduleForm.id ? '确定更新' : '确定添加' }}
+            {{ scheduleForm.id ? '保存修改' : '保存策略' }}
           </el-button>
         </span>
       </template>
@@ -1060,6 +1148,13 @@ export default {
     const loadingSchedules = ref(false)
     const submittingSchedule = ref(false)
     const scheduleFormRef = ref(null)
+    const scheduleDeviceFilters = reactive({
+      keyword: '',
+      tenantId: '',
+      buildingId: '',
+      groupId: '',
+      status: ''
+    })
     
     // 计划表单数据
     const scheduleForm = reactive({
@@ -1074,6 +1169,7 @@ export default {
       acMode: 'cool',
       targetTemp: 24,
       fanSpeed: 'auto',
+      lockAction: 'none',
       enabled: true,
       description: ''
     })
@@ -1148,6 +1244,51 @@ export default {
       (!selectedTenant.value || String(item.tenant_id) === String(selectedTenant.value)) &&
       (!selectedBuilding.value || !item.building_id || String(item.building_id) === String(selectedBuilding.value))
     ))
+
+    const selectedScheduleTenantId = computed(() => {
+      const selectedDevice = thermostatDevices.value.find(device =>
+        scheduleForm.deviceIds.includes(device.id)
+      )
+      return selectedDevice?.tenant_id || selectedDevice?.tenantId || ''
+    })
+
+    const effectiveScheduleTenantId = computed(() =>
+      scheduleDeviceFilters.tenantId || selectedScheduleTenantId.value
+    )
+
+    const scheduleBuildingOptions = computed(() => buildingOptions.value.filter(item =>
+      !effectiveScheduleTenantId.value ||
+      String(item.tenant_id || item.tenantId || '') === String(effectiveScheduleTenantId.value)
+    ))
+
+    const scheduleGroupOptions = computed(() => deviceGroups.value.filter(item =>
+      (!effectiveScheduleTenantId.value ||
+        String(item.tenant_id || item.tenantId || '') === String(effectiveScheduleTenantId.value)) &&
+      (!scheduleDeviceFilters.buildingId ||
+        !item.building_id ||
+        String(item.building_id) === String(scheduleDeviceFilters.buildingId))
+    ))
+
+    const filteredScheduleDevices = computed(() => {
+      const keyword = scheduleDeviceFilters.keyword.trim().toLowerCase()
+      return thermostatDevices.value.filter(device => {
+        const tenantId = device.tenant_id || device.tenantId || ''
+        const buildingId = device.project_building_id || device.projectBuildingId || ''
+        const groupId = device.project_group_id || device.projectGroupId || ''
+        const matchesKeyword = !keyword ||
+          String(device.name || '').toLowerCase().includes(keyword) ||
+          String(device.device_id || device.imei || '').toLowerCase().includes(keyword)
+
+        return matchesKeyword &&
+          (!effectiveScheduleTenantId.value ||
+            String(tenantId) === String(effectiveScheduleTenantId.value)) &&
+          (!scheduleDeviceFilters.buildingId ||
+            String(buildingId) === String(scheduleDeviceFilters.buildingId)) &&
+          (!scheduleDeviceFilters.groupId ||
+            String(groupId) === String(scheduleDeviceFilters.groupId)) &&
+          (!scheduleDeviceFilters.status || device.status === scheduleDeviceFilters.status)
+      })
+    })
     
     const filteredAvailableDevices = computed(() => {
       let devices = availableDevices.value.filter(device =>
@@ -1234,15 +1375,18 @@ export default {
               currentTemp: device.current_temperature ? parseFloat(device.current_temperature) : 20,
               targetTemp: device.target_temperature ? parseFloat(device.target_temperature) : 22,
               powerStatus: device.is_on,
-              // 根据电源状态直接设置运行状态
-              status: device.is_on ? 'running' : 'standby',
+              // 离线优先，其余设备再按电源状态区分运行和待机。
+              status: device.status === 'offline' ? 'offline' : (device.is_on ? 'running' : 'standby'),
               acMode: device.mode || 'cool',
               // 修复风速初始化：优先使用后端的fan_speed字段，避免默认为0（A档）
               fanSpeed: device.fan_speed !== undefined && device.fan_speed !== null ? device.fan_speed : (device.fanSpeed !== undefined && device.fanSpeed !== null ? device.fanSpeed : 0),
               tempLocked: device.temp_locked || false,
               group: device.project_group_name || device.project_group?.name || '',
+              deviceId: device.device_id || device.imei || '',
               projectGroupId: device.project_group_id || '',
+              projectGroupName: device.project_group_name || device.project_group?.name || '',
               projectBuildingId: device.project_building_id || '',
+              projectBuildingName: device.project_building_name || device.project_building?.name || '',
               loading: false
             }
           })
@@ -2128,6 +2272,13 @@ export default {
     // 重置计划表单
     const resetScheduleForm = () => {
       showAddScheduleDialog.value = false
+      Object.assign(scheduleDeviceFilters, {
+        keyword: '',
+        tenantId: '',
+        buildingId: '',
+        groupId: '',
+        status: ''
+      })
       Object.assign(scheduleForm, {
         id: null,
         name: '',
@@ -2140,12 +2291,58 @@ export default {
         acMode: 'cool',
         targetTemp: 24,
         fanSpeed: 'auto',
+        lockAction: 'none',
         enabled: true,
         description: ''
       })
       if (scheduleFormRef.value) {
         scheduleFormRef.value.clearValidate()
       }
+    }
+
+    const handleScheduleTenantChange = () => {
+      scheduleDeviceFilters.buildingId = ''
+      scheduleDeviceFilters.groupId = ''
+    }
+
+    const handleScheduleBuildingChange = () => {
+      scheduleDeviceFilters.groupId = ''
+    }
+
+    const handleScheduleDeviceChange = deviceIds => {
+      if (deviceIds.length < 2) return
+      const firstDevice = thermostatDevices.value.find(device => device.id === deviceIds[0])
+      const tenantId = firstDevice?.tenant_id || firstDevice?.tenantId || ''
+      const sameTenantIds = deviceIds.filter(deviceId => {
+        const device = thermostatDevices.value.find(item => item.id === deviceId)
+        return String(device?.tenant_id || device?.tenantId || '') === String(tenantId)
+      })
+
+      if (sameTenantIds.length !== deviceIds.length) {
+        scheduleForm.deviceIds = sameTenantIds
+        ElMessage.warning('同一策略只能选择同一租户的设备')
+      }
+    }
+
+    const selectAllFilteredScheduleDevices = () => {
+      const selectedIds = new Set(scheduleForm.deviceIds)
+      filteredScheduleDevices.value.forEach(device => selectedIds.add(device.id))
+      scheduleForm.deviceIds = [...selectedIds]
+      handleScheduleDeviceChange(scheduleForm.deviceIds)
+    }
+
+    const clearScheduleDevices = () => {
+      scheduleForm.deviceIds = []
+      scheduleFormRef.value?.clearValidate('deviceIds')
+    }
+
+    const getScheduleDeviceLabel = device => {
+      const code = device.device_id || device.imei || ''
+      const location = [
+        device.project_building_name,
+        device.project_group_name
+      ].filter(Boolean).join(' / ')
+      return [device.name, code, location].filter(Boolean).join(' - ')
     }
     
     // 提交计划
@@ -2168,6 +2365,7 @@ export default {
           acMode: scheduleForm.powerAction === 'on' ? scheduleForm.acMode : null,
           targetTemp: scheduleForm.powerAction === 'on' ? scheduleForm.targetTemp : null,
           fanSpeed: scheduleForm.powerAction === 'on' ? scheduleForm.fanSpeed : null,
+          lockAction: scheduleForm.lockAction,
           enabled: scheduleForm.enabled,
           description: scheduleForm.description
         }
@@ -2207,10 +2405,26 @@ export default {
           // 处理数据字段映射
           const schedules = (response.data || []).map(schedule => ({
             ...schedule,
-            action: schedule.power_action, // 映射 power_action 到 action
-            time: schedule.execute_time,   // 映射 execute_time 到 time
-            repeat: schedule.repeat_type,  // 映射 repeat_type 到 repeat
-            enabled: schedule.is_enabled !== false // 映射 is_enabled 到 enabled
+            deviceIds: (schedule.devices || []).map(device => device.device_id),
+            deviceName: (schedule.devices || []).map(device => device.device_name).join('、') || '未关联设备',
+            action: schedule.power_action,
+            time: String(schedule.execute_time || '').slice(0, 5),
+            executeTime: String(schedule.execute_time || '').slice(0, 5),
+            repeatType: schedule.repeat_type || 'once',
+            repeatLabel: ({
+              once: '仅一次',
+              daily: '每天',
+              weekly: '每周',
+              custom: '指定日期'
+            })[schedule.repeat_type] || '仅一次',
+            weekDays: (schedule.week_days || []).map(String),
+            customDates: schedule.custom_dates || [],
+            powerAction: schedule.power_action,
+            acMode: schedule.ac_mode,
+            targetTemp: schedule.target_temp,
+            fanSpeed: schedule.fan_speed,
+            lockAction: schedule.lock_action || 'none',
+            enabled: schedule.enabled !== false
           }))
           scheduleList.value = schedules
         } else {
@@ -2257,6 +2471,7 @@ export default {
         acMode: schedule.acMode || 'cool',
         targetTemp: schedule.targetTemp || 24,
         fanSpeed: schedule.fanSpeed || 'auto',
+        lockAction: schedule.lockAction || 'none',
         enabled: schedule.enabled !== false,
         description: schedule.description || ''
       })
@@ -3030,6 +3245,7 @@ export default {
       scheduleFormRef,
       scheduleForm,
       scheduleRules,
+      scheduleDeviceFilters,
       statsDateRange,
       selectedGroupForStats,
       selectedModeForStats,
@@ -3047,6 +3263,9 @@ export default {
       filteredDevices,
       filteredBuildingOptions,
       filteredProjectGroupOptions,
+      filteredScheduleDevices,
+      scheduleBuildingOptions,
+      scheduleGroupOptions,
       paginatedDevices,
       filteredAvailableDevices,
       runningDevicesCount,
@@ -3062,6 +3281,12 @@ export default {
       handleTenantFilter,
       handleBuildingFilter,
       handleStatusFilter,
+      handleScheduleTenantChange,
+      handleScheduleBuildingChange,
+      handleScheduleDeviceChange,
+      selectAllFilteredScheduleDevices,
+      clearScheduleDevices,
+      getScheduleDeviceLabel,
       handleDevicePageChange,
       handleDevicePageSizeChange,
       openAddDialog,
@@ -3246,9 +3471,13 @@ export default {
   position: relative;
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   padding: 0;
   margin-bottom: 8px;
+}
+
+.modern-card-header > .el-tag {
+  margin-top: 2px;
 }
 
 .device-identity {
@@ -3256,7 +3485,8 @@ export default {
   align-items: center;
   gap: 6px;
   flex: 1;
-  padding-right: 30px; /* 为右上角删除按钮留出空间 */
+  min-width: 0;
+  padding-right: 10px;
 }
 
 .device-avatar {
@@ -3280,6 +3510,7 @@ export default {
 
 .device-meta {
   flex: 1;
+  min-width: 0;
 }
 
 .device-title {
@@ -3288,6 +3519,19 @@ export default {
   font-weight: 600;
   color: #1f2937;
   line-height: 1.2;
+}
+
+.device-info-line {
+  display: block;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.device-location {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .device-tags {
@@ -3625,23 +3869,27 @@ export default {
   border: 1px solid #0ea5e9;
   border-radius: 8px;
   padding: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .adjust-header {
   display: flex;
   align-items: center;
   gap: 4px;
-  margin-bottom: 6px;
+  margin: 0;
   font-size: 11px;
   font-weight: 600;
   color: #0c4a6e;
-  justify-content: center;
+  white-space: nowrap;
 }
 
 .temp-adjuster {
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-end;
   gap: 8px;
 }
 
@@ -3690,7 +3938,7 @@ export default {
 
 .action-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: 4px;
 }
 
@@ -3728,6 +3976,7 @@ export default {
 }
 
 .action-btn.detail-btn {
+  grid-column: 3;
   background: #eff6ff !important;
   border-color: #3b82f6 !important;
   color: #1e40af !important;
@@ -4008,9 +4257,99 @@ export default {
   padding: 20px 0;
 }
 
+.strategy-guide {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+  margin-bottom: 18px;
+  border-left: 3px solid var(--el-color-primary);
+  background: var(--fill-lighter, #f5f7fa);
+}
+
+.strategy-guide strong {
+  font-size: 15px;
+}
+
+.strategy-guide span {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.strategy-form-section {
+  margin: 18px 0 14px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-lighter, #ebeef5);
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.schedule-device-filters {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  width: 100%;
+  margin-bottom: 10px;
+}
+
+.schedule-device-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  margin-top: 6px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.schedule-device-actions {
+  display: flex;
+  align-items: center;
+  white-space: nowrap;
+}
+
+.schedule-device-actions .el-button {
+  margin-left: 8px;
+}
+
+@media (max-width: 768px) {
+  .schedule-device-filters {
+    grid-template-columns: 1fr;
+  }
+
+  .schedule-device-summary {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
 .schedule-header {
   margin-bottom: 20px;
   text-align: right;
+}
+
+.strategy-table {
+  width: 100%;
+}
+
+.strategy-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.strategy-actions .el-button {
+  margin-left: 0;
+}
+
+.schedule-action-tags {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
 }
 
 .stats-container {
@@ -4606,6 +4945,10 @@ export default {
   .action-grid {
     grid-template-columns: repeat(2, 1fr);
     gap: 5px;
+  }
+
+  .action-btn.detail-btn {
+    grid-column: 2;
   }
 }
 

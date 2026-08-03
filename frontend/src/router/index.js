@@ -131,7 +131,7 @@ const routes = [
         name: "SystemSettings",
         component: () => import("@/views/SystemSettings.vue"),
         meta: {
-          title: "系统设置",
+          title: "用户管理",
           icon: "Setting",
           roles: ["admin", "tenant_admin", "user", "building_user"],
         },

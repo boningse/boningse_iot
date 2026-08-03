@@ -3,8 +3,7 @@ const { Pool } = require('pg');
 const { authenticateToken } = require('../middleware/auth');
 const logger = require('../utils/logger');
 const { getPoolConfig } = require('../config/database');
-const mqttService = require('../services/mqttService');
-const telemetryStore = require('../services/telemetryStore');
+const { executeLightingControl } = require('../services/lightingControlExecutor');
 
 const router = express.Router();
 
@@ -12,87 +11,6 @@ const router = express.Router();
 const pool = new Pool(getPoolConfig());
 
 const isAdminUser = (user) => user && user.role === 'admin';
-
-const parseJsonField = (value) => {
-  if (!value || typeof value === 'object') return value || {};
-  try {
-    return JSON.parse(value);
-  } catch (error) {
-    return {};
-  }
-};
-
-const renderTopic = (template, device) => {
-  const connectionConfig = parseJsonField(device.connection_config);
-  const corp = device.manufacturer_code || '';
-  const gatewayMac = connectionConfig.gatewayMac || connectionConfig.gateway_mac || device.imei;
-
-  return template
-    .replace(/\{corp\}/g, corp)
-    .replace(/\{manufacturerCode\}/g, corp)
-    .replace(/\{gatewayMac\}/g, gatewayMac)
-    .replace(/\{imei\}/g, device.imei || '')
-    .replace(/\{deviceId\}/g, device.device_code || device.imei || '');
-};
-
-const renderPayload = (payloadTemplate, values) => {
-  if (Array.isArray(payloadTemplate)) {
-    return payloadTemplate.map((item) => renderPayload(item, values));
-  }
-
-  if (payloadTemplate && typeof payloadTemplate === 'object') {
-    return Object.entries(payloadTemplate).reduce((payload, [key, value]) => {
-      payload[key] = renderPayload(value, values);
-      return payload;
-    }, {});
-  }
-
-  if (typeof payloadTemplate !== 'string') return payloadTemplate;
-
-  const exactKey = payloadTemplate.match(/^\{(\w+)\}$/)?.[1];
-  if (exactKey && Object.prototype.hasOwnProperty.call(values, exactKey)) {
-    return values[exactKey];
-  }
-
-  return payloadTemplate.replace(/\{(\w+)\}/g, (_, key) => values[key] ?? '');
-};
-
-const buildProtocolControlMessages = (device, controlData) => {
-  const commandConfig = parseJsonField(device.command_config);
-  const commands = Array.isArray(commandConfig.commands) ? commandConfig.commands : [];
-  if (commands.length === 0) return [];
-
-  const topicTemplate = commandConfig.topicTemplates?.control ||
-    '{corp}/json/IoT/GW/V200/{gatewayMac}/down/json/CB';
-  const nextId = () => Number(`${Date.now()}${Math.floor(Math.random() * 1000)}`.slice(-9));
-  const buildMessage = (command, values) => ({
-    topic: renderTopic(command.topic || topicTemplate, device),
-    payload: renderPayload(command.payload || {}, values)
-  });
-
-  if (controlData.type === 'statistic') {
-    const readCommand = commands.find((command) => command.name === 'read_status');
-    return readCommand ? [buildMessage(readCommand, {
-      id: nextId(),
-      addr: controlData.addr || 1
-    })] : [];
-  }
-
-  return ['key1', 'key2', 'key3']
-    .map((key, index) => ({ key, addr: index + 1, value: controlData[key] }))
-    .filter((item) => item.value !== undefined)
-    .map((item) => {
-      const commandName = Number(item.value) === 1 ? 'turn_on' : 'turn_off';
-      const command = commands.find((candidate) => candidate.name === commandName);
-      if (!command) return null;
-
-      return buildMessage(command, {
-        id: nextId(),
-        addr: item.addr
-      });
-    })
-    .filter(Boolean);
-};
 
 // 获取照明控制设备列表
 router.get('/', authenticateToken, async (req, res) => {
@@ -689,116 +607,70 @@ router.post('/batch/control', authenticateToken, async (req, res) => {
   try {
     const { tenant_id } = req.user;
     const { devices, command } = req.body;
-
     if (!Array.isArray(devices) || devices.length === 0) {
       return res.status(400).json({ success: false, message: '设备列表不能为空' });
     }
     if (!command || command.switch === undefined) {
-      return res.status(400).json({ success: false, message: '控制命令不能为空，需指定 switch 字段（0=关闭，1=开启）' });
+      return res.status(400).json({
+        success: false,
+        message: '控制命令不能为空，需指定 switch 字段（0=关闭，1=开启）'
+      });
     }
 
     const switchValue = command.switch === 1 || command.switch === true ? 1 : 0;
     const actionLabel = switchValue === 1 ? '开启' : '关闭';
-
-    // 构建全开/全关控制数据
     const controlData = {
       type: 'event',
       key1: switchValue,
       key2: switchValue,
       key3: switchValue
     };
-
-    // 批量查询设备信息
     const params = [devices];
     let tenantClause = '';
     if (!isAdminUser(req.user)) {
       params.push(tenant_id);
       tenantClause = ` AND lc.tenant_id = $${params.length}`;
     }
-
-    const deviceResult = await pool.query(`
-      SELECT
-        d.id,
-        lc.id AS assignment_id,
-        lc.device_id,
-        lc.tenant_id,
-        d.device_id AS device_code,
-        d.imei,
-        d.name,
-        d.manufacturer_code,
-        d.connection_config,
-        pc.command_config
-      FROM control_device_assignments lc
-      JOIN devices d ON lc.device_id = d.id
-      LEFT JOIN protocol_configs pc ON d.protocol_config_id = pc.id
-      WHERE (d.imei = ANY($1) OR d.id::text = ANY($1))
-        AND lc.module_type = 'lighting'
-        AND lc.is_active = true${tenantClause}
-    `, params);
-
+    const deviceResult = await pool.query(
+      `SELECT d.id, lc.id AS assignment_id, lc.device_id, lc.tenant_id,
+              d.device_id AS device_code, d.imei, d.name, d.manufacturer_code,
+              d.connection_config, pc.command_config
+       FROM control_device_assignments lc
+       JOIN devices d ON lc.device_id = d.id
+       LEFT JOIN protocol_configs pc ON d.protocol_config_id = pc.id
+       WHERE (d.imei = ANY($1) OR d.id::text = ANY($1))
+         AND lc.module_type = 'lighting'
+         AND lc.is_active = true${tenantClause}`,
+      params
+    );
     if (deviceResult.rows.length === 0) {
       return res.status(404).json({ success: false, message: '未找到有效的照明设备' });
     }
 
-    const foundDevices = deviceResult.rows;
-    const results = [];
-
-    // 并行向所有设备发送指令
-    await Promise.all(foundDevices.map(async (device) => {
-      let protocolMessages = [];
-      let status = 'sent';
-      let errorMessage = null;
-
+    const results = await Promise.all(deviceResult.rows.map(async (device) => {
       try {
-        protocolMessages = buildProtocolControlMessages(device, controlData);
-
-        if (protocolMessages.length > 0) {
-          for (const message of protocolMessages) {
-            await mqttService.sendCommandToDevice(device.imei, message.payload, {
-              mqttTopic: message.topic
-            });
-          }
-        } else {
-          await mqttService.sendCommandToDevice(device.imei, controlData);
-        }
-
-        logger.info(`群控${actionLabel}指令发送成功`, {
+        await executeLightingControl(device, controlData, req.user.id);
+        return {
           device_imei: device.imei,
-          control_data: controlData,
-          protocol_messages: protocolMessages
-        });
-      } catch (mqttError) {
+          device_name: device.name,
+          status: 'sent',
+          error: null
+        };
+      } catch (error) {
         logger.error(`群控${actionLabel}指令发送失败`, {
           device_imei: device.imei,
-          control_data: controlData,
-          error: mqttError.message
+          error: error.message
         });
-        status = 'failed';
-        errorMessage = mqttError.message;
+        return {
+          device_imei: device.imei,
+          device_name: device.name,
+          status: 'failed',
+          error: error.message
+        };
       }
-
-      await telemetryStore.logControl({
-        device,
-        moduleType: 'lighting',
-        action: `batch_${actionLabel}`,
-        command: controlData,
-        encodedPayload: protocolMessages,
-        status,
-        errorMessage,
-        userId: req.user.id
-      });
-
-      results.push({
-        device_imei: device.imei,
-        device_name: device.name,
-        status,
-        error: errorMessage
-      });
     }));
-
-    const successCount = results.filter(r => r.status === 'sent').length;
-    const failCount = results.filter(r => r.status === 'failed').length;
-
+    const successCount = results.filter((result) => result.status === 'sent').length;
+    const failCount = results.length - successCount;
     res.json({
       success: failCount === 0,
       message: `群控${actionLabel}完成，成功 ${successCount} 台${failCount > 0 ? `，失败 ${failCount} 台` : ''}`,
@@ -931,22 +803,8 @@ router.post('/:deviceId/control', authenticateToken, async (req, res) => {
       tenant_id
     });
 
-    // 通过MQTT发送控制指令到设备。优先使用协议配置中的命令模板；
-    // 未配置协议命令的设备继续走原有厂商/设备MQTT配置。
-    let protocolMessages = [];
     try {
-      protocolMessages = buildProtocolControlMessages(device, controlData);
-
-      if (protocolMessages.length > 0) {
-        for (const message of protocolMessages) {
-          await mqttService.sendCommandToDevice(device.imei, message.payload, {
-            mqttTopic: message.topic
-          });
-        }
-      } else {
-        await mqttService.sendCommandToDevice(device.imei, controlData);
-      }
-
+      const protocolMessages = await executeLightingControl(device, controlData, req.user.id);
       logger.info('MQTT控制指令发送成功', {
         device_imei: device.imei,
         control_data: controlData,
@@ -958,28 +816,8 @@ router.post('/:deviceId/control', authenticateToken, async (req, res) => {
         control_data: controlData,
         error: mqttError.message
       });
-      await telemetryStore.logControl({
-        device,
-        moduleType: 'lighting',
-        action: controlData.type || 'lighting_control',
-        command: controlData,
-        encodedPayload: protocolMessages,
-        status: 'failed',
-        errorMessage: mqttError.message,
-        userId: req.user.id
-      });
       return res.status(502).json({ success: false, message: '照明设备MQTT控制指令发送失败', error: mqttError.message });
     }
-
-    await telemetryStore.logControl({
-      device,
-      moduleType: 'lighting',
-      action: controlData.type || 'lighting_control',
-      command: controlData,
-      encodedPayload: protocolMessages,
-      status: 'sent',
-      userId: req.user.id
-    });
 
     res.json({
       success: true,

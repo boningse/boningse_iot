@@ -12,14 +12,29 @@ const router = express.Router();
  */
 router.get('/', authenticateToken, async (req, res) => {
   try {
-    // 构建查询条件，租户管理员只能查看自己租户的设备类型
-    let whereClause = '';
-    let replacements = {};
+    const { name, tenantId, description } = req.query;
+    const whereConditions = [];
+    const replacements = {};
     
     if (req.user.role !== 'admin') {
-      whereClause = 'WHERE dt.tenant_id = :tenantId';
-      replacements.tenantId = req.user.tenant_id;
+      whereConditions.push('dt.tenant_id = :currentTenantId');
+      replacements.currentTenantId = req.user.tenant_id;
+    } else if (tenantId) {
+      whereConditions.push('dt.tenant_id = :filterTenantId');
+      replacements.filterTenantId = tenantId;
     }
+
+    if (name) {
+      whereConditions.push('dt.name ILIKE :name');
+      replacements.name = `%${name}%`;
+    }
+
+    if (description) {
+      whereConditions.push('dt.description ILIKE :description');
+      replacements.description = `%${description}%`;
+    }
+
+    const whereClause = whereConditions.length ? `WHERE ${whereConditions.join(' AND ')}` : '';
     
     const query = `
       SELECT 
@@ -32,7 +47,7 @@ router.get('/', authenticateToken, async (req, res) => {
         t.name as tenant_name
       FROM device_types dt
       LEFT JOIN tenants t ON dt.tenant_id = t.id
-      ${whereClause.replace('WHERE', 'WHERE')}
+      ${whereClause}
       ORDER BY dt.created_at DESC
     `
     

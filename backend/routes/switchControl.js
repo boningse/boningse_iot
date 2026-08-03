@@ -1,10 +1,11 @@
 const express = require('express');
+const { randomUUID } = require('crypto');
 const { Pool } = require('pg');
 const { authenticateToken } = require('../middleware/auth');
 const logger = require('../utils/logger');
 const { getPoolConfig } = require('../config/database');
-const mqttService = require('../services/mqttService');
 const telemetryStore = require('../services/telemetryStore');
+const { executeSwitchControl } = require('../services/switchControlExecutor');
 
 const router = express.Router();
 const pool = new Pool(getPoolConfig());
@@ -13,73 +14,9 @@ const SWITCH_DEVICE_TYPE = '定时开关';
 const SWITCH_ELECTRICAL_FIELDS = telemetryStore.MODULE_CONFIG.switch.electricalFields
   .filter((item) => item.type === 'number')
   .map((item) => item.name);
-const isAdminUser = (user) => user && (user.role === 'admin' || user.role === 'super_admin');
+const isAdminUser = (user) => ['admin', 'super_admin'].includes(String(user?.role || '').toLowerCase());
 const toLegacyType = (phaseType) => phaseType === 'three_phase' ? 'triple' : 'single';
 const toPhaseType = (legacyType) => legacyType === 'triple' ? 'three_phase' : (legacyType || 'single_phase');
-
-const parseJsonField = (value) => {
-  if (!value || typeof value === 'object') return value || {};
-  try {
-    return JSON.parse(value);
-  } catch (_) {
-    return {};
-  }
-};
-
-const renderTopic = (template, device) => {
-  const connectionConfig = parseJsonField(device.connection_config);
-  const corp = device.manufacturer_code || '';
-  const gatewayMac = connectionConfig.gatewayMac || connectionConfig.gateway_mac || device.imei;
-  return template
-    .replace(/\{corp\}/g, corp)
-    .replace(/\{manufacturerCode\}/g, corp)
-    .replace(/\{gatewayMac\}/g, gatewayMac)
-    .replace(/\{imei\}/g, device.imei || '')
-    .replace(/\{deviceId\}/g, device.device_code || device.imei || '');
-};
-
-const renderPayload = (payloadTemplate, values) => {
-  if (Array.isArray(payloadTemplate)) return payloadTemplate.map(item => renderPayload(item, values));
-  if (payloadTemplate && typeof payloadTemplate === 'object') {
-    return Object.entries(payloadTemplate).reduce((payload, [key, value]) => {
-      payload[key] = renderPayload(value, values);
-      return payload;
-    }, {});
-  }
-  if (typeof payloadTemplate !== 'string') return payloadTemplate;
-  const exactKey = payloadTemplate.match(/^\{(\w+)\}$/)?.[1];
-  if (exactKey && Object.prototype.hasOwnProperty.call(values, exactKey)) return values[exactKey];
-  return payloadTemplate.replace(/\{(\w+)\}/g, (_, key) => values[key] ?? '');
-};
-
-const buildProtocolControlMessages = (device, controlData) => {
-  const commandConfig = parseJsonField(device.command_config);
-  const commands = Array.isArray(commandConfig.commands) ? commandConfig.commands : [];
-  if (commands.length === 0) return [];
-  const topicTemplate = commandConfig.topicTemplates?.control || '{corp}/json/IoT/GW/V200/{gatewayMac}/down/json/CB';
-  const nextId = () => Number(`${Date.now()}${Math.floor(Math.random() * 1000)}`.slice(-9));
-  const buildMessage = (command, values) => ({
-    topic: renderTopic(command.topic || topicTemplate, device),
-    payload: renderPayload(command.payload || {}, values)
-  });
-
-  if (controlData.type === 'statistic') {
-    const readCommand = commands.find(command => command.name === 'read_status');
-    return readCommand ? [buildMessage(readCommand, { id: nextId(), addr: controlData.addr || 1 })] : [];
-  }
-
-  if (controlData.power_status === undefined) return [];
-  const value = Number(Boolean(controlData.power_status));
-  const commandName = value === 1 ? 'turn_on' : 'turn_off';
-  const command = commands.find(candidate => candidate.name === commandName);
-  return command ? [buildMessage(command, {
-    id: nextId(),
-    addr: controlData.addr || 1,
-    value,
-    state: value,
-    power_status: value
-  })] : [];
-};
 
 const normalizeControlData = (body) => {
   if (body.command) {
@@ -269,6 +206,496 @@ router.get('/available-devices', authenticateToken, async (req, res) => {
   } catch (error) {
     logger.error('获取可添加定时开关设备失败:', error);
     res.status(500).json({ success: false, message: '获取可添加定时开关设备失败', error: error.message });
+  }
+});
+
+const normalizeStrategyPayload = (body = {}) => ({
+  name: String(body.name || '').trim(),
+  deviceIds: [...new Set(Array.isArray(body.deviceIds) ? body.deviceIds.filter(Boolean) : [])],
+  action: body.action,
+  executeTime: body.executeTime || body.time,
+  repeatType: body.repeatType || 'once',
+  weekDays: [...new Set(Array.isArray(body.weekDays) ? body.weekDays : body.repeat || [])]
+    .map(Number)
+    .filter((day) => Number.isInteger(day) && day >= 0 && day <= 6),
+  customDates: [...new Set(Array.isArray(body.customDates) ? body.customDates.filter(Boolean) : [])],
+  enabled: body.enabled !== false,
+  description: String(body.description || '').trim().slice(0, 200)
+});
+
+const validateStrategyPayload = (strategy) => {
+  if (!strategy.name || strategy.name.length > 100) return '请输入有效的策略名称';
+  if (!strategy.deviceIds.length) return '请选择至少一台开关设备';
+  if (!['on', 'off'].includes(strategy.action)) return '请选择有效的开关动作';
+  if (!/^\d{2}:\d{2}$/.test(String(strategy.executeTime || ''))) return '请选择执行时间';
+  if (!['once', 'daily', 'weekly', 'custom'].includes(strategy.repeatType)) return '请选择有效的重复方式';
+  if (strategy.repeatType === 'weekly' && !strategy.weekDays.length) return '请选择每周执行日期';
+  if (strategy.repeatType === 'custom' && !strategy.customDates.length) return '请选择自定义执行日期';
+  return null;
+};
+
+const findStrategyDevices = async (client, req, deviceIds) => {
+  const params = [deviceIds];
+  let tenantClause = '';
+  if (!isAdminUser(req.user)) {
+    params.push(req.user.tenant_id);
+    tenantClause = ` AND assignment.tenant_id = $${params.length}`;
+  }
+  const result = await client.query(
+    `SELECT DISTINCT assignment.device_id, assignment.tenant_id
+     FROM control_device_assignments assignment
+     JOIN devices d ON d.id = assignment.device_id
+     WHERE assignment.device_id = ANY($1::uuid[])
+       AND assignment.module_type = 'switch'
+       AND assignment.is_active = true
+       AND COALESCE(d.device_category, 'standalone') <> 'gateway'${tenantClause}`,
+    params
+  );
+  return result.rows;
+};
+
+const saveStrategyRows = async (client, req, groupId, strategy, devices) => {
+  for (const device of devices) {
+    await client.query(
+      `INSERT INTO switch_control_schedules (
+         group_id, tenant_id, device_id, name, action, execute_time,
+         repeat_type, repeat_days, custom_dates, enabled, description, created_by
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+      [
+        groupId, device.tenant_id, device.device_id, strategy.name,
+        strategy.action, strategy.executeTime, strategy.repeatType,
+        strategy.repeatType === 'weekly' ? strategy.weekDays : [],
+        strategy.repeatType === 'custom' ? strategy.customDates : [],
+        strategy.enabled, strategy.description || null, req.user.id
+      ]
+    );
+  }
+};
+
+router.get('/strategy-devices', authenticateToken, async (req, res) => {
+  try {
+    const params = [];
+    let tenantClause = '';
+    if (!isAdminUser(req.user)) {
+      params.push(req.user.tenant_id);
+      tenantClause = ` AND assignment.tenant_id = $${params.length}`;
+    }
+    const result = await pool.query(
+      `SELECT DISTINCT d.id, d.name, d.device_id, d.imei, d.status,
+              d.tenant_id, d.project_building_id, d.project_group_id,
+              t.name AS tenant_name, pb.name AS project_building_name,
+              pg.name AS project_group_name
+       FROM control_device_assignments assignment
+       JOIN devices d ON d.id = assignment.device_id
+       LEFT JOIN tenants t ON t.id = d.tenant_id
+       LEFT JOIN project_buildings pb ON pb.id = d.project_building_id
+       LEFT JOIN project_groups pg ON pg.id = d.project_group_id
+       WHERE assignment.module_type = 'switch'
+         AND assignment.is_active = true
+         AND COALESCE(d.device_category, 'standalone') <> 'gateway'${tenantClause}
+       ORDER BY t.name NULLS LAST, d.name`,
+      params
+    );
+    res.json({ success: true, data: result.rows });
+  } catch (error) {
+    logger.error('获取开关策略设备失败', { error: error.message });
+    res.status(500).json({ success: false, message: '获取开关策略设备失败', error: error.message });
+  }
+});
+
+router.get('/strategies', authenticateToken, async (req, res) => {
+  try {
+    const params = [];
+    let where = `WHERE assignment.module_type = 'switch' AND assignment.is_active = true`;
+    if (!isAdminUser(req.user)) {
+      params.push(req.user.tenant_id);
+      where += ` AND schedule.tenant_id = $${params.length}`;
+    } else if (req.query.tenantId) {
+      params.push(req.query.tenantId);
+      where += ` AND schedule.tenant_id = $${params.length}`;
+    }
+    const result = await pool.query(
+      `SELECT schedule.*, d.name AS device_name, d.imei AS device_imei,
+              d.device_id AS device_code, t.name AS tenant_name
+       FROM switch_control_schedules schedule
+       JOIN devices d ON d.id = schedule.device_id
+       JOIN control_device_assignments assignment ON assignment.device_id = d.id
+       LEFT JOIN tenants t ON t.id = schedule.tenant_id
+       ${where}
+       ORDER BY schedule.created_at DESC, d.name`,
+      params
+    );
+    const groups = new Map();
+    for (const row of result.rows) {
+      const groupId = row.group_id || row.id;
+      if (!groups.has(groupId)) {
+        groups.set(groupId, {
+          id: groupId,
+          name: row.name,
+          action: row.action,
+          executeTime: String(row.execute_time || '').slice(0, 5),
+          repeatType: row.repeat_type || 'once',
+          weekDays: (row.repeat_days || []).map(Number),
+          customDates: row.custom_dates || [],
+          enabled: row.enabled !== false,
+          description: row.description || '',
+          tenantId: row.tenant_id,
+          tenantName: row.tenant_name,
+          devices: []
+        });
+      }
+      const group = groups.get(groupId);
+      group.enabled = group.enabled && row.enabled !== false;
+      group.devices.push({
+        id: row.device_id,
+        name: row.device_name,
+        deviceId: row.device_code,
+        imei: row.device_imei
+      });
+    }
+    res.json({ success: true, data: [...groups.values()] });
+  } catch (error) {
+    logger.error('获取开关控制策略失败', { error: error.message });
+    res.status(500).json({ success: false, message: '获取开关控制策略失败', error: error.message });
+  }
+});
+
+router.post('/strategies', authenticateToken, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const strategy = normalizeStrategyPayload(req.body);
+    const validationError = validateStrategyPayload(strategy);
+    if (validationError) return res.status(400).json({ success: false, message: validationError });
+    await client.query('BEGIN');
+    const devices = await findStrategyDevices(client, req, strategy.deviceIds);
+    if (devices.length !== strategy.deviceIds.length) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ success: false, message: '部分设备不存在或不属于开关控制模块' });
+    }
+    if (new Set(devices.map((device) => String(device.tenant_id))).size !== 1) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ success: false, message: '同一策略只能选择同一租户的设备' });
+    }
+    const groupId = randomUUID();
+    await saveStrategyRows(client, req, groupId, strategy, devices);
+    await client.query('COMMIT');
+    res.status(201).json({ success: true, message: '开关控制策略已创建', data: { id: groupId } });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    logger.error('创建开关控制策略失败', { error: error.message });
+    res.status(500).json({ success: false, message: '创建开关控制策略失败', error: error.message });
+  } finally {
+    client.release();
+  }
+});
+
+router.put('/strategies/:groupId', authenticateToken, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const strategy = normalizeStrategyPayload(req.body);
+    const validationError = validateStrategyPayload(strategy);
+    if (validationError) return res.status(400).json({ success: false, message: validationError });
+    await client.query('BEGIN');
+    const params = [req.params.groupId];
+    let tenantClause = '';
+    if (!isAdminUser(req.user)) {
+      params.push(req.user.tenant_id);
+      tenantClause = ` AND tenant_id = $${params.length}`;
+    }
+    const existing = await client.query(
+      `SELECT id FROM switch_control_schedules WHERE group_id = $1${tenantClause}`,
+      params
+    );
+    if (!existing.rows.length) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ success: false, message: '开关控制策略不存在或无权限' });
+    }
+    const devices = await findStrategyDevices(client, req, strategy.deviceIds);
+    if (devices.length !== strategy.deviceIds.length) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ success: false, message: '部分设备不存在或无权限' });
+    }
+    if (new Set(devices.map((device) => String(device.tenant_id))).size !== 1) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ success: false, message: '同一策略只能选择同一租户的设备' });
+    }
+    await client.query('DELETE FROM switch_control_schedules WHERE group_id = $1', [req.params.groupId]);
+    await saveStrategyRows(client, req, req.params.groupId, strategy, devices);
+    await client.query('COMMIT');
+    res.json({ success: true, message: '开关控制策略已更新' });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    logger.error('更新开关控制策略失败', { error: error.message });
+    res.status(500).json({ success: false, message: '更新开关控制策略失败', error: error.message });
+  } finally {
+    client.release();
+  }
+});
+
+router.put('/strategies/:groupId/toggle', authenticateToken, async (req, res) => {
+  try {
+    const params = [req.body.enabled === true, req.params.groupId];
+    let tenantClause = '';
+    if (!isAdminUser(req.user)) {
+      params.push(req.user.tenant_id);
+      tenantClause = ` AND tenant_id = $${params.length}`;
+    }
+    const result = await pool.query(
+      `UPDATE switch_control_schedules
+       SET enabled = $1, updated_at = CURRENT_TIMESTAMP
+       WHERE group_id = $2${tenantClause}`,
+      params
+    );
+    if (!result.rowCount) {
+      return res.status(404).json({ success: false, message: '开关控制策略不存在' });
+    }
+    res.json({ success: true, message: req.body.enabled === true ? '策略已启用' : '策略已停用' });
+  } catch (error) {
+    logger.error('更新开关控制策略状态失败', { error: error.message });
+    res.status(500).json({ success: false, message: '更新开关控制策略状态失败', error: error.message });
+  }
+});
+
+router.delete('/strategies/:groupId', authenticateToken, async (req, res) => {
+  try {
+    const params = [req.params.groupId];
+    let tenantClause = '';
+    if (!isAdminUser(req.user)) {
+      params.push(req.user.tenant_id);
+      tenantClause = ` AND tenant_id = $${params.length}`;
+    }
+    const result = await pool.query(
+      `DELETE FROM switch_control_schedules WHERE group_id = $1${tenantClause}`,
+      params
+    );
+    if (!result.rowCount) {
+      return res.status(404).json({ success: false, message: '开关控制策略不存在' });
+    }
+    res.json({ success: true, message: '开关控制策略已删除' });
+  } catch (error) {
+    logger.error('删除开关控制策略失败', { error: error.message });
+    res.status(500).json({ success: false, message: '删除开关控制策略失败', error: error.message });
+  }
+});
+
+const normalizeScenePayload = (body = {}) => ({
+  name: String(body.name || '').trim(),
+  description: String(body.description || '').trim().slice(0, 200),
+  action: body.action,
+  deviceIds: [...new Set(Array.isArray(body.deviceIds) ? body.deviceIds.filter(Boolean) : [])]
+});
+
+const validateScenePayload = (scene) => {
+  if (!scene.name || scene.name.length > 80) return '请输入 1 至 80 个字符的情景名称';
+  if (!['on', 'off'].includes(scene.action)) return '请选择情景执行动作';
+  if (!scene.deviceIds.length) return '请至少选择一台开关设备';
+  if (scene.deviceIds.length > 200) return '单个情景最多包含 200 台设备';
+  return null;
+};
+
+const getAccessibleScene = async (req, id) => {
+  const params = [id];
+  let tenantClause = '';
+  if (!isAdminUser(req.user)) {
+    params.push(req.user.tenant_id);
+    tenantClause = ` AND tenant_id = $${params.length}`;
+  }
+  const result = await pool.query(
+    `SELECT id, tenant_id, name, description, action, device_ids, created_by, created_at, updated_at
+     FROM switch_scenes WHERE id = $1${tenantClause}`,
+    params
+  );
+  return result.rows[0] || null;
+};
+
+const getSceneDevicesByIds = async (req, deviceIds) => {
+  const params = [deviceIds];
+  let tenantClause = '';
+  if (!isAdminUser(req.user)) {
+    params.push(req.user.tenant_id);
+    tenantClause = ` AND assignment.tenant_id = $${params.length}`;
+  }
+  const result = await pool.query(
+    `SELECT DISTINCT d.id, d.tenant_id
+     FROM control_device_assignments assignment
+     JOIN devices d ON d.id = assignment.device_id
+     WHERE assignment.device_id = ANY($1::uuid[])
+       AND assignment.module_type = 'switch'
+       AND assignment.is_active = true
+       AND d.is_switch = true
+       AND COALESCE(d.device_category, 'standalone') <> 'gateway'${tenantClause}`,
+    params
+  );
+  return result.rows;
+};
+
+const validateSceneDevices = async (req, scene, expectedTenantId = null) => {
+  const devices = await getSceneDevicesByIds(req, scene.deviceIds);
+  if (devices.length !== scene.deviceIds.length) return { error: '包含不存在、未分配或无权访问的开关设备' };
+  const tenantId = devices[0]?.tenant_id;
+  if (!tenantId) {
+    return { error: '所选开关设备缺少租户信息' };
+  }
+  if (!isAdminUser(req.user) && devices.some((device) => device.tenant_id !== tenantId)) {
+    return { error: '同一情景只能选择同一租户的开关设备' };
+  }
+  if (!isAdminUser(req.user) && expectedTenantId && tenantId !== expectedTenantId) {
+    return { error: '情景设备不能跨租户调整' };
+  }
+  return { tenantId, devices };
+};
+
+router.get('/scene-devices', authenticateToken, async (req, res) => {
+  try {
+    const params = [];
+    let where = `WHERE assignment.module_type = 'switch'
+      AND assignment.is_active = true
+      AND d.is_switch = true
+      AND COALESCE(d.device_category, 'standalone') <> 'gateway'`;
+    where += buildTenantClause(req, 'assignment', params);
+    const result = await pool.query(
+      `SELECT DISTINCT d.id, d.name, d.device_id, d.imei, d.status, d.tenant_id,
+              d.project_building_id, d.project_group_id, t.name AS tenant_name,
+              pb.name AS project_building_name, pg.name AS project_group_name
+       FROM control_device_assignments assignment
+       JOIN devices d ON d.id = assignment.device_id
+       LEFT JOIN tenants t ON t.id = d.tenant_id
+       LEFT JOIN project_buildings pb ON pb.id = d.project_building_id
+       LEFT JOIN project_groups pg ON pg.id = d.project_group_id
+       ${where}
+       ORDER BY t.name NULLS LAST, d.name`,
+      params
+    );
+    res.json({ success: true, data: result.rows });
+  } catch (error) {
+    logger.error('获取开关情景设备失败', { error: error.message });
+    res.status(500).json({ success: false, message: '获取开关情景设备失败', error: error.message });
+  }
+});
+
+router.get('/scenes', authenticateToken, async (req, res) => {
+  try {
+    const params = [];
+    let where = 'WHERE true';
+    if (isAdminUser(req.user) && req.query.tenantId) {
+      params.push(req.query.tenantId);
+      where += ` AND s.tenant_id = $${params.length}`;
+    } else if (!isAdminUser(req.user)) {
+      params.push(req.user.tenant_id);
+      where += ` AND s.tenant_id = $${params.length}`;
+    }
+    const result = await pool.query(
+      `SELECT s.id, s.tenant_id, s.name, s.description, s.action, s.device_ids,
+              s.created_at, s.updated_at, t.name AS tenant_name,
+              COALESCE(
+                json_agg(json_build_object('id', d.id, 'name', d.name))
+                FILTER (WHERE d.id IS NOT NULL),
+                '[]'::json
+              ) AS devices
+       FROM switch_scenes s
+       LEFT JOIN tenants t ON t.id = s.tenant_id
+       LEFT JOIN devices d ON d.id = ANY(s.device_ids)
+       ${where}
+       GROUP BY s.id, t.name
+       ORDER BY s.created_at DESC`,
+      params
+    );
+    res.json({ success: true, data: result.rows });
+  } catch (error) {
+    logger.error('获取开关情景列表失败', { error: error.message });
+    res.status(500).json({ success: false, message: '获取开关情景列表失败', error: error.message });
+  }
+});
+
+router.post('/scenes', authenticateToken, async (req, res) => {
+  try {
+    const scene = normalizeScenePayload(req.body);
+    const validationError = validateScenePayload(scene);
+    if (validationError) return res.status(400).json({ success: false, message: validationError });
+    const selection = await validateSceneDevices(req, scene);
+    if (selection.error) return res.status(400).json({ success: false, message: selection.error });
+    const result = await pool.query(
+      `INSERT INTO switch_scenes (id, tenant_id, name, description, action, device_ids, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6::uuid[], $7)
+       RETURNING id, tenant_id, name, description, action, device_ids, created_at, updated_at`,
+      [randomUUID(), selection.tenantId, scene.name, scene.description || null, scene.action, scene.deviceIds, req.user.id]
+    );
+    res.status(201).json({ success: true, message: '开关情景已创建', data: result.rows[0] });
+  } catch (error) {
+    logger.error('创建开关情景失败', { error: error.message });
+    res.status(500).json({ success: false, message: '创建开关情景失败', error: error.message });
+  }
+});
+
+router.put('/scenes/:id', authenticateToken, async (req, res) => {
+  try {
+    const current = await getAccessibleScene(req, req.params.id);
+    if (!current) return res.status(404).json({ success: false, message: '开关情景不存在或无权访问' });
+    const scene = normalizeScenePayload(req.body);
+    const validationError = validateScenePayload(scene);
+    if (validationError) return res.status(400).json({ success: false, message: validationError });
+    const selection = await validateSceneDevices(req, scene, current.tenant_id);
+    if (selection.error) return res.status(400).json({ success: false, message: selection.error });
+    const result = await pool.query(
+      `UPDATE switch_scenes
+       SET name = $1, description = $2, action = $3, device_ids = $4::uuid[],
+           tenant_id = $5, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $6
+       RETURNING id, tenant_id, name, description, action, device_ids, created_at, updated_at`,
+      [scene.name, scene.description || null, scene.action, scene.deviceIds, selection.tenantId, current.id]
+    );
+    res.json({ success: true, message: '开关情景已更新', data: result.rows[0] });
+  } catch (error) {
+    logger.error('更新开关情景失败', { error: error.message });
+    res.status(500).json({ success: false, message: '更新开关情景失败', error: error.message });
+  }
+});
+
+router.delete('/scenes/:id', authenticateToken, async (req, res) => {
+  try {
+    const current = await getAccessibleScene(req, req.params.id);
+    if (!current) return res.status(404).json({ success: false, message: '开关情景不存在或无权访问' });
+    await pool.query('DELETE FROM switch_scenes WHERE id = $1', [current.id]);
+    res.json({ success: true, message: '开关情景已删除' });
+  } catch (error) {
+    logger.error('删除开关情景失败', { error: error.message });
+    res.status(500).json({ success: false, message: '删除开关情景失败', error: error.message });
+  }
+});
+
+router.post('/scenes/:id/execute', authenticateToken, async (req, res) => {
+  try {
+    const scene = await getAccessibleScene(req, req.params.id);
+    if (!scene) return res.status(404).json({ success: false, message: '开关情景不存在或无权访问' });
+    const devicesResult = await pool.query(
+      `SELECT d.id, d.name, d.imei, d.device_id AS device_code, assignment.tenant_id,
+              d.manufacturer_code,
+              d.connection_config, pc.command_config
+       FROM control_device_assignments assignment
+       JOIN devices d ON d.id = assignment.device_id
+       LEFT JOIN protocol_configs pc ON pc.id = d.protocol_config_id
+       WHERE assignment.device_id = ANY($1::uuid[])
+         AND assignment.module_type = 'switch'
+         AND assignment.is_active = true
+         AND d.is_switch = true
+         AND COALESCE(d.device_category, 'standalone') <> 'gateway'`,
+      [scene.device_ids]
+    );
+    if (!devicesResult.rows.length) return res.status(400).json({ success: false, message: '情景内没有可执行的开关设备' });
+    const results = await Promise.allSettled(
+      devicesResult.rows.map((device) => executeSwitchControl(device, { type: 'event', power_status: scene.action === 'on' }, req.user.id))
+    );
+    const failed = results.reduce((count, result) => count + (result.status === 'rejected' ? 1 : 0), 0);
+    const succeeded = results.length - failed;
+    logger.info('执行开关情景完成', { sceneId: scene.id, action: scene.action, succeeded, failed, userId: req.user.id });
+    res.json({
+      success: succeeded > 0,
+      message: failed ? `情景已执行：成功 ${succeeded} 台，失败 ${failed} 台` : `情景已执行，共 ${succeeded} 台设备`,
+      data: { succeeded, failed, total: results.length }
+    });
+  } catch (error) {
+    logger.error('执行开关情景失败', { error: error.message });
+    res.status(500).json({ success: false, message: '执行开关情景失败', error: error.message });
   }
 });
 
@@ -504,40 +931,12 @@ router.post('/:deviceId/control', authenticateToken, async (req, res) => {
     if (deviceCheck.rows.length === 0) return res.status(404).json({ success: false, message: '设备不存在或不在定时开关控制列表中' });
     const device = deviceCheck.rows[0];
 
-    let protocolMessages = [];
     try {
-      protocolMessages = buildProtocolControlMessages(device, controlData);
-      if (protocolMessages.length > 0) {
-        for (const message of protocolMessages) {
-          await mqttService.sendCommandToDevice(device.imei, message.payload, { mqttTopic: message.topic });
-        }
-      } else {
-        await mqttService.sendCommandToDevice(device.imei, controlData);
-      }
+      await executeSwitchControl(device, controlData, req.user.id);
     } catch (mqttError) {
       logger.error('定时开关MQTT控制指令发送失败', { imei: device.imei, error: mqttError.message });
-      await telemetryStore.logControl({
-        device,
-        moduleType: 'switch',
-        action: controlData.type || 'switch_control',
-        command: controlData,
-        encodedPayload: protocolMessages,
-        status: 'failed',
-        errorMessage: mqttError.message,
-        userId: req.user.id
-      });
       return res.status(502).json({ success: false, message: '定时开关MQTT控制指令发送失败', error: mqttError.message });
     }
-
-    await telemetryStore.logControl({
-      device,
-      moduleType: 'switch',
-      action: controlData.type || 'switch_control',
-      command: controlData,
-      encodedPayload: protocolMessages,
-      status: 'sent',
-      userId: req.user.id
-    });
 
     res.json({
       success: true,

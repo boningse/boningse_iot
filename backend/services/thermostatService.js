@@ -1194,9 +1194,9 @@ class ThermostatService {
         location: device.location,
         // 温控器状态信息
         currentTemperature: device.current_temperature || null,
-        targetTemperature: device.target_temp || 26,
+        targetTemperature: device.target_temperature || 26,
         mode: device.mode || 'cool',
-        isOn: device.power_status || false,
+        isOn: device.is_on || false,
         humidity: device.humidity || null,
         fanSpeed: cachedStatus.fanSpeed !== undefined ? cachedStatus.fanSpeed : 0,
         acMode: device.acMode || device.mode || 'cool',
@@ -1598,7 +1598,13 @@ class ThermostatService {
 
     if (deviceId) {
       params.push(deviceId);
-      filters.push(`tsm.device_id = $${params.length}`);
+      filters.push(`tsm.device_id IN (
+        SELECT id
+        FROM devices
+        WHERE id::text = $${params.length}
+          OR device_id = $${params.length}
+          OR imei = $${params.length}
+      )`);
     }
 
     if (groupId) {

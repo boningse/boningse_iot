@@ -3,10 +3,10 @@
     <!-- 搜索和操作栏 -->
     <el-card class="search-card" shadow="never">
       <el-row :gutter="20">
-        <el-col :span="6">
+        <el-col :span="5">
           <el-input
-            v-model="searchForm.keyword"
-            placeholder="请输入厂商名称或编码"
+            v-model="searchForm.name"
+            placeholder="请输入厂商名称"
             clearable
             @keyup.enter="handleSearch"
           >
@@ -15,13 +15,29 @@
             </template>
           </el-input>
         </el-col>
+        <el-col v-if="userRole === 'admin'" :span="5">
+          <el-input
+            v-model="searchForm.tenantName"
+            placeholder="请输入所属租户"
+            clearable
+            @keyup.enter="handleSearch"
+          />
+        </el-col>
         <el-col :span="4">
+          <el-input
+            v-model="searchForm.contact"
+            placeholder="请输入联系人"
+            clearable
+            @keyup.enter="handleSearch"
+          />
+        </el-col>
+        <el-col :span="3">
           <el-select v-model="searchForm.status" placeholder="厂商状态" clearable>
             <el-option label="启用" value="active" />
             <el-option label="禁用" value="inactive" />
           </el-select>
         </el-col>
-        <el-col :span="6">
+        <el-col :span="7" class="search-actions">
           <el-button type="primary" @click="handleSearch">
             <el-icon><Search /></el-icon>
             搜索
@@ -31,12 +47,10 @@
             重置
           </el-button>
         </el-col>
-        <el-col :span="4" class="text-right">
           <el-button type="primary" @click="showAddDialog">
             <el-icon><Plus /></el-icon>
             添加厂商
           </el-button>
-        </el-col>
       </el-row>
     </el-card>
 
@@ -180,7 +194,9 @@ const shouldResetOnClose = ref(true)
 
 // 搜索表单
 const searchForm = reactive({
-  keyword: '',
+  name: '',
+  tenantName: '',
+  contact: '',
   status: ''
 })
 
@@ -241,8 +257,14 @@ const getManufacturerList = async (forceRefresh = false) => {
     }
     
     // 只添加非空的搜索参数
-    if (searchForm.keyword && searchForm.keyword.trim()) {
-      params.keyword = searchForm.keyword.trim()
+    if (searchForm.name && searchForm.name.trim()) {
+      params.name = searchForm.name.trim()
+    }
+    if (searchForm.tenantName && searchForm.tenantName.trim()) {
+      params.tenantName = searchForm.tenantName.trim()
+    }
+    if (searchForm.contact && searchForm.contact.trim()) {
+      params.contact = searchForm.contact.trim()
     }
     if (searchForm.status && searchForm.status.trim()) {
       params.status = searchForm.status.trim()
@@ -283,7 +305,9 @@ const handleSearch = () => {
 }
 
 const resetSearch = () => {
-  searchForm.keyword = ''
+  searchForm.name = ''
+  searchForm.tenantName = ''
+  searchForm.contact = ''
   searchForm.status = ''
   pagination.currentPage = 1
   getManufacturerList()
@@ -494,6 +518,12 @@ onMounted(() => {
     .text-right {
       text-align: right;
     }
+
+    .search-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 12px;
+    }
   }
   
   .table-card {
@@ -524,6 +554,7 @@ onMounted(() => {
       }
 
       :deep(.el-select),
+      :deep(.search-actions),
       :deep(.el-button) {
         width: 100%;
         margin-left: 0;

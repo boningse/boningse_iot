@@ -1,5 +1,6 @@
 const { Pool } = require('pg');
 const { getPoolConfig } = require('../config/database');
+const websocketService = require('./websocketService');
 const logger = require('../utils/logger');
 
 const pool = new Pool({
@@ -9,6 +10,18 @@ const pool = new Pool({
 });
 
 const ACTIVE_STATUSES = ['active', 'acknowledged', 'assigned', 'processing'];
+
+const broadcastAlarmUpdate = (action, alarm) => {
+  if (!alarm) return;
+  websocketService.broadcastToClients('work_order_updated', {
+    alarm_id: alarm.id,
+    tenant_id: alarm.tenant_id,
+    status: alarm.status,
+    assigned_to: alarm.assigned_to || null,
+    action,
+    updated_at: alarm.updated_at || new Date().toISOString()
+  });
+};
 const MODULE_LABELS = {
   switch: '开关控制',
   lighting: '照明控制',
@@ -64,6 +77,11 @@ const createOrUpdateAlarm = async ({
     alarmCode,
     metricKey
   });
+  const previous = await pool.query(
+    'SELECT status FROM device_alarms WHERE dedup_key = $1',
+    [key]
+  );
+  const previousStatus = previous.rows[0]?.status || null;
 
   const result = await pool.query(
     `INSERT INTO device_alarms (
@@ -87,6 +105,13 @@ const createOrUpdateAlarm = async ({
          WHEN device_alarms.status IN ('resolved', 'closed') THEN 'active'
          ELSE device_alarms.status
        END,
+       acknowledged_by = CASE WHEN device_alarms.status IN ('resolved', 'closed') THEN NULL ELSE device_alarms.acknowledged_by END,
+       acknowledged_at = CASE WHEN device_alarms.status IN ('resolved', 'closed') THEN NULL ELSE device_alarms.acknowledged_at END,
+       assigned_to = CASE WHEN device_alarms.status IN ('resolved', 'closed') THEN NULL ELSE device_alarms.assigned_to END,
+       assigned_at = CASE WHEN device_alarms.status IN ('resolved', 'closed') THEN NULL ELSE device_alarms.assigned_at END,
+       accepted_by = CASE WHEN device_alarms.status IN ('resolved', 'closed') THEN NULL ELSE device_alarms.accepted_by END,
+       accepted_at = CASE WHEN device_alarms.status IN ('resolved', 'closed') THEN NULL ELSE device_alarms.accepted_at END,
+       processing_note = CASE WHEN device_alarms.status IN ('resolved', 'closed') THEN NULL ELSE device_alarms.processing_note END,
        resolved_by = CASE WHEN device_alarms.status IN ('resolved', 'closed') THEN NULL ELSE device_alarms.resolved_by END,
        resolved_at = CASE WHEN device_alarms.status IN ('resolved', 'closed') THEN NULL ELSE device_alarms.resolved_at END,
        resolution = CASE WHEN device_alarms.status IN ('resolved', 'closed') THEN NULL ELSE device_alarms.resolution END,
@@ -125,6 +150,23 @@ const createOrUpdateAlarm = async ({
        ) VALUES ($1, $2, 'created', 'active', '系统', $3, $4::jsonb)`,
       [alarm.id, identity.tenantId, message || title, JSON.stringify({ source })]
     );
+    broadcastAlarmUpdate('created', alarm);
+  } else if (['resolved', 'closed'].includes(previousStatus) && alarm.status === 'active') {
+    await pool.query(
+      `INSERT INTO device_alarm_actions (
+         alarm_id, tenant_id, action, from_status, to_status, operator_name, note, metadata
+       ) VALUES ($1, $2, 'reopened', $3, 'active', '系统', $4, $5::jsonb)`,
+      [
+        alarm.id,
+        identity.tenantId,
+        previousStatus,
+        '告警再次发生，系统重新打开',
+        JSON.stringify({ source })
+      ]
+    );
+    broadcastAlarmUpdate('reopen', alarm);
+  } else {
+    broadcastAlarmUpdate('updated', alarm);
   }
   return alarm;
 };
@@ -312,23 +354,33 @@ const handleCommunicationStatus = async (device, status) => {
 
   if (status === 'online') {
     const resolved = await pool.query(
-      `UPDATE device_alarms
+      `WITH candidates AS (
+         SELECT id, status AS from_status
+         FROM device_alarms
+         WHERE device_id = $1
+           AND alarm_type = 'communication_offline'
+           AND status = ANY($2::varchar[])
+         FOR UPDATE
+       )
+       UPDATE device_alarms AS alarm
        SET status = 'resolved',
            resolved_at = now(),
            resolution = '设备通信恢复，系统自动解除',
            updated_at = now()
-       WHERE device_id = $1
-         AND alarm_type = 'communication_offline'
-         AND status = ANY($2::varchar[])
-       RETURNING id, tenant_id`,
+       FROM candidates
+       WHERE alarm.id = candidates.id
+       RETURNING alarm.*, candidates.from_status`,
       [identity.id, ACTIVE_STATUSES]
     );
-    await Promise.all(resolved.rows.map((alarm) => pool.query(
-      `INSERT INTO device_alarm_actions (
-         alarm_id, tenant_id, action, from_status, to_status, operator_name, note
-       ) VALUES ($1, $2, 'auto_resolved', 'active', 'resolved', '系统', '设备通信恢复，系统自动解除')`,
-      [alarm.id, alarm.tenant_id]
-    )));
+    await Promise.all(resolved.rows.map(async (alarm) => {
+      await pool.query(
+        `INSERT INTO device_alarm_actions (
+           alarm_id, tenant_id, action, from_status, to_status, operator_name, note
+         ) VALUES ($1, $2, 'auto_resolved', $3, 'resolved', '系统', '设备通信恢复，系统自动解除')`,
+        [alarm.id, alarm.tenant_id, alarm.from_status]
+      );
+      broadcastAlarmUpdate('auto_resolved', alarm);
+    }));
   }
 };
 

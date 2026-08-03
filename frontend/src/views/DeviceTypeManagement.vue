@@ -1,15 +1,30 @@
 <template>
   <div class="device-type-management">
-    <!-- 页面头部 -->
-    <div class="header">
-      <h2>设备类型管理</h2>
-      <el-button type="primary" @click="showAddDeviceTypeDialog">添加设备类型</el-button>
-    </div>
+    <el-card class="search-card" shadow="never">
+      <el-row :gutter="20">
+        <el-col :span="5">
+          <el-input v-model="searchForm.name" placeholder="请输入类型名称" clearable @keyup.enter="handleSearch">
+            <template #prefix><el-icon><Search /></el-icon></template>
+          </el-input>
+        </el-col>
+        <el-col v-if="userRole === 'admin'" :span="5">
+          <el-select v-model="searchForm.tenantId" placeholder="请选择所属租户" clearable filterable>
+            <el-option v-for="tenant in tenantList" :key="tenant.id" :label="tenant.name" :value="tenant.id" />
+          </el-select>
+        </el-col>
+        <el-col :span="4">
+          <el-input v-model="searchForm.description" placeholder="请输入描述" clearable @keyup.enter="handleSearch" />
+        </el-col>
+        <el-col :span="userRole === 'admin' ? 10 : 15" class="search-actions">
+          <el-button type="primary" @click="handleSearch"><el-icon><Search /></el-icon>搜索</el-button>
+          <el-button @click="resetSearch"><el-icon><Refresh /></el-icon>重置</el-button>
+          <el-button type="primary" @click="showAddDeviceTypeDialog"><el-icon><Plus /></el-icon>添加设备类型</el-button>
+        </el-col>
+      </el-row>
+    </el-card>
 
-    <!-- 设备类型列表 -->
-    <div class="device-type-section">
-      <h3>设备类型列表</h3>
-      <el-table :data="deviceTypeList" stripe>
+    <el-card class="table-card" shadow="never">
+      <el-table v-loading="loading" :data="deviceTypeList" stripe style="width: 100%">
         <el-table-column prop="name" label="类型名称" width="200" />
         <el-table-column prop="description" label="描述" show-overflow-tooltip />
         <el-table-column v-if="userRole === 'admin'" prop="tenant_name" label="所属租户" width="120" />
@@ -25,7 +40,7 @@
           </template>
         </el-table-column>
       </el-table>
-    </div>
+    </el-card>
 
 
 
@@ -83,7 +98,7 @@
 <script setup>
 import { ref, reactive, onMounted, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Search } from '@element-plus/icons-vue'
+import { Search, Refresh, Plus } from '@element-plus/icons-vue'
 import { deviceTypeAPI, tenantAPI } from '../api/index.js'
 
 // 格式化日期函数
@@ -101,6 +116,7 @@ const formatDate = (dateString) => {
 
 // 设备类型相关
 const deviceTypeList = ref([])
+const loading = ref(false)
 const deviceTypeDialogVisible = ref(false)
 const deviceTypeDialogTitle = ref('')
 const isEditDeviceType = ref(false)
@@ -110,6 +126,11 @@ const deviceTypeFormRef = ref()
 // 租户和用户角色相关
 const tenantList = ref([])
 const userRole = ref('')
+const searchForm = reactive({
+  name: '',
+  tenantId: '',
+  description: ''
+})
 
 const deviceTypeForm = reactive({
   name: '',
@@ -172,11 +193,7 @@ const deleteDeviceType = async (deviceType) => {
     const response = await deviceTypeAPI.deleteDeviceType(deviceType.id)
     
     if (response.success) {
-      const index = deviceTypeList.value.findIndex(dt => dt.id === deviceType.id)
-      if (index > -1) {
-        deviceTypeList.value.splice(index, 1)
-      }
-
+      await getDeviceTypeList()
       ElMessage.success('设备类型删除成功')
     } else {
       ElMessage.error(response.message || '删除失败')
@@ -204,10 +221,7 @@ const submitDeviceTypeForm = async () => {
       const response = await deviceTypeAPI.updateDeviceType(currentDeviceTypeId.value, deviceTypeData)
       
       if (response.success) {
-        const deviceType = deviceTypeList.value.find(dt => dt.id === currentDeviceTypeId.value)
-        if (deviceType) {
-          Object.assign(deviceType, deviceTypeData)
-        }
+        await getDeviceTypeList()
         ElMessage.success('设备类型编辑成功')
       } else {
         ElMessage.error(response.message || '编辑失败')
@@ -217,11 +231,7 @@ const submitDeviceTypeForm = async () => {
       const response = await deviceTypeAPI.createDeviceType(deviceTypeData)
       
       if (response.success) {
-        deviceTypeList.value.push({
-          id: response.data.id,
-          ...deviceTypeData,
-          created_at: new Date().toISOString()
-        })
+        await getDeviceTypeList()
         ElMessage.success('设备类型添加成功')
       } else {
         ElMessage.error(response.message || '添加失败')
@@ -247,8 +257,13 @@ const resetDeviceTypeForm = () => {
 }
 
 const getDeviceTypeList = async () => {
+  loading.value = true
   try {
-    const response = await deviceTypeAPI.getDeviceTypes()
+    const params = {}
+    if (searchForm.name.trim()) params.name = searchForm.name.trim()
+    if (searchForm.tenantId) params.tenantId = searchForm.tenantId
+    if (searchForm.description.trim()) params.description = searchForm.description.trim()
+    const response = await deviceTypeAPI.getDeviceTypes(params)
     
     if (response.success) {
       deviceTypeList.value = response.data
@@ -258,7 +273,20 @@ const getDeviceTypeList = async () => {
   } catch (error) {
     console.error('获取设备类型列表失败:', error)
     ElMessage.error('获取设备类型列表失败')
+  } finally {
+    loading.value = false
   }
+}
+
+const handleSearch = () => {
+  getDeviceTypeList()
+}
+
+const resetSearch = () => {
+  searchForm.name = ''
+  searchForm.tenantId = ''
+  searchForm.description = ''
+  getDeviceTypeList()
 }
 
 const getTenantList = async () => {
@@ -280,7 +308,7 @@ const getTenantList = async () => {
 }
 
 const getUserRole = () => {
-  const userStr = localStorage.getItem('user') || '{}'
+  const userStr = localStorage.getItem('userInfo') || localStorage.getItem('user') || '{}'
   console.log('localStorage中的user数据:', userStr)
   const user = JSON.parse(userStr)
   console.log('解析后的user对象:', user)
@@ -314,99 +342,40 @@ onMounted(() => {
   color: var(--text-primary);
 }
 
-.header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+.search-card {
   margin-bottom: 20px;
-  min-height: 42px;
-}
-
-.header h2 {
-  margin: 0;
-  font-size: 22px;
-  font-weight: 650;
-}
-
-.device-type-section {
-  margin-bottom: 30px;
-}
-
-.protocol-config-section {
-  border-top: 1px solid #e4e7ed;
-  padding-top: 20px;
-}
-
-.section-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 20px;
-}
-
-.search-section {
-  margin-bottom: 20px;
-  padding: 14px;
-  border: 1px solid var(--border-light);
   border-top: 2px solid var(--primary-color);
-  border-radius: 6px;
-  background: var(--surface-color);
 }
 
-.pagination {
-  margin-top: 20px;
+.search-actions {
   display: flex;
   justify-content: flex-end;
-}
-
-.config-editors {
-  margin-top: 20px;
-}
-
-.editor-header {
-  display: flex;
-  justify-content: space-between;
   align-items: center;
-  margin-bottom: 10px;
-  font-weight: bold;
+  gap: 12px;
 }
 
-pre {
-  color: var(--text-primary);
-  background-color: var(--fill-lighter);
-  padding: 10px;
-  border-radius: 4px;
-  overflow-x: auto;
+.table-card {
+  margin-bottom: 20px;
 }
 
 @media (max-width: 768px) {
-  .header {
-    align-items: stretch;
-    flex-direction: column;
-    gap: 10px;
-  }
-
-  .header :deep(.el-button) {
-    width: 100%;
-    margin-left: 0;
-  }
-
-  .search-section :deep(.el-row) {
+  .search-card :deep(.el-row) {
     row-gap: 10px;
   }
 
-  .search-section :deep(.el-col) {
+  .search-card :deep(.el-col) {
     max-width: 100%;
     flex: 0 0 100%;
   }
 
-  .search-section :deep(.el-select) {
+  .search-card :deep(.el-select),
+  .search-actions {
     width: 100%;
   }
 
-  .pagination {
+  .search-actions {
     justify-content: flex-start;
-    overflow-x: auto;
+    flex-wrap: wrap;
   }
 }
 </style>

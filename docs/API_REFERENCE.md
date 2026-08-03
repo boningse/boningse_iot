@@ -26,12 +26,18 @@ WebSocket: ws://192.168.10.155/ws
 
 ### 2.2 正式外部接入
 
-微信小程序不能以当前局域网 IP 作为正式生产地址。发布前应准备：
+当前系统正式域名：
 
-- 备案域名和有效 HTTPS 证书。
-- API 地址，例如 `https://iot.example.com/api`。
-- WebSocket 地址，例如 `wss://iot.example.com/ws`。
-- 在微信公众平台配置 `request`、`socket` 合法域名。
+```text
+Web:       https://bnyk.boningse.com
+HTTP API: https://bnyk.boningse.com/api
+WebSocket: wss://bnyk.boningse.com/ws
+健康检查: https://bnyk.boningse.com/api/system/health
+```
+
+微信小程序不能以当前局域网 IP 作为正式生产地址。发布前还需要：
+
+- 在微信公众平台配置 `request`、`uploadFile`、`downloadFile`、`socket` 合法域名。
 - 生产环境只开放 443，不直接暴露 PostgreSQL、MQTT 管理端口或 Node.js 端口。
 
 ## 3. 通用约定
@@ -222,6 +228,9 @@ isAirConditioner, excludeGateways
 | GET | `/api/devices` | 登录 | 获取设备和网关子设备列表 |
 | POST | `/api/devices` | 登录 | 创建设备；支持独立设备、网关和子设备 |
 | GET | `/api/devices/gateways` | 登录 | 获取可作为上级的网关 |
+| GET | `/api/devices/import-template` | 登录 | 下载设备批量导入模板（`.xlsx`） |
+| GET | `/api/devices/export` | 登录 | 按设备列表筛选参数导出当前权限范围内的设备 |
+| POST | `/api/devices/import` | 登录 | 上传 `file` 表单字段，按系统 ID、设备 ID 或 IMEI 批量新增/更新，最多 5000 行 |
 | GET | `/api/devices/:id` | 登录 | 获取设备详情 |
 | PUT | `/api/devices/:id` | 登录 | 更新设备基础信息、项目归属和协议 |
 | DELETE | `/api/devices/:id` | 登录 | 删除设备 |
@@ -709,7 +718,7 @@ real_name, phone, project_building_id, project_group_id, permissions
 ### 6.1 连接
 
 ```text
-wss://iot.example.com/ws
+wss://bnyk.boningse.com/ws
 Authorization: Bearer <accessToken>
 ```
 
@@ -765,7 +774,7 @@ Authorization: Bearer <accessToken>
 ### 7.2 小程序请求封装示例
 
 ```js
-const API_BASE = "https://iot.example.com/api";
+const API_BASE = "https://bnyk.boningse.com/api";
 
 function request(path, options = {}) {
   const token = wx.getStorageSync("accessToken");

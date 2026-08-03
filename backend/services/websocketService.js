@@ -118,7 +118,8 @@ class WebSocketService {
     const origin = info.origin || info.req.headers.origin;
     const allowedOrigins = getAllowedOrigins();
     
-    if (origin && !allowedOrigins.includes(origin)) {
+    const isWeChatMiniProgramOrigin = origin === 'https://servicewechat.com';
+    if (origin && !allowedOrigins.includes(origin) && !isWeChatMiniProgramOrigin) {
       logger.warn(`WebSocket连接被拒绝，不允许的Origin: ${origin}`);
       return false;
     }
@@ -237,7 +238,16 @@ class WebSocketService {
       user,
       lastPing: Date.now(),
       connectedAt: Date.now(),
-      subscriptions: new Set(['device_data', 'device_status_update', 'device_offline', 'device_response', 'device_event', 'communication_log'])
+      subscriptions: new Set([
+        'device_data',
+        'device_status_update',
+        'device_offline',
+        'device_response',
+        'device_event',
+        'communication_log',
+        'work_order_updated',
+        'work_order_assigned'
+      ])
     };
     
     this.clients.set(clientId, clientInfo);
@@ -557,7 +567,9 @@ class WebSocketService {
       'thermostat_controlled',
       'thermostat_device_added',
       'thermostat_device_deleted',
-      'scene_executed'
+      'scene_executed',
+      'work_order_updated',
+      'work_order_assigned'
     ]);
 
     if (!tenantScopedTopics.has(type)) {

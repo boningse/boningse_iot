@@ -75,7 +75,9 @@ class WebSocketService {
           'device_data',
           'device_response',
           'device_event',
-          'communication_log'
+          'communication_log',
+          'work_order_updated',
+          'work_order_assigned'
         ])
 
         this.emit('connected')

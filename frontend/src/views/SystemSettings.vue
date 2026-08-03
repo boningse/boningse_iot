@@ -2,7 +2,7 @@
   <div class="system-settings">
     <el-tabs v-model="activeTab" type="border-card">
       <!-- 系统配置 -->
-      <el-tab-pane label="系统配置" name="system">
+      <el-tab-pane v-if="false" label="系统配置" name="system">
         <el-row :gutter="20">
           <el-col :span="12">
             <el-card shadow="hover">
@@ -253,7 +253,7 @@
       </el-tab-pane>
       
       <!-- 安全设置 -->
-      <el-tab-pane label="安全设置" name="security">
+      <el-tab-pane v-if="false" label="安全设置" name="security">
         <el-row :gutter="20">
           <el-col :span="12">
             <el-card shadow="hover">
@@ -345,7 +345,7 @@
 
       
       <!-- 系统信息 -->
-      <el-tab-pane label="系统信息" name="info">
+      <el-tab-pane v-if="false" label="系统信息" name="info">
         <el-row :gutter="20">
           <el-col :span="12">
             <el-card shadow="hover">
@@ -595,7 +595,7 @@ import { systemAPI, userAPI, tenantAPI, projectManagementAPI } from '@/api'
 /**
  * 当前激活的标签页
  */
-const activeTab = ref('system')
+const activeTab = ref('users')
 const currentUserInfo = ref(JSON.parse(localStorage.getItem('userInfo') || '{}'))
 const isSuperAdmin = computed(() => currentUserInfo.value?.role === 'admin')
 const manageableRoleOptions = computed(() => {
@@ -1347,8 +1347,8 @@ const availablePermissions = [
   },
   {
     value: 'system-settings',
-    label: '系统设置',
-    description: '系统配置和管理',
+    label: '用户管理',
+    description: '管理系统用户和页面权限',
     icon: 'Setting'
   }
 ]

@@ -3,40 +3,17 @@
     <!-- 搜索和操作栏 -->
     <el-card class="search-card" shadow="never">
       <el-row :gutter="20">
-        <el-col :span="4">
+        <el-col :span="3">
           <el-input
             v-model="searchForm.keyword"
-            placeholder="请输入设备名称、设备ID或IMEI"
+            placeholder="关键字搜索"
             clearable
             @keyup.enter="handleSearch"
           >
-            <template #prefix>
-              <el-icon><Search /></el-icon>
-            </template>
+            <template #prefix><el-icon><Search /></el-icon></template>
           </el-input>
         </el-col>
-        <el-col :span="4">
-          <el-select
-            v-model="searchForm.status"
-            placeholder="设备状态"
-            clearable
-          >
-            <el-option label="在线" value="online" />
-            <el-option label="离线" value="offline" />
-            <el-option label="故障" value="error" />
-          </el-select>
-        </el-col>
-        <el-col :span="4">
-          <el-select v-model="searchForm.type" placeholder="设备类型" clearable>
-            <el-option
-              v-for="deviceType in deviceTypeOptions"
-              :key="deviceType.id"
-              :label="deviceType.name"
-              :value="deviceType.id"
-            />
-          </el-select>
-        </el-col>
-        <el-col :span="4">
+        <el-col :span="3">
           <el-select
             v-model="searchForm.tenantId"
             placeholder="所属租户"
@@ -50,7 +27,29 @@
             />
           </el-select>
         </el-col>
-        <el-col :span="8">
+        <el-col :span="3">
+          <el-select v-model="searchForm.buildingId" placeholder="所属建筑" clearable filterable>
+            <el-option v-for="building in filterBuildingOptions" :key="building.id" :label="building.name" :value="building.id" />
+          </el-select>
+        </el-col>
+        <el-col :span="3">
+          <el-select v-model="searchForm.projectGroupId" placeholder="所属分组" clearable filterable>
+            <el-option v-for="group in filterGroupOptions" :key="group.id" :label="group.name" :value="group.id" />
+          </el-select>
+        </el-col>
+        <el-col :span="3">
+          <el-select v-model="searchForm.type" placeholder="设备类型" clearable filterable>
+            <el-option v-for="deviceType in deviceTypeOptions" :key="deviceType.id" :label="deviceType.name" :value="deviceType.id" />
+          </el-select>
+        </el-col>
+        <el-col :span="3">
+          <el-select v-model="searchForm.status" placeholder="设备状态" clearable>
+            <el-option label="在线" value="online" />
+            <el-option label="离线" value="offline" />
+            <el-option label="故障" value="error" />
+          </el-select>
+        </el-col>
+        <el-col :span="6" class="search-actions">
           <el-button type="primary" @click="handleImmediateSearch">
             <el-icon><Search /></el-icon>
             搜索
@@ -69,6 +68,31 @@
 
     <!-- 设备列表 -->
     <el-card class="table-card" shadow="never">
+      <div class="batch-toolbar">
+        <div class="batch-toolbar__summary">
+          <span>批量维护</span>
+          <small>导出后可直接修改，再导入完成新增或更新</small>
+        </div>
+        <div class="batch-toolbar__actions">
+          <el-button @click="downloadImportTemplate">
+            <el-icon><Document /></el-icon>
+            下载模板
+          </el-button>
+          <el-button type="primary" plain @click="openImportDialog">
+            <el-icon><UploadFilled /></el-icon>
+            导入设备
+          </el-button>
+          <el-button
+            type="primary"
+            :loading="exporting"
+            @click="exportDevices"
+          >
+            <el-icon><Download /></el-icon>
+            导出设备
+          </el-button>
+        </div>
+      </div>
+
       <el-table
         :data="deviceList"
         v-loading="loading"
@@ -223,6 +247,73 @@
         />
       </div>
     </el-card>
+
+    <el-dialog
+      v-model="importDialogVisible"
+      title="批量导入设备"
+      width="620px"
+      @closed="resetImportDialog"
+    >
+      <div class="import-guide">
+        <p>
+          使用系统 ID、设备 ID 或 IMEI 匹配已有设备；匹配成功时更新，未匹配时新增。
+        </p>
+        <p>
+          空白单元格不会覆盖已有内容，需要清除的选填字段请填写“【清空】”。
+        </p>
+      </div>
+
+      <el-upload
+        ref="importUploadRef"
+        class="device-import-upload"
+        drag
+        :auto-upload="false"
+        :limit="1"
+        accept=".xlsx"
+        :on-change="handleImportFileChange"
+        :on-remove="handleImportFileRemove"
+      >
+        <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
+        <div class="el-upload__text">
+          将 Excel 文件拖到此处，或<em>点击选择</em>
+        </div>
+        <template #tip>
+          <div class="el-upload__tip">仅支持 .xlsx，单次最多 5000 台设备</div>
+        </template>
+      </el-upload>
+
+      <div v-if="importResult" class="import-result">
+        <el-alert
+          :type="importResult.failed ? 'warning' : 'success'"
+          :closable="false"
+          show-icon
+          :title="`新增 ${importResult.created} 台，更新 ${importResult.updated} 台，失败 ${importResult.failed} 行`"
+        />
+        <el-table
+          v-if="importResult.errors?.length"
+          :data="importResult.errors"
+          max-height="220"
+          size="small"
+        >
+          <el-table-column prop="row" label="行号" width="72" />
+          <el-table-column prop="device" label="设备" width="150" />
+          <el-table-column prop="message" label="失败原因" min-width="260" />
+        </el-table>
+      </div>
+
+      <template #footer>
+        <el-button @click="downloadImportTemplate">下载模板</el-button>
+        <el-button @click="importDialogVisible = false">关闭</el-button>
+        <el-button
+          type="primary"
+          :loading="importing"
+          :disabled="!importFile"
+          @click="submitDeviceImport"
+        >
+          开始导入
+        </el-button>
+      </template>
+    </el-dialog>
 
     <!-- 添加/编辑设备对话框 -->
     <el-dialog
@@ -741,6 +832,8 @@ import {
   Refresh,
   Plus,
   Edit,
+  Download,
+  UploadFilled,
 } from "@element-plus/icons-vue";
 import {
   deviceAPI,
@@ -758,9 +851,11 @@ import apiCache from "@/utils/cache";
  */
 const searchForm = reactive({
   keyword: "",
-  status: "",
-  type: "",
   tenantId: "",
+  buildingId: "",
+  projectGroupId: "",
+  type: "",
+  status: "",
 });
 
 /**
@@ -801,6 +896,13 @@ const pagination = reactive({
   pageSize: 10,
   total: 0,
 });
+
+const importDialogVisible = ref(false);
+const importUploadRef = ref(null);
+const importFile = ref(null);
+const importResult = ref(null);
+const importing = ref(false);
+const exporting = ref(false);
 
 /**
  * 对话框相关
@@ -902,6 +1004,25 @@ const formGroupOptions = computed(() =>
       (!deviceForm.projectBuildingId ||
         !item.building_id ||
         String(item.building_id) === String(deviceForm.projectBuildingId)),
+  ),
+);
+
+const filterBuildingOptions = computed(() =>
+  searchForm.tenantId
+    ? buildingOptions.value.filter(
+        (item) => String(item.tenant_id) === String(searchForm.tenantId),
+      )
+    : buildingOptions.value,
+);
+
+const filterGroupOptions = computed(() =>
+  projectGroupOptions.value.filter(
+    (item) =>
+      (!searchForm.tenantId ||
+        String(item.tenant_id) === String(searchForm.tenantId)) &&
+      (!searchForm.buildingId ||
+        !item.building_id ||
+        String(item.building_id) === String(searchForm.buildingId)),
   ),
 );
 
@@ -1192,6 +1313,8 @@ const getDeviceList = async () => {
       status: searchForm.status,
       type: searchForm.type,
       tenantId: searchForm.tenantId,
+      buildingId: searchForm.buildingId,
+      projectGroupId: searchForm.projectGroupId,
     };
 
     // 过滤空值参数
@@ -1219,6 +1342,7 @@ const getDeviceList = async () => {
       deviceList.value = deviceData.map((device) => ({
         id: device.id,
         name: device.name,
+        deviceId: device.device_id,
         imei: device.imei,
         tenantId: device.tenant_id,
         tenantName: device.tenant?.name || "未知租户",
@@ -1231,6 +1355,8 @@ const getDeviceList = async () => {
         device_category: device.device_category || "standalone", // 设备分类
         parent_device_id: device.parent_device_id, // 父设备ID
         parent_device_name: device.parent_device?.name || "", // 父设备名称
+        parent_device_device_id: device.parent_device?.device_id || "",
+        parent_device_imei: device.parent_device?.imei || "",
         sub_device_sequence: device.sub_device_sequence, // 子设备序列ID
         manufacturerCode: device.manufacturer_code || "",
         protocolConfigId: device.protocol_config_id || "",
@@ -1279,6 +1405,111 @@ const getDeviceList = async () => {
   }
 };
 
+const saveBlob = ({ blob, fileName }) => {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+};
+
+const downloadImportTemplate = async () => {
+  try {
+    saveBlob(await deviceAPI.downloadImportTemplate());
+  } catch (error) {
+    console.error("下载设备导入模板失败:", error);
+    ElMessage.error(error.message || "下载设备导入模板失败");
+  }
+};
+
+const exportDevices = async () => {
+  exporting.value = true;
+  try {
+    const params = {
+      keyword: searchForm.keyword,
+      status: searchForm.status,
+      type: searchForm.type,
+      tenantId: searchForm.tenantId,
+      buildingId: searchForm.buildingId,
+      projectGroupId: searchForm.projectGroupId,
+    };
+    Object.keys(params).forEach((key) => {
+      if (!params[key]) delete params[key];
+    });
+    saveBlob(await deviceAPI.exportDevices(params));
+    ElMessage.success("设备清单已导出");
+  } catch (error) {
+    console.error("导出设备失败:", error);
+    ElMessage.error(error.message || "导出设备失败");
+  } finally {
+    exporting.value = false;
+  }
+};
+
+const openImportDialog = () => {
+  importDialogVisible.value = true;
+};
+
+const handleImportFileChange = (uploadFile) => {
+  importResult.value = null;
+  if (!uploadFile.name?.toLowerCase().endsWith(".xlsx")) {
+    ElMessage.warning("请选择 .xlsx 格式的 Excel 文件");
+    importUploadRef.value?.clearFiles();
+    importFile.value = null;
+    return;
+  }
+  if (uploadFile.size > 10 * 1024 * 1024) {
+    ElMessage.warning("Excel 文件不能超过 10 MB");
+    importUploadRef.value?.clearFiles();
+    importFile.value = null;
+    return;
+  }
+  importFile.value = uploadFile.raw;
+};
+
+const handleImportFileRemove = () => {
+  importFile.value = null;
+  importResult.value = null;
+};
+
+const resetImportDialog = () => {
+  importUploadRef.value?.clearFiles();
+  importFile.value = null;
+  importResult.value = null;
+  importing.value = false;
+};
+
+const submitDeviceImport = async () => {
+  if (!importFile.value) return;
+  importing.value = true;
+  try {
+    const formData = new FormData();
+    formData.append("file", importFile.value);
+    const response = await deviceAPI.importDevices(formData);
+    importResult.value = response.data || null;
+
+    if (response.data?.created || response.data?.updated) {
+      apiCache.clear("devices");
+      pagination.currentPage = 1;
+      await getDeviceList();
+    }
+
+    if (response.success) {
+      ElMessage.success(response.message || "设备导入完成");
+    } else {
+      ElMessage.warning(response.message || "导入文件未产生有效变更");
+    }
+  } catch (error) {
+    console.error("批量导入设备失败:", error);
+    ElMessage.error(error.message || "批量导入设备失败");
+  } finally {
+    importing.value = false;
+  }
+};
+
 /**
  * 防抖搜索函数
  */
@@ -1312,9 +1543,11 @@ const handleImmediateSearch = () => {
 const resetSearch = () => {
   Object.assign(searchForm, {
     keyword: "",
-    status: "",
-    type: "",
     tenantId: "",
+    buildingId: "",
+    projectGroupId: "",
+    type: "",
+    status: "",
   });
   // 清除缓存
   apiCache.clear("devices");
@@ -1327,9 +1560,11 @@ const resetSearch = () => {
 watch(
   () => [
     searchForm.keyword,
-    searchForm.status,
-    searchForm.type,
     searchForm.tenantId,
+    searchForm.buildingId,
+    searchForm.projectGroupId,
+    searchForm.type,
+    searchForm.status,
   ],
   () => {
     // 清除相关缓存
@@ -1337,6 +1572,42 @@ watch(
     handleSearch();
   },
   { deep: true },
+);
+
+watch(
+  () => searchForm.tenantId,
+  () => {
+    if (
+      searchForm.buildingId &&
+      !filterBuildingOptions.value.some(
+        (item) => String(item.id) === String(searchForm.buildingId),
+      )
+    ) {
+      searchForm.buildingId = "";
+    }
+    if (
+      searchForm.projectGroupId &&
+      !filterGroupOptions.value.some(
+        (item) => String(item.id) === String(searchForm.projectGroupId),
+      )
+    ) {
+      searchForm.projectGroupId = "";
+    }
+  },
+);
+
+watch(
+  () => searchForm.buildingId,
+  () => {
+    if (
+      searchForm.projectGroupId &&
+      !filterGroupOptions.value.some(
+        (item) => String(item.id) === String(searchForm.projectGroupId),
+      )
+    ) {
+      searchForm.projectGroupId = "";
+    }
+  },
 );
 
 /**
@@ -1524,7 +1795,7 @@ const loadDeviceLogs = async () => {
           ? new Date(log.timestamp).toLocaleString("zh-CN")
           : "未知时间",
         level: log.level || "info",
-        type: getLogTypeFromMessage(log.message),
+        type: getLogTypeFromMessage(log.message, log.data?.messageType),
         message: log.message || "无消息内容",
         data: log.data,
         source: log.data?.source || log.source || "system",
@@ -1566,7 +1837,12 @@ const loadDeviceLogs = async () => {
 /**
  * 从消息内容推断日志类型
  */
-const getLogTypeFromMessage = (message) => {
+const getLogTypeFromMessage = (message, messageType = "") => {
+  const normalizedType = String(messageType).toLowerCase();
+  if (normalizedType.includes("command")) return "command";
+  if (normalizedType.includes("heartbeat")) return "heartbeat";
+  if (normalizedType.includes("error")) return "error";
+  if (normalizedType && normalizedType !== "info") return "data";
   if (!message) return "info";
 
   const msg = message.toLowerCase();
@@ -1575,10 +1851,10 @@ const getLogTypeFromMessage = (message) => {
   if (msg.includes("下线") || msg.includes("离线") || msg.includes("offline"))
     return "offline";
   if (msg.includes("心跳") || msg.includes("heartbeat")) return "heartbeat";
-  if (msg.includes("数据") || msg.includes("data")) return "data";
   if (msg.includes("命令") || msg.includes("command")) return "command";
   if (msg.includes("错误") || msg.includes("error") || msg.includes("失败"))
     return "error";
+  if (msg.includes("数据") || msg.includes("data")) return "data";
 
   return "info";
 };
@@ -1646,6 +1922,72 @@ const formatLogData = (data) => {
 /**
  * 打开设备数据传输对话框
  */
+const getCommunicationIdentity = (device) => {
+  if (device?.device_category === "sub_device") {
+    return (
+      device.parent_device_imei ||
+      device.parent_device_device_id ||
+      ""
+    );
+  }
+  return device?.imei || device?.deviceId || "";
+};
+
+const renderDebugTopic = (template, device, manufacturerCode) => {
+  const communicationIdentity = getCommunicationIdentity(device);
+  const communicationDeviceId =
+    device?.device_category === "sub_device"
+      ? device.parent_device_device_id || communicationIdentity
+      : device?.deviceId || communicationIdentity;
+  return String(template || "")
+    .replace(/\{imei\}|\{IMEI\}/g, communicationIdentity)
+    .replace(/\{deviceId\}|\{device_id\}/g, communicationDeviceId)
+    .replace(
+      /\{manufacturerCode\}|\{manufacturer\}|\{code\}/g,
+      manufacturerCode,
+    );
+};
+
+const buildDebugTopics = (device, manufacturer) => {
+  const manufacturerCode = device.manufacturerCode;
+  const communicationIdentity = getCommunicationIdentity(device);
+  const mqttConfig = manufacturer.mqttConfig || {};
+  const subscriptionType = mqttConfig.subscriptionType || "middle";
+
+  if (subscriptionType === "custom") {
+    const subscribeTemplate =
+      mqttConfig.subscribeTopic || mqttConfig.subscribeTopics?.[0]?.topic;
+    const publishTemplate =
+      mqttConfig.publishTopic || mqttConfig.publishTopics?.[0]?.topic;
+    return {
+      publishTopic: renderDebugTopic(
+        publishTemplate ||
+          `zhhl/${manufacturerCode}/{imei}/publish`,
+        device,
+        manufacturerCode,
+      ),
+      subscribeTopic: renderDebugTopic(
+        subscribeTemplate ||
+          `zhhl/${manufacturerCode}/{imei}/subscribe`,
+        device,
+        manufacturerCode,
+      ),
+    };
+  }
+
+  if (subscriptionType === "end" || subscriptionType === "imei_last") {
+    return {
+      publishTopic: `zhhl/${manufacturerCode}/publish/${communicationIdentity}`,
+      subscribeTopic: `zhhl/${manufacturerCode}/subscribe/${communicationIdentity}`,
+    };
+  }
+
+  return {
+    publishTopic: `zhhl/${manufacturerCode}/${communicationIdentity}/publish`,
+    subscribeTopic: `zhhl/${manufacturerCode}/${communicationIdentity}/subscribe`,
+  };
+};
+
 const openDebugDialog = async (row) => {
   debugDevice.value = row;
   debugDialogVisible.value = true;
@@ -1681,21 +2023,15 @@ const openDebugDialog = async (row) => {
     );
     if (manufacturerResponse.success && manufacturerResponse.data) {
       const manufacturer = manufacturerResponse.data;
-      const subscriptionType =
-        manufacturer.mqttConfig?.subscriptionType || "middle";
-
-      let publishTopic, subscribeTopic;
-      if (subscriptionType === "middle") {
-        // IMEI在中间：zhhl/{厂商编号}/{IMEI}/publish
-        publishTopic = `zhhl/${row.manufacturerCode}/${row.imei}/publish`;
-        subscribeTopic = `zhhl/${row.manufacturerCode}/${row.imei}/subscribe`;
-      } else {
-        // IMEI在最后：zhhl/{厂商编号}/publish/{IMEI}
-        publishTopic = `zhhl/${row.manufacturerCode}/publish/${row.imei}`;
-        subscribeTopic = `zhhl/${row.manufacturerCode}/subscribe/${row.imei}`;
-      }
+      const { publishTopic, subscribeTopic } = buildDebugTopics(
+        row,
+        manufacturer,
+      );
 
       receivedData.value += `[${timestamp}] 使用厂商配置的MQTT主题格式\n`;
+      if (row.device_category === "sub_device") {
+        receivedData.value += `[${timestamp}] 子设备通过上级网关 ${getCommunicationIdentity(row)} 通信\n`;
+      }
       receivedData.value += `[${timestamp}] 发布主题: ${publishTopic}\n`;
       receivedData.value += `[${timestamp}] 订阅主题: ${subscribeTopic}\n`;
     } else {
@@ -1756,19 +2092,13 @@ const sendDataToDevice = async () => {
 
     if (manufacturerResponse.success && manufacturerResponse.data) {
       const manufacturer = manufacturerResponse.data;
-      const subscriptionType =
-        manufacturer.mqttConfig?.subscriptionType || "middle";
-
-      if (subscriptionType === "middle") {
-        // IMEI在中间：zhhl/{厂商编号}/{IMEI}/subscribe
-        subscribeTopic = `zhhl/${debugDevice.value.manufacturerCode}/${debugDevice.value.imei}/subscribe`;
-      } else {
-        // IMEI在最后：zhhl/{厂商编号}/subscribe/{IMEI}
-        subscribeTopic = `zhhl/${debugDevice.value.manufacturerCode}/subscribe/${debugDevice.value.imei}`;
-      }
+      subscribeTopic = buildDebugTopics(
+        debugDevice.value,
+        manufacturer,
+      ).subscribeTopic;
     } else {
       // 使用默认格式
-      subscribeTopic = `zhhl/${debugDevice.value.manufacturerCode}/${debugDevice.value.imei}/subscribe`;
+      subscribeTopic = `zhhl/${debugDevice.value.manufacturerCode}/${getCommunicationIdentity(debugDevice.value)}/subscribe`;
     }
 
     // 调用设备命令API，传入MQTT主题信息
@@ -2682,16 +3012,90 @@ onUnmounted(() => {
     .text-right {
       text-align: right;
     }
+
+    .search-actions {
+      display: flex;
+      justify-content: flex-end;
+      align-items: center;
+      gap: 8px;
+      white-space: nowrap;
+
+      :deep(.el-button + .el-button) {
+        margin-left: 0;
+      }
+    }
   }
 
   .table-card {
     overflow: hidden;
+
+    .batch-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 16px;
+      padding-bottom: 14px;
+      border-bottom: 1px solid var(--border-light);
+    }
+
+    .batch-toolbar__summary {
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+
+      span {
+        color: var(--text-primary);
+        font-weight: 600;
+      }
+
+      small {
+        color: var(--text-secondary);
+      }
+    }
+
+    .batch-toolbar__actions {
+      display: flex;
+      flex-shrink: 0;
+      gap: 8px;
+
+      :deep(.el-button + .el-button) {
+        margin-left: 0;
+      }
+    }
 
     .pagination-container {
       margin-top: 20px;
       display: flex;
       justify-content: flex-end;
     }
+  }
+
+  .import-guide {
+    margin-bottom: 16px;
+    padding: 12px 14px;
+    border-left: 3px solid var(--primary-color);
+    background: var(--fill-lighter);
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1.7;
+
+    p {
+      margin: 0;
+    }
+  }
+
+  .device-import-upload {
+    :deep(.el-upload),
+    :deep(.el-upload-dragger) {
+      width: 100%;
+    }
+  }
+
+  .import-result {
+    display: grid;
+    gap: 12px;
+    margin-top: 18px;
   }
 
   // 日志相关样式
@@ -2925,11 +3329,38 @@ onUnmounted(() => {
       :deep(.el-select) {
         width: 100%;
       }
+
+      .search-actions {
+        justify-content: flex-start;
+        flex-wrap: wrap;
+        white-space: normal;
+      }
     }
 
     .table-card {
       :deep(.el-card__body) {
         padding: 12px;
+      }
+
+      .batch-toolbar {
+        align-items: stretch;
+        flex-direction: column;
+      }
+
+      .batch-toolbar__summary {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 2px;
+      }
+
+      .batch-toolbar__actions {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+
+        :deep(.el-button) {
+          width: 100%;
+          padding-inline: 8px;
+        }
       }
 
       .pagination-container {

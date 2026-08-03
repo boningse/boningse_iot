@@ -1,19 +1,13 @@
 <template>
   <div class="protocol-config-management">
-    <div class="header">
-      <h2>协议配置管理</h2>
-      <el-button v-if="isAdmin" type="primary" @click="showAddDialog">添加协议配置</el-button>
-    </div>
-
-    <!-- 搜索和筛选 -->
-    <div class="search-section">
+    <el-card class="search-card" shadow="never">
       <el-row :gutter="20">
-        <el-col :span="6">
+        <el-col :span="5">
           <el-input
             v-model="searchKeyword"
-            placeholder="搜索协议名称或描述"
-            @input="handleSearch"
+            placeholder="请输入协议名称或描述"
             clearable
+            @keyup.enter="handleSearch"
           >
             <template #prefix>
               <el-icon><Search /></el-icon>
@@ -21,7 +15,7 @@
           </el-input>
         </el-col>
         <el-col :span="4">
-          <el-select v-model="filterManufacturer" placeholder="选择厂商" clearable @change="handleSearch">
+          <el-select v-model="filterManufacturer" placeholder="请选择厂商" clearable filterable>
             <el-option
               v-for="manufacturer in manufacturers"
               :key="manufacturer.code"
@@ -31,16 +25,31 @@
           </el-select>
         </el-col>
         <el-col :span="4">
-          <el-select v-model="filterStatus" placeholder="选择状态" clearable @change="handleSearch">
+          <el-select v-model="filterDeviceType" placeholder="请选择设备类型" clearable filterable>
+            <el-option
+              v-for="deviceType in deviceTypes"
+              :key="deviceType.id"
+              :label="deviceType.name"
+              :value="deviceType.name"
+            />
+          </el-select>
+        </el-col>
+        <el-col :span="3">
+          <el-select v-model="filterStatus" placeholder="协议状态" clearable>
             <el-option label="启用" value="active" />
             <el-option label="禁用" value="inactive" />
           </el-select>
         </el-col>
+        <el-col :span="8" class="search-actions">
+          <el-button type="primary" @click="handleSearch"><el-icon><Search /></el-icon>搜索</el-button>
+          <el-button @click="resetSearch"><el-icon><Refresh /></el-icon>重置</el-button>
+          <el-button v-if="isAdmin" type="primary" @click="showAddDialog"><el-icon><Plus /></el-icon>添加协议配置</el-button>
+        </el-col>
       </el-row>
-    </div>
+    </el-card>
 
-    <!-- 协议配置列表 -->
-    <el-table :data="protocolConfigs" v-loading="loading" stripe>
+    <el-card class="table-card" shadow="never">
+      <el-table :data="protocolConfigs" v-loading="loading" stripe style="width: 100%">
       <el-table-column prop="name" label="协议名称" width="150" />
       <el-table-column prop="version" label="版本" width="100" />
       <el-table-column label="厂商" width="120">
@@ -79,20 +88,20 @@
           <el-button v-if="isAdmin" size="small" type="danger" @click="deleteConfig(row)">删除</el-button>
         </template>
       </el-table-column>
-    </el-table>
+      </el-table>
 
-    <!-- 分页 -->
-    <div class="pagination">
-      <el-pagination
-        v-model:current-page="currentPage"
-        v-model:page-size="pageSize"
-        :total="total"
-        :page-sizes="[10, 20, 50, 100]"
-        layout="total, sizes, prev, pager, next, jumper"
-        @size-change="handleSizeChange"
-        @current-change="handleCurrentChange"
-      />
-    </div>
+      <div class="pagination-container">
+        <el-pagination
+          v-model:current-page="currentPage"
+          v-model:page-size="pageSize"
+          :total="total"
+          :page-sizes="[10, 20, 50, 100]"
+          layout="total, sizes, prev, pager, next, jumper"
+          @size-change="handleSizeChange"
+          @current-change="handleCurrentChange"
+        />
+      </div>
+    </el-card>
 
     <!-- 添加/编辑对话框 -->
     <el-dialog
@@ -578,7 +587,7 @@
 <script>
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Search } from '@element-plus/icons-vue'
+import { Search, Refresh, Plus } from '@element-plus/icons-vue'
 import protocolConfigAPI from '../api/protocolConfig.js'
 import { manufacturerAPI, deviceTypeAPI } from '../api/index.js'
 import { protocolTemplates, getProtocolTemplate } from '../config/protocolTemplates.js'
@@ -586,7 +595,9 @@ import { protocolTemplates, getProtocolTemplate } from '../config/protocolTempla
 export default {
   name: 'ProtocolConfigManagement',
   components: {
-    Search
+    Search,
+    Refresh,
+    Plus
   },
   setup() {
     // 响应式数据
@@ -598,6 +609,7 @@ export default {
     const pageSize = ref(10)
     const searchKeyword = ref('')
     const filterManufacturer = ref('')
+    const filterDeviceType = ref('')
     const filterStatus = ref('')
     const userInfo = ref(JSON.parse(localStorage.getItem('userInfo') || '{}'))
     const isAdmin = computed(() => userInfo.value?.role === 'admin')
@@ -664,6 +676,7 @@ export default {
           pageSize: pageSize.value,
           keyword: searchKeyword.value,
           manufacturerCode: filterManufacturer.value,
+          deviceType: filterDeviceType.value,
           status: filterStatus.value
         }
         
@@ -682,7 +695,7 @@ export default {
     // 获取厂商列表
     const getManufacturers = async () => {
       try {
-        const response = await manufacturerAPI.getManufacturers()
+        const response = await manufacturerAPI.getManufacturers({ pageSize: 100 })
         if (response.success) {
           // 后端返回的数据结构是 { data: { manufacturers: [...] } }
           manufacturers.value = response.data.manufacturers || response.data.list || response.data || []
@@ -710,6 +723,15 @@ export default {
     
     // 搜索处理
     const handleSearch = () => {
+      currentPage.value = 1
+      getProtocolConfigs()
+    }
+
+    const resetSearch = () => {
+      searchKeyword.value = ''
+      filterManufacturer.value = ''
+      filterDeviceType.value = ''
+      filterStatus.value = ''
       currentPage.value = 1
       getProtocolConfigs()
     }
@@ -1134,6 +1156,7 @@ export default {
       pageSize,
       searchKeyword,
       filterManufacturer,
+      filterDeviceType,
       filterStatus,
       isAdmin,
       protocolTemplates,
@@ -1153,6 +1176,7 @@ export default {
       getProtocolConfigs,
       getDeviceTypes,
       handleSearch,
+      resetSearch,
       handleSizeChange,
       handleCurrentChange,
       showAddDialog,
@@ -1187,30 +1211,19 @@ export default {
   color: var(--text-primary);
 }
 
-.header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+.search-card {
   margin-bottom: 20px;
-  min-height: 42px;
-}
-
-.header h2 {
-  margin: 0;
-  font-size: 22px;
-  font-weight: 650;
-}
-
-.search-section {
-  margin-bottom: 20px;
-  padding: 20px;
-  border: 1px solid var(--border-light);
   border-top: 2px solid var(--primary-color);
-  border-radius: 6px;
-  background: var(--surface-color);
 }
 
-.pagination {
+.search-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 12px;
+}
+
+.table-card .pagination-container {
   margin-top: 20px;
   display: flex;
   justify-content: flex-end;
@@ -1327,34 +1340,26 @@ export default {
 }
 
 @media (max-width: 768px) {
-  .header {
-    align-items: stretch;
-    flex-direction: column;
-    gap: 10px;
-  }
-
-  .header :deep(.el-button) {
-    width: 100%;
-  }
-
-  .search-section {
-    padding: 12px;
-  }
-
-  .search-section :deep(.el-row) {
+  .search-card :deep(.el-row) {
     row-gap: 10px;
   }
 
-  .search-section :deep(.el-col) {
+  .search-card :deep(.el-col) {
     max-width: 100%;
     flex: 0 0 100%;
   }
 
-  .search-section :deep(.el-select) {
+  .search-card :deep(.el-select),
+  .search-actions {
     width: 100%;
   }
 
-  .pagination {
+  .search-actions {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .table-card .pagination-container {
     justify-content: flex-start;
     overflow-x: auto;
   }

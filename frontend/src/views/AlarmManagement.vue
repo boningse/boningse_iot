@@ -1,13 +1,5 @@
 <template>
   <div class="alarm-page">
-    <header class="page-header">
-      <div>
-        <h1>告警管理</h1>
-        <p>四类控制设备的异常监测与处理闭环</p>
-      </div>
-      <el-button :icon="RefreshCw" :loading="loading" circle title="刷新告警" @click="refreshAll" />
-    </header>
-
     <section class="metric-strip" aria-label="告警概览">
       <button
         v-for="metric in metrics"
@@ -345,7 +337,6 @@ import {
   Eye,
   MessageSquareText,
   Plus,
-  RefreshCw,
   RotateCcw,
   Search,
   ShieldCheck,
@@ -357,6 +348,7 @@ import {
 } from "lucide-vue-next";
 import { alarmAPI, projectManagementAPI, tenantAPI } from "@/api";
 import { formatDateTime, getRelativeTime } from "@/utils/date";
+import websocketService from "@/utils/websocket";
 
 const moduleOptions = [
   { value: "switch", label: "开关控制" },
@@ -422,6 +414,7 @@ const buildings = ref([]);
 const groups = ref([]);
 const assignees = ref([]);
 let refreshTimer = null;
+let realtimeRefreshTimer = null;
 const photoObjectUrls = new Map();
 
 const filters = reactive({
@@ -524,6 +517,34 @@ const loadAlarms = async () => {
 
 const refreshAll = async () => {
   await Promise.all([loadAlarms(), loadSummary()]);
+};
+
+const handleWorkOrderUpdated = (payload = {}) => {
+  const alarmId = payload.alarm_id || payload.alarmId;
+  if (!alarmId) return;
+
+  const alarm = alarms.value.find((item) => String(item.id) === String(alarmId));
+  if (alarm) {
+    alarm.status = payload.status || alarm.status;
+    alarm.assigned_to = payload.assigned_to ?? alarm.assigned_to;
+    alarm.updated_at = payload.updated_at || alarm.updated_at;
+  }
+  if (currentAlarm.value && String(currentAlarm.value.id) === String(alarmId)) {
+    currentAlarm.value = {
+      ...currentAlarm.value,
+      status: payload.status || currentAlarm.value.status,
+      assigned_to: payload.assigned_to ?? currentAlarm.value.assigned_to,
+      updated_at: payload.updated_at || currentAlarm.value.updated_at,
+    };
+  }
+
+  window.clearTimeout(realtimeRefreshTimer);
+  realtimeRefreshTimer = window.setTimeout(async () => {
+    await refreshAll();
+    if (detailVisible.value && currentAlarm.value?.id === alarmId) {
+      await openDetail({ id: alarmId });
+    }
+  }, 150);
 };
 
 const loadOptions = async () => {
@@ -739,10 +760,15 @@ onMounted(async () => {
   await loadOptions();
   await refreshAll();
   if (route.query.alarmId) await openDetail({ id: route.query.alarmId });
+  websocketService.on("work_order_updated", handleWorkOrderUpdated);
+  websocketService.connect();
+  websocketService.subscribe(["work_order_updated"]);
   refreshTimer = window.setInterval(refreshAll, 30000);
 });
 onUnmounted(() => {
   window.clearInterval(refreshTimer);
+  window.clearTimeout(realtimeRefreshTimer);
+  websocketService.off("work_order_updated", handleWorkOrderUpdated);
   revokeAlarmPhotoUrls();
 });
 
@@ -762,25 +788,6 @@ watch(
   min-width: 0;
   padding: 22px 24px 30px;
   color: var(--text-primary);
-}
-
-.page-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 18px;
-
-  h1 {
-    margin: 0;
-    font-size: 26px;
-    font-weight: 680;
-    letter-spacing: 0;
-  }
-
-  p {
-    margin: 5px 0 0;
-    color: var(--text-secondary);
-  }
 }
 
 .metric-strip {
@@ -1162,7 +1169,6 @@ watch(
 
 @media (max-width: 600px) {
   .alarm-page { padding: 16px 12px 24px; }
-  .page-header h1 { font-size: 22px; }
   .metric-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .metric-item, .metric-item:nth-child(3) { min-height: 76px; border-right: 1px solid var(--border-light); }
   .metric-item:nth-child(even) { border-right: 0; }

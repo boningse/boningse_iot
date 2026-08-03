@@ -8,6 +8,13 @@ const FAN_CODES = Object.freeze({
   '\u81ea\u52a8': 0, '\u4f4e': 1, '\u4e2d': 2, '\u9ad8': 3
 });
 const FAN_NAMES = Object.freeze({ 0: 'auto', 1: 'low', 2: 'medium', 3: 'high' });
+const INFRARED_OUTPUT_MODE_CODES = Object.freeze({
+  intervention: 0, remote_intervention: 0, intrusive: 0, 0: 0,
+  parallel: 1, remote_parallel: 1, equal: 1, 1: 1,
+  '\u4ecb\u5165\u5f0f': 0, '\u4ecb\u5165\u5f0f\u8fd0\u884c': 0,
+  '\u5e73\u884c\u5f0f': 1, '\u5e73\u884c\u5f0f\u8fd0\u884c': 1
+});
+const INFRARED_OUTPUT_MODE_NAMES = Object.freeze({ 0: 'intervention', 1: 'parallel' });
 const UPLINK_FUNCTION_CODE = 0x41;
 const DOWNLINK_FUNCTION_CODE = 0x10;
 const UPLINK_DATA_LENGTHS = new Set([50, 52]);
@@ -38,6 +45,17 @@ function resolveTemperature(value, fallback = 24) {
     throw new Error('\u8bbe\u5b9a\u6e29\u5ea6\u5fc5\u987b\u572816-30\u2103\u4e4b\u95f4');
   }
   return Math.round(temperature * 10) / 10;
+}
+
+function resolveInfraredOutputMode(value, fallback = 0) {
+  if (value === undefined || value === null || value === '') return fallback;
+  const key = typeof value === 'string' ? value.trim().toLowerCase() : value;
+  if (Object.prototype.hasOwnProperty.call(INFRARED_OUTPUT_MODE_CODES, key)) {
+    return INFRARED_OUTPUT_MODE_CODES[key];
+  }
+  const code = Number(key);
+  if (code !== 0 && code !== 1) throw new Error('\u7ea2\u5916\u8f93\u51fa\u6a21\u5f0f\u53c2\u6570\u65e0\u6548');
+  return code;
 }
 
 function crc16Modbus(buffer) {
@@ -80,8 +98,43 @@ function buildDa51kdDownlinkFrame(state) {
   };
 }
 
-function buildDa51kdCommand(command, currentState = {}) {
+function resolveInfraredOutputModeRegister(commandConfig) {
+  const commands = Array.isArray(commandConfig?.commands) ? commandConfig.commands : [];
+  const command = commands.find((item) => item?.name === 'set_infrared_output_mode');
+  const register = Object.keys(command?.payload?.registers || {})[0];
+  const address = Number.parseInt(register, 0);
+  if (!Number.isInteger(address) || address < 0 || address > 0xffff) {
+    throw new Error('DA51KD协议未配置红外输出模式寄存器');
+  }
+  return address;
+}
+
+function buildDa51kdInfraredOutputModeFrame(modeValue, commandConfig) {
+  const mode = resolveInfraredOutputMode(modeValue, 0);
+  const register = resolveInfraredOutputModeRegister(commandConfig);
+  const payload = Buffer.alloc(9);
+  payload[0] = 0x01;
+  payload[1] = DOWNLINK_FUNCTION_CODE;
+  payload.writeUInt16BE(register, 2);
+  payload.writeUInt16BE(1, 4);
+  payload[6] = 2;
+  payload.writeUInt16BE(mode, 7);
+  const crc = crc16Modbus(payload);
+  const frame = Buffer.concat([payload, Buffer.from([crc & 0xff, (crc >>> 8) & 0xff])]);
+  return {
+    hex: frame.toString('hex').toUpperCase(),
+    base64: frame.toString('base64'),
+    state: {
+      infrared_output_mode: INFRARED_OUTPUT_MODE_NAMES[mode]
+    }
+  };
+}
+
+function buildDa51kdCommand(command, currentState = {}, commandConfig = {}) {
   if (command.action === 'set_strategy') throw new Error('DA51KD\u4e0d\u652f\u6301\u76f4\u63a5\u4e0b\u53d1\u7b56\u7565\u6570\u636e');
+  if (command.action === 'set_infrared_output_mode' || command.infrared_output_mode !== undefined || command.remote_mode !== undefined) {
+    return buildDa51kdInfraredOutputModeFrame(command.infrared_output_mode ?? command.remote_mode, commandConfig);
+  }
   const state = {
     power: resolvePower(currentState.power_status, 1),
     mode: resolveEnum(currentState.mode, MODE_CODES, 1, 5, 2, '\u6a21\u5f0f'),
@@ -107,6 +160,26 @@ function buildDa51kdCommand(command, currentState = {}) {
   }
   if (!hasControlValue) throw new Error('DA51KD\u63a7\u5236\u547d\u4ee4\u4e0d\u652f\u6301');
   return buildDa51kdDownlinkFrame(state);
+}
+
+function parseDa51kdWriteAck(payload) {
+  const base64 = typeof payload === 'string' ? payload : payload?.data;
+  if (!base64 || typeof base64 !== 'string') return null;
+
+  const frame = Buffer.from(base64.trim(), 'base64');
+  if (frame.length !== 8 || frame[0] !== 0x01 || frame[1] !== DOWNLINK_FUNCTION_CODE) {
+    return null;
+  }
+  const expectedCrc = crc16Modbus(frame.subarray(0, 6));
+  const actualCrc = frame[6] | (frame[7] << 8);
+  if (actualCrc !== expectedCrc) throw new Error('DA51KD控制应答CRC校验失败');
+
+  return {
+    acknowledged: true,
+    start_register: frame.readUInt16BE(2),
+    register_count: frame.readUInt16BE(4),
+    raw_hex: frame.toString('hex').toUpperCase()
+  };
 }
 
 function parseDa51kdUplink(payload) {
@@ -159,7 +232,9 @@ function parseDa51kdUplink(payload) {
 
 module.exports = {
   buildDa51kdDownlinkFrame,
+  buildDa51kdInfraredOutputModeFrame,
   buildDa51kdCommand,
+  parseDa51kdWriteAck,
   parseDa51kdUplink,
   crc16Modbus
 };
