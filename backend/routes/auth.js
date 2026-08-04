@@ -17,6 +17,9 @@ const {
 const logger = require('../utils/logger');
 
 const router = express.Router();
+const MINI_PROGRAM_CLIENT_TYPE = 'mini_program';
+const MINI_PROGRAM_SESSION_EXPIRES_IN = '30d';
+const isMiniProgramRequest = (req) => String(req.get('X-Client-Type') || '').toLowerCase() === MINI_PROGRAM_CLIENT_TYPE;
 
 // 登录速率限制
 const loginLimiter = rateLimit({
@@ -138,10 +141,17 @@ router.post('/login', loginLimiter, validateUserLogin, async (req, res) => {
       userPayload.tenant_id = user.tenant_id;
     }
 
+    if (isMiniProgramRequest(req)) {
+      userPayload.client_type = MINI_PROGRAM_CLIENT_TYPE;
+    }
+
     // 确保payload是普通对象
     const plainPayload = JSON.parse(JSON.stringify(userPayload));
-    const token = generateToken(plainPayload);
-    const refreshToken = generateRefreshToken(plainPayload);
+    const sessionExpiresIn = plainPayload.client_type === MINI_PROGRAM_CLIENT_TYPE
+      ? MINI_PROGRAM_SESSION_EXPIRES_IN
+      : undefined;
+    const token = generateToken(plainPayload, sessionExpiresIn);
+    const refreshToken = generateRefreshToken(plainPayload, sessionExpiresIn);
 
     logger.info('User logged in successfully', {
       userId: user.id,
@@ -340,8 +350,15 @@ router.post('/refresh', async (req, res) => {
       userPayload.tenant_id = user.tenant_id;
     }
     
+    if (decoded.client_type === MINI_PROGRAM_CLIENT_TYPE) {
+      userPayload.client_type = MINI_PROGRAM_CLIENT_TYPE;
+    }
+
     const plainPayload = JSON.parse(JSON.stringify(userPayload));
-    const newToken = generateToken(plainPayload);
+    const newToken = generateToken(
+      plainPayload,
+      plainPayload.client_type === MINI_PROGRAM_CLIENT_TYPE ? MINI_PROGRAM_SESSION_EXPIRES_IN : undefined
+    );
 
     res.json({
       success: true,
