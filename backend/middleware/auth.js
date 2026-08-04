@@ -597,11 +597,11 @@ const generateToken = (payload, expiresIn = process.env.JWT_EXPIRES_IN || '24h')
  * 生成刷新令牌
  * @param {Object} payload - 令牌载荷
  */
-const generateRefreshToken = (payload) => {
+const generateRefreshToken = (payload, expiresIn = process.env.JWT_REFRESH_EXPIRES_IN || '7d') => {
   return jwt.sign(
     payload,
     process.env.JWT_SECRET,
-    { expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d' }
+    { expiresIn }
   );
 };
 
