@@ -9,10 +9,10 @@
       "options": {
         "cwd": "${workspaceFolder}/frontend",
         "env": {
-          "BACKEND_PORT": "4003"
+          "BACKEND_PORT": "3003"
         }
       },
-      "args": ["--", "--port", "4000"],
+      "args": ["--", "--port", "3000"],
       "problemMatcher": {
         "owner": "custom",
         "pattern": {
@@ -28,7 +28,7 @@
     {
       "label": "Stop Frontend",
       "type": "shell",
-      "command": "npx kill-port 4000 || fuser -k 4000/tcp || true",
+      "command": "npx kill-port 3000 || fuser -k 3000/tcp || true",
       "presentation": {
         "reveal": "never"
       }

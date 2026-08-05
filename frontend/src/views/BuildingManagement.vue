@@ -31,14 +31,16 @@
               value="inactive" /></el-select
         ></el-col>
         <el-col :span="6"
-          ><el-button type="primary" :icon="Search" @click="loadBuildings"
-            >搜索</el-button
-          ><el-button :icon="Refresh" @click="resetFilters"
-            >重置</el-button
           ></el-col
         >
         <el-col :span="4" class="text-right"
-          ><el-button type="primary" :icon="Plus" @click="openDialog()"
+          >
+          <el-button type="primary" :icon="Search" @click="loadBuildings"
+            >搜索</el-button
+          ><el-button :icon="Refresh" @click="resetFilters"
+            >重置</el-button
+          >
+          <el-button type="primary" :icon="Plus" @click="openDialog()"
             >添加建筑</el-button
           ></el-col
         >

@@ -109,6 +109,7 @@
       :title="isEdit ? '编辑协议配置' : '添加协议配置'"
       width="80%"
       :before-close="handleDialogClose"
+      style="height:60vh;overflow:auto"
     >
       <el-form :model="formData" :rules="formRules" ref="formRef" label-width="120px">
         <el-form-item v-if="!isEdit" label="快速模板">

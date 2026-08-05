@@ -29,57 +29,59 @@
     <!-- 搜索和过滤区域 -->
     <div class="filter-section">
       <div class="filter-row">
-        <div class="search-input">
-          <el-input
-            v-model="searchKeyword"
-            placeholder="搜索设备名称..."
-            clearable
-            @input="handleSearch"
-          >
-            <template #prefix>
-              <el-icon><Search /></el-icon>
-            </template>
-          </el-input>
-        </div>
-        
-        <div class="filter-controls">
-          <el-select
-            v-if="isAdmin"
-            v-model="selectedTenant"
-            placeholder="所属租户"
-            clearable
-            filterable
-            @change="handleTenantFilter"
-            style="width: 150px"
-          >
-            <el-option label="全部租户" value="" />
-            <el-option
-              v-for="tenant in tenantList"
-              :key="tenant.id"
-              :label="tenant.name"
-              :value="tenant.id"
-            />
-          </el-select>
-          <el-select v-model="selectedBuilding" placeholder="所属建筑" clearable filterable @change="handleBuildingFilter" style="width: 150px">
-            <el-option label="全部建筑" value="" />
-            <el-option v-for="building in filteredBuildingOptions" :key="building.id" :label="building.name" :value="building.id" />
-          </el-select>
-          <el-select v-model="selectedProjectGroup" placeholder="所属分组" clearable filterable @change="handleGroupFilter" style="width: 150px">
-            <el-option label="全部分组" value="" />
-            <el-option v-for="group in filteredProjectGroupOptions" :key="group.id" :label="group.name" :value="group.id" />
-          </el-select>
-          <el-select
-            v-model="selectedStatus"
-            placeholder="设备状态"
-            clearable
-            @change="handleStatusFilter"
-            style="width: 120px"
-          >
-            <el-option label="全部状态" value="" />
-            <el-option label="运行中" value="running" />
-            <el-option label="待机" value="standby" />
-            <el-option label="离线" value="offline" />
-          </el-select>
+        <div style="display:flex;gap:15px">
+          <div class="search-input">
+            <el-input
+              v-model="searchKeyword"
+              placeholder="搜索设备名称..."
+              clearable
+              @input="handleSearch"
+            >
+              <template #prefix>
+                <el-icon><Search /></el-icon>
+              </template>
+            </el-input>
+          </div>
+
+          <div class="filter-controls">
+            <el-select
+              v-if="isAdmin"
+              v-model="selectedTenant"
+              placeholder="所属租户"
+              clearable
+              filterable
+              @change="handleTenantFilter"
+              style="width: 150px"
+            >
+              <el-option label="全部租户" value="" />
+              <el-option
+                v-for="tenant in tenantList"
+                :key="tenant.id"
+                :label="tenant.name"
+                :value="tenant.id"
+              />
+            </el-select>
+            <el-select v-model="selectedBuilding" placeholder="所属建筑" clearable filterable @change="handleBuildingFilter" style="width: 150px">
+              <el-option label="全部建筑" value="" />
+              <el-option v-for="building in filteredBuildingOptions" :key="building.id" :label="building.name" :value="building.id" />
+            </el-select>
+            <el-select v-model="selectedProjectGroup" placeholder="所属分组" clearable filterable @change="handleGroupFilter" style="width: 150px">
+              <el-option label="全部分组" value="" />
+              <el-option v-for="group in filteredProjectGroupOptions" :key="group.id" :label="group.name" :value="group.id" />
+            </el-select>
+            <el-select
+              v-model="selectedStatus"
+              placeholder="设备状态"
+              clearable
+              @change="handleStatusFilter"
+              style="width: 120px"
+            >
+              <el-option label="全部状态" value="" />
+              <el-option label="运行中" value="running" />
+              <el-option label="待机" value="standby" />
+              <el-option label="离线" value="offline" />
+            </el-select>
+          </div>
         </div>
         
         <div class="stats-info">
@@ -357,6 +359,7 @@
       v-model="showSceneDialog" 
       title="情景模式" 
       width="600px"
+      :close-on-click-modal="false"
     >
       <div class="scene-modes">
         <el-row :gutter="20">
@@ -529,6 +532,7 @@
       v-model="showScheduleDialog" 
       title="温控策略管理"
       width="1080px"
+      :close-on-click-modal="false"
     >
       <div class="schedule-container">
         <div class="strategy-guide">
@@ -957,25 +961,25 @@
                 </div>
               </template>
             </el-table-column>
-            <el-table-column prop="group" label="分组" width="100" sortable />
-            <el-table-column prop="location" label="位置" width="120" sortable />
-            <el-table-column prop="runtime_speed1" label="1档运行时间" width="120" sortable>
+            <el-table-column prop="group" label="分组" width="130" sortable />
+            <el-table-column prop="location" label="位置" width="130" sortable />
+            <el-table-column prop="runtime_speed1" label="1档运行时间" width="145" sortable>
               <template #default="{ row }">
                 <span class="runtime-text">{{ formatRuntime(row.runtime_speed1 || 0) }}</span>
               </template>
             </el-table-column>
-            <el-table-column prop="runtime_speed2" label="2档运行时间" width="120" sortable>
+            <el-table-column prop="runtime_speed2" label="2档运行时间" width="145" sortable>
               <template #default="{ row }">
                 <span class="runtime-text">{{ formatRuntime(row.runtime_speed2 || 0) }}</span>
               </template>
             </el-table-column>
-            <el-table-column prop="runtime_speed3" label="3档运行时间" width="120" sortable>
+            <el-table-column prop="runtime_speed3" label="3档运行时间" width="145" sortable>
               <template #default="{ row }">
                 <span class="runtime-text">{{ formatRuntime(row.runtime_speed3 || 0) }}</span>
               </template>
             </el-table-column>
-            <el-table-column prop="stat_date" label="统计日期" width="120" sortable />
-            <el-table-column label="操作" width="120" fixed="right">
+            <el-table-column prop="stat_date" label="统计日期" width="140" sortable />
+            <el-table-column label="操作" width="140" fixed="right">
               <template #default="{ row }">
                 <el-button type="primary" size="small" @click="viewDeviceDetail(row)">
                   详情
@@ -3387,6 +3391,7 @@ export default {
 .filter-row {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 20px;
   
   @media (max-width: 768px) {
@@ -3419,7 +3424,9 @@ export default {
     justify-content: space-between;
   }
 }
-
+.online-count {
+  color: #67c23a;
+}
 .stats-info {
   display: flex;
   gap: 20px;
@@ -4443,7 +4450,7 @@ export default {
 .stat-item-detail {
   display: flex;
   align-items: center;
-  padding: 15px;
+  /* padding: 8px; */
 }
 
 .stat-icon {
@@ -4993,11 +5000,16 @@ export default {
 .filter-row {
   gap: 10px;
 }
-
+.device-count, .online-count {
+  font-weight: 500;
+}
 .stats-info {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  flex-shrink: 0;
   color: var(--text-secondary);
-  font-size: 13px;
-  white-space: nowrap;
+  font-size: 12px;
 }
 
 .device-grid {

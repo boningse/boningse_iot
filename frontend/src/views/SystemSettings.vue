@@ -251,166 +251,6 @@
           </div>
         </el-card>
       </el-tab-pane>
-      
-      <!-- 安全设置 -->
-      <el-tab-pane v-if="false" label="安全设置" name="security">
-        <el-row :gutter="20">
-          <el-col :span="12">
-            <el-card shadow="hover">
-              <template #header>
-                <span>密码策略</span>
-              </template>
-              
-              <el-form :model="securityConfig" label-width="150px">
-                <el-form-item label="最小密码长度">
-                  <el-input-number
-                    v-model="securityConfig.minPasswordLength"
-                    :min="6"
-                    :max="20"
-                    style="width: 100%"
-                  />
-                </el-form-item>
-                
-                <el-form-item label="密码复杂度">
-                  <el-checkbox-group v-model="securityConfig.passwordComplexity">
-                    <el-checkbox label="uppercase">包含大写字母</el-checkbox>
-                    <el-checkbox label="lowercase">包含小写字母</el-checkbox>
-                    <el-checkbox label="numbers">包含数字</el-checkbox>
-                    <el-checkbox label="symbols">包含特殊字符</el-checkbox>
-                  </el-checkbox-group>
-                </el-form-item>
-                
-                <el-form-item label="密码有效期(天)">
-                  <el-input-number
-                    v-model="securityConfig.passwordExpireDays"
-                    :min="30"
-                    :max="365"
-                    style="width: 100%"
-                  />
-                </el-form-item>
-                
-                <el-form-item label="登录失败锁定">
-                  <el-switch v-model="securityConfig.loginLockEnabled" />
-                </el-form-item>
-                
-                <el-form-item label="最大失败次数" v-if="securityConfig.loginLockEnabled">
-                  <el-input-number
-                    v-model="securityConfig.maxLoginAttempts"
-                    :min="3"
-                    :max="10"
-                    style="width: 100%"
-                  />
-                </el-form-item>
-                
-                <el-form-item>
-                  <el-button type="primary" @click="saveSecurityConfig">
-                    保存安全设置
-                  </el-button>
-                </el-form-item>
-              </el-form>
-            </el-card>
-          </el-col>
-          
-          <el-col :span="12">
-            <el-card shadow="hover">
-              <template #header>
-                <span>系统日志</span>
-              </template>
-              
-              <el-table
-                :data="systemLogs"
-                style="width: 100%"
-                height="300"
-                v-loading="logLoading"
-                element-loading-text="加载中..."
-              >
-                <el-table-column prop="time" label="时间" width="180" />
-                <el-table-column prop="level" label="级别" width="100">
-                  <template #default="{ row }">
-                    <el-tag
-                      :type="row.level === 'error' ? 'danger' : row.level === 'warning' ? 'warning' : 'success'"
-                      size="small"
-                    >
-                      {{ row.level.toUpperCase() }}
-                    </el-tag>
-                  </template>
-                </el-table-column>
-                <el-table-column prop="message" label="消息" />
-              </el-table>
-            </el-card>
-          </el-col>
-        </el-row>
-      </el-tab-pane>
-      
-
-      
-      <!-- 系统信息 -->
-      <el-tab-pane v-if="false" label="系统信息" name="info">
-        <el-row :gutter="20">
-          <el-col :span="12">
-            <el-card shadow="hover">
-              <template #header>
-                <span>系统状态</span>
-              </template>
-              
-              <el-descriptions :column="1" border>
-                <el-descriptions-item label="系统运行时间">
-                  {{ systemInfo.uptime }}
-                </el-descriptions-item>
-                <el-descriptions-item label="CPU使用率">
-                  <el-progress :percentage="systemInfo.cpuUsage" :color="getProgressColor(systemInfo.cpuUsage)" />
-                </el-descriptions-item>
-                <el-descriptions-item label="内存使用率">
-                  <el-progress :percentage="systemInfo.memoryUsage" :color="getProgressColor(systemInfo.memoryUsage)" />
-                </el-descriptions-item>
-                <el-descriptions-item label="磁盘使用率">
-                  <el-progress :percentage="systemInfo.diskUsage" :color="getProgressColor(systemInfo.diskUsage)" />
-                </el-descriptions-item>
-                <el-descriptions-item label="网络状态">
-                  <el-tag :type="systemInfo.networkStatus === 'normal' ? 'success' : 'danger'">
-                    {{ systemInfo.networkStatus === 'normal' ? '正常' : '异常' }}
-                  </el-tag>
-                </el-descriptions-item>
-              </el-descriptions>
-            </el-card>
-          </el-col>
-          
-          <el-col :span="12">
-            <el-card shadow="hover">
-              <template #header>
-                <span>版本信息</span>
-              </template>
-              
-              <el-descriptions :column="1" border>
-                <el-descriptions-item label="系统版本">
-                  {{ versionInfo.systemVersion }}
-                </el-descriptions-item>
-                <el-descriptions-item label="数据库版本">
-                  {{ versionInfo.databaseVersion }}
-                </el-descriptions-item>
-                <el-descriptions-item label="Node.js版本">
-                  {{ versionInfo.nodeVersion }}
-                </el-descriptions-item>
-                <el-descriptions-item label="Vue版本">
-                  {{ versionInfo.vueVersion }}
-                </el-descriptions-item>
-                <el-descriptions-item label="最后更新">
-                  {{ versionInfo.lastUpdate }}
-                </el-descriptions-item>
-              </el-descriptions>
-              
-              <div style="margin-top: 20px;">
-                <el-button type="primary" @click="checkUpdate">
-                  检查更新
-                </el-button>
-                <el-button @click="exportSystemInfo">
-                  导出系统信息
-                </el-button>
-              </div>
-            </el-card>
-          </el-col>
-        </el-row>
-      </el-tab-pane>
     </el-tabs>
     
     <!-- 添加/编辑用户对话框 -->
@@ -930,28 +770,6 @@ const saveNotificationConfig = async () => {
 /**
  * 保存安全配置
  */
-const saveSecurityConfig = async () => {
-  try {
-    const securityData = {
-      min_password_length: securityConfig.minPasswordLength,
-      password_complexity: securityConfig.passwordComplexity,
-      password_expire_days: securityConfig.passwordExpireDays,
-      login_lock_enabled: securityConfig.loginLockEnabled,
-      max_login_attempts: securityConfig.maxLoginAttempts
-    }
-    
-    const response = await systemAPI.updateSecurityConfig(securityData)
-    
-    if (response.success) {
-      ElMessage.success('安全设置保存成功')
-    } else {
-      ElMessage.error(response.message || '保存失败')
-    }
-  } catch (error) {
-    console.error('保存安全配置失败:', error)
-    ElMessage.error('保存安全配置失败')
-  }
-}
 
 /**
  * 获取用户列表
@@ -1423,84 +1241,6 @@ const resetPermissionForm = () => {
   permissionSaving.value = false
 }
 
-/**
- * 获取系统日志
- */
-const getSystemLogs = async () => {
-  try {
-    logLoading.value = true
-    const response = await systemAPI.getLogs({
-      page: 1,
-      pageSize: 20
-    })
-    
-    if (response.success) {
-      systemLogs.value = response.data.logs.map(log => ({
-        time: formatDate(log.timestamp),
-        level: log.level,
-        message: log.message || `设备 ${log.device?.name || log.device?.imei} ${log.event_type}`
-      }))
-    } else {
-      ElMessage.error(response.message || '获取系统日志失败')
-    }
-  } catch (error) {
-    console.error('获取系统日志失败:', error)
-    ElMessage.error('获取系统日志失败')
-  } finally {
-    logLoading.value = false
-  }
-}
-
-/**
- * 获取系统信息
- */
-const getSystemInfo = async () => {
-  try {
-    const response = await systemAPI.getStats()
-    
-    if (response.success) {
-      const { system } = response.data
-      
-      // 格式化运行时间
-      const uptimeSeconds = system.uptime
-      const days = Math.floor(uptimeSeconds / (24 * 60 * 60))
-      const hours = Math.floor((uptimeSeconds % (24 * 60 * 60)) / (60 * 60))
-      const minutes = Math.floor((uptimeSeconds % (60 * 60)) / 60)
-      
-      Object.assign(systemInfo, {
-        uptime: `${days}天 ${hours}小时 ${minutes}分钟`,
-        cpuUsage: system.cpu.usage || 0,
-        memoryUsage: Math.round(parseFloat(system.memory.usage)),
-        diskUsage: system.disk.usage || 0,
-        networkStatus: 'normal'
-      })
-    }
-  } catch (error) {
-    console.error('获取系统信息失败:', error)
-  }
-}
-
-/**
- * 获取版本信息
- */
-const getVersionInfo = async () => {
-  try {
-    const response = await systemAPI.getInfo()
-    
-    if (response.success) {
-      const info = response.data
-      Object.assign(versionInfo, {
-        systemVersion: info.version,
-        databaseVersion: 'MySQL 8.0+',
-        nodeVersion: info.nodeVersion,
-        vueVersion: 'v3.3.4',
-        lastUpdate: formatDate(info.timestamp)
-      })
-    }
-  } catch (error) {
-    console.error('获取版本信息失败:', error)
-  }
-}
 
 
 
@@ -1566,50 +1306,11 @@ const getProgressColor = (percentage) => {
 /**
  * 检查更新
  */
-const checkUpdate = async () => {
-  try {
-    ElMessage.info('正在检查更新...')
-    
-    const response = await systemAPI.checkUpdate()
-    
-    if (response.success) {
-      if (response.data.hasUpdate) {
-        ElMessage.warning(`发现新版本 ${response.data.latestVersion}，请及时更新`)
-      } else {
-        ElMessage.success('当前已是最新版本')
-      }
-    } else {
-      ElMessage.error('检查更新失败')
-    }
-  } catch (error) {
-    console.error('检查更新失败:', error)
-    ElMessage.error('检查更新失败')
-  }
-}
 
 /**
  * 导出系统信息
  */
-const exportSystemInfo = () => {
-  const info = {
-    systemInfo,
-    versionInfo,
-    timestamp: new Date().toISOString()
-  }
-  
-  const blob = new Blob([JSON.stringify(info, null, 2)], {
-    type: 'application/json'
-  })
-  
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = 'system-info.json'
-  a.click()
-  URL.revokeObjectURL(url)
-  
-  ElMessage.success('系统信息导出成功')
-}
+
 
 /**
  * 组件挂载时加载配置
@@ -1640,35 +1341,12 @@ onMounted(async () => {
       })
     }
     
-    // 加载安全配置
-    const securityResponse = await systemAPI.getSecurityConfig()
-    if (securityResponse.success) {
-      Object.assign(securityConfig, {
-        minPasswordLength: securityResponse.data.min_password_length || securityConfig.minPasswordLength,
-        passwordComplexity: securityResponse.data.password_complexity || securityConfig.passwordComplexity,
-        passwordExpireDays: securityResponse.data.password_expire_days || securityConfig.passwordExpireDays,
-        loginLockEnabled: securityResponse.data.login_lock_enabled || securityConfig.loginLockEnabled,
-        maxLoginAttempts: securityResponse.data.max_login_attempts || securityConfig.maxLoginAttempts
-      })
-    }
-    
-
-    
     // 加载租户列表
     await getTenantList()
     await getProjectScopeOptions()
     
     // 加载用户列表
     await getUserList()
-    
-    // 获取系统日志
-    await getSystemLogs()
-    
-    // 获取系统信息
-    await getSystemInfo()
-    
-    // 获取版本信息
-    await getVersionInfo()
   } catch (error) {
     console.error('加载配置失败:', error)
   }

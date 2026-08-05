@@ -8,7 +8,7 @@
       "program": "${workspaceFolder}/backend/app.js",
       "cwd": "${workspaceFolder}/backend",
       "env": {
-        "PORT": "4003",
+        "PORT": "3003",
         "NODE_ENV": "development"
       },
       "console": "integratedTerminal",
@@ -18,7 +18,7 @@
       "type": "chrome",
       "request": "launch",
       "name": "调试前端 (Debug Frontend - Chrome)",
-      "url": "http://localhost:4000",
+      "url": "http://localhost:3000",
       "webRoot": "${workspaceFolder}/frontend",
       "preLaunchTask": "Start Frontend",
       "postDebugTask": "Stop Frontend"
@@ -27,7 +27,7 @@
       "type": "msedge",
       "request": "launch",
       "name": "调试前端 (Debug Frontend - Edge)",
-      "url": "http://localhost:4000",
+      "url": "http://localhost:3000",
       "webRoot": "${workspaceFolder}/frontend",
       "preLaunchTask": "Start Frontend",
       "postDebugTask": "Stop Frontend"

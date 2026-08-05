@@ -1,6 +1,6 @@
 {
   "name": "iot-device-management",
-  "version": "3.0.0",
+  "version": "3.0.1",
   "type": "module",
   "description": "物联网设备管理与配置系统",
   "main": "index.js",

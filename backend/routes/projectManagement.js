@@ -183,7 +183,7 @@ router.get('/groups', async (req, res) => {
       LEFT JOIN tenants t ON g.tenant_id = t.id
       LEFT JOIN project_buildings b ON g.building_id = b.id
       ${where}
-      ORDER BY g.created_at DESC
+      ORDER BY g.code DESC
     `, params);
 
     res.json({ success: true, data: result.rows });

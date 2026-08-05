@@ -29,6 +29,9 @@
           </el-select>
         </el-col>
         <el-col :span="6">
+
+        </el-col>
+        <el-col :span="4" class="text-right">
           <el-button type="primary" @click="handleSearch">
             <el-icon><Search /></el-icon>
             搜索
@@ -37,8 +40,6 @@
             <el-icon><Refresh /></el-icon>
             重置
           </el-button>
-        </el-col>
-        <el-col :span="4" class="text-right">
           <el-button type="primary" @click="showAddDialog">
             <el-icon><Plus /></el-icon>
             添加租户
@@ -55,28 +56,28 @@
         stripe
         style="width: 100%"
       >
-        <el-table-column prop="name" label="租户名称" width="150" />
-        <el-table-column prop="code" label="租户编码" width="120" />
-        <el-table-column prop="type" label="租户类型" width="100">
+        <el-table-column prop="name" label="租户名称" />
+        <el-table-column prop="code" label="租户编码"/>
+        <el-table-column prop="type" label="租户类型">
           <template #default="{ row }">
             <el-tag :type="getTypeTagType(row.type)">{{ getTypeLabel(row.type) }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="status" label="状态" width="80">
+        <el-table-column prop="status" label="状态">
           <template #default="{ row }">
             <el-tag :type="getStatusTagType(row.status)">{{ getStatusLabel(row.status) }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="deviceCount" label="设备数量" width="100">
+        <el-table-column prop="deviceCount" label="设备数量">
           <template #default="{ row }">
             <el-link type="primary" @click="viewDevices(row)">{{ row.deviceCount }}</el-link>
           </template>
         </el-table-column>
-        <el-table-column prop="contactPerson" label="联系人" width="120" />
-        <el-table-column prop="contactPhone" label="联系电话" width="140" />
-        <el-table-column prop="address" label="地址" width="200" show-overflow-tooltip />
-        <el-table-column prop="createTime" label="创建时间" width="180" />
-        <el-table-column label="操作" width="120" fixed="right">
+        <el-table-column prop="contactPerson" label="联系人"/>
+        <el-table-column prop="contactPhone" label="联系电话"/>
+        <el-table-column prop="address" label="地址" show-overflow-tooltip />
+        <el-table-column prop="createTime" label="创建时间"/>
+        <el-table-column label="操作"fixed="right">
           <template #default="{ row }">
             <div class="action-buttons">
               <el-button type="primary" size="small" circle @click="editTenant(row)" title="编辑">

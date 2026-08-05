@@ -1,22 +1,11 @@
 <template>
   <div class="air-conditioner-control">
     <div class="page-header">
-      <div class="page-title">
-        <h2>空调控制</h2>
-        <div class="summary">
-          <span>{{ devices.length }} 台分散空调</span
-          ><span>{{ onlineCount }} 在线</span
-          ><span>设备类型：{{ DEVICE_TYPE }}</span>
-        </div>
-      </div>
+      <h2>空调控制</h2>
       <div class="header-actions">
         <el-button :icon="Refresh" @click="loadDevices">刷新数据</el-button>
-        <el-button type="success" :icon="Setting" @click="sceneVisible = true"
-          >情景模式</el-button
-        >
-        <el-button type="warning" :icon="Setting" @click="openStrategy"
-          >策略管理</el-button
-        >
+        <el-button type="success" :icon="Setting" @click="sceneVisible = true">情景模式</el-button>
+        <el-button type="warning" :icon="Setting" @click="openStrategy">策略管理</el-button>
         <el-button
           type="primary"
           :icon="Plus"
@@ -1401,11 +1390,9 @@ onBeforeUnmount(disposeElectricalChart);
   align-items: center;
   justify-content: space-between;
   gap: 18px;
-  margin-bottom: 20px;
   padding: 20px;
-  background: var(--surface-color, #fff);
   border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
+  /* box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08); */
 }
 .page-header h2 {
   margin: 0 0 6px;
@@ -1432,6 +1419,7 @@ onBeforeUnmount(disposeElectricalChart);
   background: var(--surface-color, #fff);
   border-radius: 8px;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
+  border-top:2px solid var(--primary-color);
 }
 .filter-row {
   display: flex;
@@ -1471,8 +1459,9 @@ onBeforeUnmount(disposeElectricalChart);
   justify-content: flex-end;
   margin-top: 20px;
   padding: 14px 16px;
-  background: var(--surface-color, #fff);
-  border-radius: 8px;
+  border: 1px solid var(--border-light);;
+  background: var(--fill-lighter);
+  border-radius: 6px;
 }
 .air-card {
   min-height: 0;

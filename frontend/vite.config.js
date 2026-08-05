@@ -26,9 +26,14 @@ export default defineConfig({
     },
     proxy: {
       '/api': {
-        target: process.env.BACKEND_PORT ? `http://localhost:${process.env.BACKEND_PORT}` : 'http://localhost:3003',
+        target: process.env.BACKEND_PORT ? `http://127.0.0.1:${process.env.BACKEND_PORT}` : 'http://127.0.0.1:3003',
         changeOrigin: true,
         secure: false
+      },
+      '/ws': {
+        target: process.env.BACKEND_PORT ? `ws://127.0.0.1:${process.env.BACKEND_PORT}` : 'ws://127.0.0.1:3003',
+        ws: true,
+        changeOrigin: true
       }
     }
   },
