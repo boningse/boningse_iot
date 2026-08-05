@@ -6,7 +6,7 @@ const MessageProcessingService = require('./messageProcessingService');
 const { mqttLogger: logger } = require('../utils/logger');
 const { Pool } = require('pg');
 const { getPoolConfig } = require('../config/database');
-const { parseDa51kdUplink, parseDa51kdWriteAck } = require('../utils/da51kdProtocol');
+const { parseConfiguredUplink, parseConfiguredWriteAck } = require('../utils/configuredModbusProtocol');
 const { parseZqcSwitchStatus } = require('../utils/zqcSwitchProtocol');
 const telemetryStore = require('./telemetryStore');
 const alarmService = require('./alarmService');
@@ -4035,16 +4035,17 @@ class MqttService {
       const extractedData = {};
       const dataParsingConfig = protocolConfig.data_parsing_config;
 
-      if (dataParsingConfig?.format === 'mqtt_json_base64_modbus_rtu') {
-        const commandAck = parseDa51kdWriteAck(parsedData);
+      if (dataParsingConfig?.codec === 'configured_modbus_rtu') {
+        const commandAck = parseConfiguredWriteAck(parsedData, protocolConfig.command_config || {});
         if (commandAck) {
-          logger.debug('DA51KD控制命令已由设备确认', {
+          logger.debug('配置驱动的Modbus控制命令已由设备确认', {
             deviceId: device.id,
+            protocolConfigId: protocolConfig.id,
             ...commandAck
           });
           return true;
         }
-        parsedData = { ...parsedData, decoded: parseDa51kdUplink(parsedData) };
+        parsedData = { ...parsedData, decoded: parseConfiguredUplink(parsedData, dataParsingConfig) };
       }
 
       // 检查是否为温控器特殊响应格式（包含items和data数组）
@@ -4281,12 +4282,12 @@ class MqttService {
   async saveDeviceDataByProtocolConfig(device, extractedData, protocolConfig, topic) {
     try {
       const protocolDeviceType = String(protocolConfig.device_type || '').trim().toLowerCase();
-      const isAirConditionerProtocol = [
-        '分散空调控制器',
-        '空调控制器',
-        'air_conditioner',
-        'air-conditioner'
-      ].includes(protocolDeviceType);
+      const protocolModuleType = String(
+        protocolConfig.data_parsing_config?.module_type ||
+        protocolConfig.command_config?.module_type ||
+        ''
+      ).trim().toLowerCase();
+      const isAirConditionerProtocol = protocolModuleType === 'air_conditioner';
       const isSwitchProtocol = (
         device.is_switch === true && device.is_lighting !== true
       ) || [

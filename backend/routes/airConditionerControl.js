@@ -673,6 +673,7 @@ router.post('/:deviceId/control', authenticateToken, async (req, res) => {
     }
     const deviceResult = await pool.query(
       `SELECT acc.id as control_id, acc.tenant_id, d.id, d.imei, d.name, d.device_id, d.manufacturer_code,
+              d.protocol_config_id,
               status_data.power_status, status_data.mode, status_data.fan_speed,
               status_data.target_temperature, status_data.current_temperature, status_data.humidity
        FROM control_device_assignments acc
@@ -711,7 +712,10 @@ router.post('/:deviceId/control', authenticateToken, async (req, res) => {
         device_id: device.id,
         device_imei: device.imei,
         command,
-        ...(encodedCommand ? { protocol: 'DA51KD', encoded_hex: encodedCommand.hex } : {})
+        ...(encodedCommand ? {
+          protocol_command: encodedCommand.command_name,
+          encoded_hex: encodedCommand.hex
+        } : {})
       }
     });
   } catch (error) {

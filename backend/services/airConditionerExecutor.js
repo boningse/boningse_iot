@@ -1,21 +1,25 @@
 const mqttService = require('./mqttService');
 const telemetryStore = require('./telemetryStore');
 const db = require('../utils/database');
-const { buildDa51kdCommand } = require('../utils/da51kdProtocol');
+const { buildConfiguredCommand } = require('../utils/configuredModbusProtocol');
 
 const executeAirConditionerControl = async (device, command, userId = null) => {
-  const isDa51kd = String(device.manufacturer_code || '').trim().toUpperCase() === 'DA51KD';
   let mqttCommand = command;
   let encodedCommand = null;
+  let protocolName = null;
 
-  if (isDa51kd) {
+  if (device.protocol_config_id) {
     const protocolResult = await db.query(
-      'SELECT command_config FROM protocol_configs WHERE id = $1 LIMIT 1',
-      [device.protocol_config_id]
+      'SELECT name, command_config FROM protocol_configs WHERE id = $1 AND status = $2 LIMIT 1',
+      [device.protocol_config_id, 'active']
     );
-    const commandConfig = protocolResult.rows[0]?.command_config;
-    encodedCommand = buildDa51kdCommand(command, device, commandConfig);
-    mqttCommand = { data: encodedCommand.base64 };
+    const protocol = protocolResult.rows[0];
+    const commandConfig = protocol?.command_config;
+    if (commandConfig?.codec === 'configured_modbus_rtu') {
+      encodedCommand = buildConfiguredCommand(command, device, commandConfig);
+      mqttCommand = encodedCommand.mqtt_payload;
+      protocolName = protocol.name;
+    }
   }
 
   try {
@@ -27,7 +31,7 @@ const executeAirConditionerControl = async (device, command, userId = null) => {
       action: command.action || 'air_conditioner_control',
       command,
       encodedPayload: encodedCommand
-        ? { protocol: 'DA51KD', hex: encodedCommand.hex, mqtt_payload: mqttCommand }
+        ? { protocol: protocolName, command_name: encodedCommand.command_name, hex: encodedCommand.hex, mqtt_payload: mqttCommand }
         : mqttCommand,
       status: 'failed',
       errorMessage: error.message,
@@ -66,7 +70,7 @@ const executeAirConditionerControl = async (device, command, userId = null) => {
     source: 'control_command',
     rawPayload: {
       command,
-      ...(encodedCommand ? { protocol: 'DA51KD', hex: encodedCommand.hex } : {})
+      ...(encodedCommand ? { protocol: protocolName, command_name: encodedCommand.command_name, hex: encodedCommand.hex } : {})
     }
   });
   await telemetryStore.logControl({
@@ -75,7 +79,7 @@ const executeAirConditionerControl = async (device, command, userId = null) => {
     action: command.action || 'air_conditioner_control',
     command,
     encodedPayload: encodedCommand
-      ? { protocol: 'DA51KD', hex: encodedCommand.hex, mqtt_payload: mqttCommand }
+      ? { protocol: protocolName, command_name: encodedCommand.command_name, hex: encodedCommand.hex, mqtt_payload: mqttCommand }
       : mqttCommand,
     status: 'sent',
     userId
