@@ -112,11 +112,6 @@
       style="height:60vh;overflow:auto"
     >
       <el-form :model="formData" :rules="formRules" ref="formRef" label-width="120px">
-        <el-form-item v-if="!isEdit" label="快速模板">
-          <el-select v-model="selectedTemplateKey" placeholder="请选择控制设备模板" style="width: 100%" @change="applyProtocolTemplate">
-            <el-option v-for="template in protocolTemplates" :key="template.key" :label="`${template.title} · ${template.deviceType}`" :value="template.key" />
-          </el-select>
-        </el-form-item>
         <el-row :gutter="20">
           <el-col :span="12">
             <el-form-item label="协议名称" prop="name">
@@ -132,7 +127,7 @@
         <el-row :gutter="20">
           <el-col :span="8">
             <el-form-item label="协议类型" prop="protocol_type">
-              <el-select v-model="formData.protocol_type" placeholder="选择协议类型" style="width: 100%" @change="handleProtocolTypeChange">
+              <el-select v-model="formData.protocol_type" placeholder="选择协议类型" style="width: 100%">
                 <el-option label="JSON协议" value="json" />
                 <el-option label="Modbus协议" value="modbus" />
               </el-select>
@@ -188,356 +183,38 @@
         </el-row>
       </el-form>
 
-      <!-- 协议配置编辑器 -->
+      <!-- 协议运行配置：保存内容由后端直接用于解析与控制 -->
       <div class="config-editors">
-        <!-- JSON协议配置 -->
-        <div v-if="formData.protocol_type === 'json'">
-          <div class="editor-mode-bar">
-            <span>配置方式</span>
-            <el-radio-group v-model="editorMode">
-              <el-radio-button label="visual">可视化配置</el-radio-button>
-              <el-radio-button label="advanced">高级 JSON</el-radio-button>
-            </el-radio-group>
-          </div>
-          <el-tabs v-if="editorMode === 'visual'" v-model="visualTab">
-            <el-tab-pane label="数据字段" name="fields">
-              <div v-if="templateFields.length" class="field-mapping-panel">
-                <div class="mapping-title"><span>数据字段映射</span><el-button type="primary" size="small" @click="addTemplateField">添加字段</el-button></div>
-                <el-table :data="templateFields" size="small" border>
-                  <el-table-column label="参数名称" min-width="150"><template #default="{ row }"><el-input v-model="row.label" @input="syncTemplateFields" /></template></el-table-column>
-                  <el-table-column label="厂家上传字段" min-width="240"><template #default="{ row }"><el-input v-model="row.source" placeholder="例如 data.temperature" @input="syncTemplateFields" /></template></el-table-column>
-                  <el-table-column label="系统字段" min-width="180"><template #default="{ row }"><el-input v-model="row.target" placeholder="例如 current_temperature" @input="syncTemplateFields" /></template></el-table-column>
-                  <el-table-column label="数据类型" width="130"><template #default="{ row }"><el-select v-model="row.type" @change="syncTemplateFields"><el-option label="数字" value="number" /><el-option label="文本" value="string" /><el-option label="开关" value="boolean" /></el-select></template></el-table-column>
-                  <el-table-column label="单位" width="110"><template #default="{ row }"><el-input v-model="row.unit" @input="syncTemplateFields" /></template></el-table-column>
-                  <el-table-column label="缩放系数" width="150"><template #default="{ row }"><el-input-number v-model="row.scale" :precision="4" :step="0.1" @change="syncTemplateFields" /></template></el-table-column>
-                  <el-table-column label="操作" width="80" fixed="right"><template #default="{ $index }"><el-button type="danger" text @click="removeTemplateField($index)">删除</el-button></template></el-table-column>
-                </el-table>
-              </div>
-              <el-empty v-else description="请先选择快速模板" />
-            </el-tab-pane>
-            <el-tab-pane label="控制命令" name="commands">
-              <div v-if="templateCommands.length" class="field-mapping-panel">
-                <div class="mapping-title"><span>控制命令配置</span><el-button type="primary" size="small" @click="addTemplateCommand">添加命令</el-button></div>
-                <el-table :data="templateCommands" size="small" border>
-                  <el-table-column label="命令标识" min-width="150"><template #default="{ row }"><el-input v-model="row.name" @input="syncTemplateCommands" /></template></el-table-column>
-                  <el-table-column label="用途" min-width="160"><template #default="{ row }"><el-input v-model="row.description" @input="syncTemplateCommands" /></template></el-table-column>
-                  <el-table-column label="发布 Topic" min-width="250"><template #default="{ row }"><el-input v-model="row.topic" @input="syncTemplateCommands" /></template></el-table-column>
-                  <el-table-column label="动作类型" min-width="140"><template #default="{ row }"><el-input v-model="row.payload.action" placeholder="如 mode" @input="syncTemplateCommands" /></template></el-table-column>
-                  <el-table-column label="可选值" min-width="240"><template #default="{ row }"><el-input v-model="row.action_values" placeholder="如 0=送风；1=制热" @input="syncTemplateCommands" /></template></el-table-column>
-                  <el-table-column label="参数范围" min-width="180"><template #default="{ row }"><el-input v-model="row.action_range" placeholder="如 16-30，步长0.1" @input="syncTemplateCommands" /></template></el-table-column>
-                  <el-table-column label="操作" width="80" fixed="right"><template #default="{ $index }"><el-button type="danger" text @click="removeTemplateCommand($index)">删除</el-button></template></el-table-column>
-                </el-table>
-              </div>
-              <el-empty v-else description="请先选择快速模板" />
-            </el-tab-pane>
-          </el-tabs>
-          <el-tabs v-else v-model="activeTab">
-            <el-tab-pane label="数据解析配置" name="data_parsing">
-              <div class="editor-header">
-                <span>数据解析配置 (JSON格式)</span>
-                <el-button size="small" @click="loadTemplate('data_parsing')">加载JSON模板</el-button>
-              </div>
-              <el-input
-                v-model="formData.data_parsing_config"
-                type="textarea"
-                :rows="10"
-                placeholder="请输入JSON数据解析配置，例如：{&quot;temperature&quot;: &quot;$.data.temp&quot;, &quot;humidity&quot;: &quot;$.data.hum&quot;}"
-              />
-            </el-tab-pane>
-            <el-tab-pane label="命令配置" name="command">
-              <div class="editor-header">
-                <span>命令配置 (JSON格式)</span>
-                <el-button size="small" @click="loadTemplate('command')">加载JSON模板</el-button>
-              </div>
-              <el-input
-                v-model="formData.command_config"
-                type="textarea"
-                :rows="10"
-                placeholder="请输入JSON命令配置，例如：{&quot;turn_on&quot;: {&quot;action&quot;: &quot;control&quot;, &quot;value&quot;: 1}}"
-              />
-            </el-tab-pane>
-            <el-tab-pane label="验证规则" name="validation">
-              <div class="validation-rules-container">
-                <div class="validation-rules-header">
-                  <span>验证规则配置</span>
-                  <el-button type="primary" size="small" @click="addValidationRule">添加规则</el-button>
-                </div>
-              <div v-if="formData.validation_rules_list && formData.validation_rules_list.length > 0" class="validation-rules-list">
-                <div v-for="(rule, index) in formData.validation_rules_list" :key="index" class="validation-rule-item">
-                  <el-card shadow="never" class="rule-card">
-                    <template #header>
-                      <div class="rule-header">
-                        <span>规则 {{ index + 1 }}</span>
-                        <el-button type="danger" size="small" text @click="removeValidationRule(index)">删除</el-button>
-                      </div>
-                    </template>
-                    <el-row :gutter="16">
-                      <el-col :span="8">
-                        <el-form-item label="字段名称">
-                          <el-input v-model="rule.field" placeholder="请输入字段名称" />
-                        </el-form-item>
-                      </el-col>
-                      <el-col :span="8">
-                        <el-form-item label="验证类型">
-                          <el-select v-model="rule.type" placeholder="选择验证类型" style="width: 100%">
-                            <el-option label="必填" value="required" />
-                            <el-option label="数字" value="number" />
-                            <el-option label="字符串" value="string" />
-                            <el-option label="邮箱" value="email" />
-                            <el-option label="正则表达式" value="regex" />
-                            <el-option label="范围" value="range" />
-                            <el-option label="长度" value="length" />
-                          </el-select>
-                        </el-form-item>
-                      </el-col>
-                      <el-col :span="8">
-                        <el-form-item label="错误信息">
-                          <el-input v-model="rule.message" placeholder="请输入错误提示信息" />
-                        </el-form-item>
-                      </el-col>
-                    </el-row>
-                    <el-row :gutter="16" v-if="rule.type === 'regex'">
-                      <el-col :span="24">
-                        <el-form-item label="正则表达式">
-                          <el-input v-model="rule.pattern" placeholder="请输入正则表达式" />
-                        </el-form-item>
-                      </el-col>
-                    </el-row>
-                    <el-row :gutter="16" v-if="rule.type === 'range'">
-                      <el-col :span="12">
-                        <el-form-item label="最小值">
-                          <el-input-number v-model="rule.min" placeholder="最小值" style="width: 100%" />
-                        </el-form-item>
-                      </el-col>
-                      <el-col :span="12">
-                        <el-form-item label="最大值">
-                          <el-input-number v-model="rule.max" placeholder="最大值" style="width: 100%" />
-                        </el-form-item>
-                      </el-col>
-                    </el-row>
-                    <el-row :gutter="16" v-if="rule.type === 'length'">
-                      <el-col :span="12">
-                        <el-form-item label="最小长度">
-                          <el-input-number v-model="rule.minLength" placeholder="最小长度" style="width: 100%" />
-                        </el-form-item>
-                      </el-col>
-                      <el-col :span="12">
-                        <el-form-item label="最大长度">
-                          <el-input-number v-model="rule.maxLength" placeholder="最大长度" style="width: 100%" />
-                        </el-form-item>
-                      </el-col>
-                    </el-row>
-                  </el-card>
-                </div>
-              </div>
-              <div v-else class="no-rules">
-                <el-empty description="暂无验证规则，点击上方按钮添加" />
-              </div>
-            </div>
-          </el-tab-pane>
-        </el-tabs>
-      </div>
-
-      <!-- Modbus协议配置 -->
-      <div v-else-if="formData.protocol_type === 'modbus'">
+        <div class="json-config-notice">以下 JSON 为设备实际运行配置，保存后直接用于数据解析与设备控制。</div>
         <el-tabs v-model="activeTab">
-          <el-tab-pane label="寄存器配置" name="modbus_registers">
+          <el-tab-pane label="数据解析协议 JSON" name="data_parsing">
             <div class="editor-header">
-              <span>Modbus寄存器配置</span>
-              <el-button size="small" @click="loadTemplate('modbus_registers')">加载Modbus模板</el-button>
+              <span>数据解析协议</span>
+              <el-button size="small" @click="formatConfigJSON('data_parsing_config')">格式化 JSON</el-button>
             </div>
-            <div class="modbus-config-section">
-              <el-row :gutter="20">
-                <el-col :span="8">
-                  <el-form-item label="波特率">
-                    <el-select v-model="formData.modbus_config.baud_rate" style="width: 100%">
-                      <el-option label="9600" :value="9600" />
-                      <el-option label="19200" :value="19200" />
-                      <el-option label="38400" :value="38400" />
-                      <el-option label="57600" :value="57600" />
-                      <el-option label="115200" :value="115200" />
-                    </el-select>
-                  </el-form-item>
-                </el-col>
-                <el-col :span="8">
-                  <el-form-item label="数据位">
-                    <el-select v-model="formData.modbus_config.data_bits" style="width: 100%">
-                      <el-option label="7" :value="7" />
-                      <el-option label="8" :value="8" />
-                    </el-select>
-                  </el-form-item>
-                </el-col>
-                <el-col :span="8">
-                  <el-form-item label="停止位">
-                    <el-select v-model="formData.modbus_config.stop_bits" style="width: 100%">
-                      <el-option label="1" :value="1" />
-                      <el-option label="2" :value="2" />
-                    </el-select>
-                  </el-form-item>
-                </el-col>
-              </el-row>
-              <el-row :gutter="20">
-                <el-col :span="8">
-                  <el-form-item label="校验位">
-                    <el-select v-model="formData.modbus_config.parity" style="width: 100%">
-                      <el-option label="无" value="none" />
-                      <el-option label="奇校验" value="odd" />
-                      <el-option label="偶校验" value="even" />
-                    </el-select>
-                  </el-form-item>
-                </el-col>
-                <el-col :span="8">
-                  <el-form-item label="超时时间(ms)">
-                    <el-input-number v-model="formData.modbus_config.timeout" :min="100" :max="10000" style="width: 100%" />
-                  </el-form-item>
-                </el-col>
-              </el-row>
-            </div>
-            
-            <div class="modbus-registers-section">
-              <div class="section-header">
-                <span>寄存器映射配置</span>
-                <el-button type="primary" size="small" @click="addModbusRegister">添加寄存器</el-button>
-              </div>
-              <div v-if="formData.modbus_registers && formData.modbus_registers.length > 0" class="registers-list">
-                <div v-for="(register, index) in formData.modbus_registers" :key="index" class="register-item">
-                  <el-card shadow="never" class="register-card">
-                    <template #header>
-                      <div class="register-header">
-                        <span>寄存器 {{ index + 1 }}</span>
-                        <el-button type="danger" size="small" text @click="removeModbusRegister(index)">删除</el-button>
-                      </div>
-                    </template>
-                    <el-row :gutter="16">
-                      <el-col :span="6">
-                        <el-form-item label="数据名称">
-                          <el-input v-model="register.name" placeholder="如：temperature" />
-                        </el-form-item>
-                      </el-col>
-                      <el-col :span="6">
-                        <el-form-item label="功能码">
-                          <el-select v-model="register.function_code" style="width: 100%">
-                            <el-option label="01 - 读线圈" :value="1" />
-                            <el-option label="02 - 读离散输入" :value="2" />
-                            <el-option label="03 - 读保持寄存器" :value="3" />
-                            <el-option label="04 - 读输入寄存器" :value="4" />
-                            <el-option label="05 - 写单个线圈" :value="5" />
-                            <el-option label="06 - 写单个寄存器" :value="6" />
-                            <el-option label="15 - 写多个线圈" :value="15" />
-                            <el-option label="16 - 写多个寄存器" :value="16" />
-                          </el-select>
-                        </el-form-item>
-                      </el-col>
-                      <el-col :span="6">
-                        <el-form-item label="起始地址">
-                          <el-input-number v-model="register.address" :min="0" :max="65535" style="width: 100%" />
-                        </el-form-item>
-                      </el-col>
-                      <el-col :span="6">
-                        <el-form-item label="数量">
-                          <el-input-number v-model="register.count" :min="1" :max="125" style="width: 100%" />
-                        </el-form-item>
-                      </el-col>
-                    </el-row>
-                    <el-row :gutter="16">
-                      <el-col :span="8">
-                        <el-form-item label="数据类型">
-                          <el-select v-model="register.data_type" style="width: 100%">
-                            <el-option label="16位整数" value="int16" />
-                            <el-option label="32位整数" value="int32" />
-                            <el-option label="32位浮点" value="float32" />
-                            <el-option label="布尔值" value="boolean" />
-                            <el-option label="字符串" value="string" />
-                          </el-select>
-                        </el-form-item>
-                      </el-col>
-                      <el-col :span="8">
-                        <el-form-item label="字节序">
-                          <el-select v-model="register.byte_order" style="width: 100%">
-                            <el-option label="大端序(AB CD)" value="big" />
-                            <el-option label="小端序(BA DC)" value="little" />
-                            <el-option label="大端字序(CD AB)" value="big_word" />
-                            <el-option label="小端字序(DC BA)" value="little_word" />
-                          </el-select>
-                        </el-form-item>
-                      </el-col>
-                      <el-col :span="8">
-                        <el-form-item label="缩放因子">
-                          <el-input-number v-model="register.scale" :precision="4" style="width: 100%" />
-                        </el-form-item>
-                      </el-col>
-                    </el-row>
-                    <el-row :gutter="16">
-                      <el-col :span="12">
-                        <el-form-item label="单位">
-                          <el-input v-model="register.unit" placeholder="如：°C, %, V" />
-                        </el-form-item>
-                      </el-col>
-                      <el-col :span="12">
-                        <el-form-item label="描述">
-                          <el-input v-model="register.description" placeholder="寄存器描述" />
-                        </el-form-item>
-                      </el-col>
-                    </el-row>
-                  </el-card>
-                </div>
-              </div>
-              <div v-else class="no-registers">
-                <el-empty description="暂无寄存器配置，点击上方按钮添加" />
-              </div>
-            </div>
+            <el-input
+              v-model="formData.data_parsing_config"
+              type="textarea"
+              :rows="18"
+              spellcheck="false"
+              placeholder="请输入完整的数据解析协议 JSON"
+            />
           </el-tab-pane>
-          
-          <el-tab-pane label="MQTT映射" name="modbus_mqtt">
+          <el-tab-pane label="控制协议 JSON" name="command">
             <div class="editor-header">
-              <span>Modbus到MQTT的数据映射配置</span>
+              <span>控制协议</span>
+              <el-button size="small" @click="formatConfigJSON('command_config')">格式化 JSON</el-button>
             </div>
-            <el-form label-width="120px">
-              <el-form-item label="发布主题">
-                <el-input v-model="formData.modbus_config.mqtt_topic_prefix" placeholder="默认为所属设备的发布主题" />
-              </el-form-item>
-              <el-form-item label="数据格式">
-                <el-radio-group v-model="formData.modbus_config.data_format">
-                  <el-radio label="json">JSON格式</el-radio>
-                  <el-radio label="hex">Hex格式</el-radio>
-                </el-radio-group>
-              </el-form-item>
-              <el-form-item label="RTU格式">
-                <el-select v-model="formData.modbus_config.rtu_format" style="width: 200px" clearable>
-                  <el-option label="" value="" />
-                  <el-option label="标准RTU" value="standard" />
-                  <el-option label="扩展RTU" value="extended" />
-                  <el-option label="自定义RTU" value="custom" />
-                </el-select>
-                <div class="form-item-tip">选择Modbus RTU通信报文格式，默认为标准RTU</div>
-              </el-form-item>
-              <el-form-item label="轮询间隔">
-                <el-input-number 
-                  v-model="formData.modbus_config.polling_interval" 
-                  :min="1000" 
-                  :max="300000" 
-                  :step="1000"
-                  style="width: 200px" 
-                />
-                <span style="margin-left: 8px; color: #909399;">毫秒</span>
-                <div class="form-item-tip">设备按此间隔发布所有电表的采集指令，范围：1-300秒</div>
-              </el-form-item>
-              <el-form-item label="错误处理">
-                <el-checkbox v-model="formData.modbus_config.retry_on_error">通信错误时重试</el-checkbox>
-              </el-form-item>
-              <el-form-item label="重试次数" v-if="formData.modbus_config.retry_on_error">
-                <el-input-number v-model="formData.modbus_config.max_retries" :min="1" :max="10" style="width: 200px" />
-              </el-form-item>
-            </el-form>
+            <el-input
+              v-model="formData.command_config"
+              type="textarea"
+              :rows="18"
+              spellcheck="false"
+              placeholder="请输入完整的设备控制协议 JSON"
+            />
           </el-tab-pane>
         </el-tabs>
       </div>
-
-      <!-- 未选择协议类型时的提示 -->
-      <div v-else class="protocol-type-hint">
-        <el-empty description="请先选择协议类型" />
-      </div>
-    </div>
 
       <template #footer>
         <span class="dialog-footer">
@@ -575,9 +252,6 @@
             <el-tab-pane label="命令配置">
               <pre class="json-view">{{ formatJSON(viewData.command_config) }}</pre>
             </el-tab-pane>
-            <el-tab-pane label="验证规则">
-              <pre class="json-view">{{ formatJSON(viewData.validation_rules) }}</pre>
-            </el-tab-pane>
           </el-tabs>
         </div>
       </div>
@@ -591,7 +265,6 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Refresh, Plus } from '@element-plus/icons-vue'
 import protocolConfigAPI from '../api/protocolConfig.js'
 import { manufacturerAPI, deviceTypeAPI } from '../api/index.js'
-import { protocolTemplates, getProtocolTemplate } from '../config/protocolTemplates.js'
 
 export default {
   name: 'ProtocolConfigManagement',
@@ -621,11 +294,6 @@ export default {
     const isEdit = ref(false)
     const activeTab = ref('data_parsing')
     const viewData = ref(null)
-    const selectedTemplateKey = ref('')
-    const templateFields = ref([])
-    const templateCommands = ref([])
-    const editorMode = ref('visual')
-    const visualTab = ref('fields')
     
     // 表单数据
     const formData = reactive({
@@ -638,7 +306,6 @@ export default {
       data_parsing_config: '',
       command_config: '',
       validation_rules: '',
-      validation_rules_list: [],
       modbus_config: {
         baud_rate: 9600,
         data_bits: 8,
@@ -777,9 +444,6 @@ export default {
         validation_rules: typeof row.validation_rules === 'object' 
           ? JSON.stringify(row.validation_rules, null, 2) 
           : row.validation_rules || '',
-        validation_rules_list: Array.isArray(row.validation_rules) 
-          ? [...row.validation_rules] 
-          : [],
         modbus_config: row.modbus_config || {
           baud_rate: 9600,
           data_bits: 8,
@@ -795,7 +459,6 @@ export default {
         status: row.status,
         is_default: row.is_default
       })
-      hydrateVisualConfig()
       dialogVisible.value = true
     }
     
@@ -852,14 +515,6 @@ export default {
           }
         })
         
-        // 如果有验证规则列表，将其转换为validation_rules
-        if (data.validation_rules_list && data.validation_rules_list.length > 0) {
-          data.validation_rules = data.validation_rules_list
-        }
-        
-        // 删除临时字段
-        delete data.validation_rules_list
-        
         let response
         if (isEdit.value) {
           response = await protocolConfigAPI.updateProtocolConfig(data.id, data)
@@ -880,208 +535,17 @@ export default {
       }
     }
     
-    // 协议类型变化处理
-    const handleProtocolTypeChange = (type) => {
-      // 切换协议类型时重置相关配置
-      if (type === 'json') {
-        activeTab.value = 'data_parsing'
-      } else if (type === 'modbus') {
-        activeTab.value = 'modbus_registers'
-        // 初始化Modbus配置
-        if (!formData.modbus_config.baud_rate) {
-          Object.assign(formData.modbus_config, {
-            baud_rate: 9600,
-            data_bits: 8,
-            stop_bits: 1,
-            parity: 'none',
-            timeout: 1000,
-            mqtt_topic_prefix: 'modbus/device',
-            data_format: 'json',
-            retry_on_error: true,
-            max_retries: 3
-          })
-        }
-      }
-    }
-
-    const syncTemplateFields = () => {
-      let config = { format: 'json', fields: [] }
+    const formatConfigJSON = (field) => {
       try {
-        config = JSON.parse(formData.data_parsing_config || '{}')
-      } catch {
-        // Visual mappings remain the source of truth while a template is active.
-      }
-      config.format = 'json'
-      const fields = templateFields.value.map((item) => ({ ...item }))
-      const standardFields = Array.isArray(config.fields) && config.fields.every((item) => item.source && item.target)
-      if (standardFields || !config.fields) config.fields = fields
-      config.visual_config = { ...(config.visual_config || {}), fields }
-      formData.data_parsing_config = JSON.stringify(config, null, 2)
-    }
-
-    const syncTemplateCommands = () => {
-      let config = {}
-      try { config = JSON.parse(formData.command_config || '{}') } catch { config = {} }
-      const commands = templateCommands.value.map((item) => ({ ...item, payload: { ...item.payload } }))
-      if (Array.isArray(config.commands) || !config.commands) config.commands = commands
-      config.visual_config = { ...(config.visual_config || {}), commands }
-      formData.command_config = JSON.stringify(config, null, 2)
-    }
-
-    const addTemplateField = () => {
-      templateFields.value.push({ name: 'custom_field', label: '自定义字段', source: '', target: 'custom_field', type: 'number', unit: '', scale: 1, description: '自定义字段' })
-      syncTemplateFields()
-    }
-
-    const removeTemplateField = (index) => {
-      templateFields.value.splice(index, 1)
-      syncTemplateFields()
-    }
-
-    const addTemplateCommand = () => {
-      templateCommands.value.push({ name: 'custom_command', description: '自定义命令', topic: '{publish_topic}', payload: { action: 'custom' }, action_values: '', action_range: '' })
-      syncTemplateCommands()
-    }
-
-    const removeTemplateCommand = (index) => {
-      templateCommands.value.splice(index, 1)
-      syncTemplateCommands()
-    }
-
-    const hydrateVisualConfig = () => {
-      try {
-        const parsing = JSON.parse(formData.data_parsing_config || '{}')
-        const fields = parsing.visual_config?.fields || parsing.fields
-        templateFields.value = Array.isArray(fields)
-          ? fields.map((item) => ({ label: item.label || item.description || item.name, source: item.source || item.path || item.field || item.name, target: item.target || item.name, scale: item.scale ?? 1, unit: item.unit || '', type: item.type === 'float' || item.type === 'integer' ? 'number' : (item.type || 'number'), ...item }))
-          : []
-      } catch {
-        templateFields.value = []
-      }
-      try {
-        const commands = JSON.parse(formData.command_config || '{}')
-        const commandList = commands.visual_config?.commands || commands.commands
-        templateCommands.value = Array.isArray(commandList)
-          ? commandList.map((item) => ({ ...item, action_values: item.action_values || '', action_range: item.action_range || '', payload: { action: '', ...(item.payload || {}) } }))
-          : []
-      } catch {
-        templateCommands.value = []
-      }
-    }
-
-    const applyProtocolTemplate = (key) => {
-      const template = getProtocolTemplate(key)
-      if (!template) return
-      templateFields.value = template.fields.map((item) => ({ ...item }))
-      templateCommands.value = template.commands.map((item) => ({ ...item, payload: { ...item.payload } }))
-      formData.protocol_type = 'json'
-      formData.device_type = template.deviceType
-      formData.name = `${template.title}协议`
-      formData.version = formData.version || '1.0'
-      formData.description = template.description
-      formData.data_parsing_config = JSON.stringify({ format: 'json', fields: templateFields.value }, null, 2)
-      formData.command_config = JSON.stringify({ commands: template.commands }, null, 2)
-      formData.validation_rules = JSON.stringify({ required_fields: ['device_id'], template: template.key }, null, 2)
-      activeTab.value = 'data_parsing'
-      editorMode.value = 'visual'
-      visualTab.value = 'fields'
-      ElMessage.success(`已载入${template.title}模板`)
-    }
-
-    // 加载模板
-    const loadTemplate = async (type) => {
-      try {
-        const response = await protocolConfigAPI.getTemplate()
-        if (response.success) {
-          const template = response.data
-          if (type === 'data_parsing') {
-            formData.data_parsing_config = JSON.stringify(template.data_parsing_config, null, 2)
-          } else if (type === 'command') {
-            formData.command_config = JSON.stringify(template.command_config, null, 2)
-          } else if (type === 'validation') {
-            formData.validation_rules = JSON.stringify(template.validation_rules, null, 2)
-          } else if (type === 'modbus_registers') {
-            // 加载智能电表Modbus寄存器模板
-            const electricMeterTemplate = [
-              { name: '总有功电能', function_code: 4, address: 0, count: 2, data_type: 'uint32', byte_order: 'big', scale: 0.01, unit: 'kWh', description: '总有功电能' },
-              { name: '正向有功电能', function_code: 4, address: 2, count: 2, data_type: 'uint32', byte_order: 'big', scale: 0.01, unit: 'kWh', description: '正向有功电能' },
-              { name: '反向有功电能', function_code: 4, address: 4, count: 2, data_type: 'uint32', byte_order: 'big', scale: 0.01, unit: 'kWh', description: '反向有功电能' },
-              { name: 'A相电流', function_code: 4, address: 6, count: 1, data_type: 'uint16', byte_order: 'big', scale: 0.01, unit: 'A', description: 'A相电流' },
-              { name: 'B相电流', function_code: 4, address: 7, count: 1, data_type: 'uint16', byte_order: 'big', scale: 0.01, unit: 'A', description: 'B相电流' },
-              { name: 'C相电流', function_code: 4, address: 8, count: 1, data_type: 'uint16', byte_order: 'big', scale: 0.01, unit: 'A', description: 'C相电流' },
-              { name: 'A相电压', function_code: 4, address: 9, count: 1, data_type: 'uint16', byte_order: 'big', scale: 0.1, unit: 'V', description: 'A相电压' },
-              { name: 'B相电压', function_code: 4, address: 10, count: 1, data_type: 'uint16', byte_order: 'big', scale: 0.1, unit: 'V', description: 'B相电压' },
-              { name: 'C相电压', function_code: 4, address: 11, count: 1, data_type: 'uint16', byte_order: 'big', scale: 0.1, unit: 'V', description: 'C相电压' },
-              { name: 'AB线电压', function_code: 4, address: 12, count: 1, data_type: 'uint16', byte_order: 'big', scale: 0.1, unit: 'V', description: 'AB线电压' },
-              { name: 'BC线电压', function_code: 4, address: 14, count: 1, data_type: 'uint16', byte_order: 'big', scale: 0.1, unit: 'V', description: 'BC线电压' },
-              { name: 'CA线电压', function_code: 4, address: 13, count: 1, data_type: 'uint16', byte_order: 'big', scale: 0.1, unit: 'V', description: 'CA线电压' },
-              { name: 'A相功率', function_code: 4, address: 15, count: 2, data_type: 'uint32', byte_order: 'big', scale: 0.001, unit: 'kW', description: 'A相功率' },
-              { name: 'B相功率', function_code: 4, address: 17, count: 2, data_type: 'uint32', byte_order: 'big', scale: 0.001, unit: 'kW', description: 'B相功率' },
-              { name: 'C相功率', function_code: 4, address: 19, count: 2, data_type: 'uint32', byte_order: 'big', scale: 0.001, unit: 'kW', description: 'C相功率' },
-              { name: 'ABC相总功率', function_code: 4, address: 21, count: 2, data_type: 'uint32', byte_order: 'big', scale: 0.001, unit: 'kW', description: 'ABC相总功率' },
-              { name: 'A相功率因数', function_code: 4, address: 23, count: 1, data_type: 'int16', byte_order: 'big', scale: 0.001, unit: '', description: 'A相功率因数' },
-              { name: 'B相功率因数', function_code: 4, address: 24, count: 1, data_type: 'int16', byte_order: 'big', scale: 0.001, unit: '', description: 'B相功率因数' },
-              { name: 'C相功率因数', function_code: 4, address: 25, count: 1, data_type: 'int16', byte_order: 'big', scale: 0.001, unit: '', description: 'C相功率因数' },
-              { name: 'ABC相总功率因数', function_code: 4, address: 26, count: 1, data_type: 'int16', byte_order: 'big', scale: 0.001, unit: '', description: 'ABC相总功率因数' },
-              { name: 'A相温度', function_code: 4, address: 27, count: 1, data_type: 'int16', byte_order: 'big', scale: 0.1, unit: '°C', description: 'A相温度' },
-              { name: 'B相温度', function_code: 4, address: 28, count: 1, data_type: 'int16', byte_order: 'big', scale: 0.1, unit: '°C', description: 'B相温度' },
-              { name: 'C相温度', function_code: 4, address: 29, count: 1, data_type: 'int16', byte_order: 'big', scale: 0.1, unit: '°C', description: 'C相温度' },
-              { name: 'frequency', function_code: 4, address: 30, count: 1, data_type: 'uint16', byte_order: 'big', scale: 0.01, unit: 'Hz', description: '频率' }
-            ]
-            formData.modbus_registers.push(...electricMeterTemplate)
-          }
-        }
+        formData[field] = JSON.stringify(JSON.parse(formData[field] || '{}'), null, 2)
+        ElMessage.success('JSON 格式正确')
       } catch (error) {
-        ElMessage.error('加载模板失败')
+        ElMessage.error(field === 'data_parsing_config' ? '数据解析协议 JSON 格式错误' : '控制协议 JSON 格式错误')
       }
-    }
-
-    // 添加Modbus寄存器
-    const addModbusRegister = () => {
-      formData.modbus_registers.push({
-        name: '',
-        function_code: 3,
-        address: 0,
-        count: 1,
-        data_type: 'int16',
-        byte_order: 'big',
-        scale: 1,
-        unit: '',
-        description: ''
-      })
-    }
-
-    // 删除Modbus寄存器
-    const removeModbusRegister = (index) => {
-      formData.modbus_registers.splice(index, 1)
-    }
-    
-    // 添加验证规则
-    const addValidationRule = () => {
-      formData.validation_rules_list.push({
-        field: '',
-        type: 'required',
-        message: '',
-        pattern: '',
-        min: null,
-        max: null,
-        minLength: null,
-        maxLength: null
-      })
-    }
-    
-    // 删除验证规则
-    const removeValidationRule = (index) => {
-      formData.validation_rules_list.splice(index, 1)
     }
     
     // 重置表单
     const resetForm = () => {
-      selectedTemplateKey.value = ''
-      templateFields.value = []
-      templateCommands.value = []
-      editorMode.value = 'visual'
-      visualTab.value = 'fields'
       Object.assign(formData, {
         name: '',
         version: '',
@@ -1092,7 +556,6 @@ export default {
         data_parsing_config: '',
         command_config: '',
         validation_rules: '',
-        validation_rules_list: [],
         modbus_config: {
           baud_rate: 9600,
           data_bits: 8,
@@ -1160,12 +623,6 @@ export default {
       filterDeviceType,
       filterStatus,
       isAdmin,
-      protocolTemplates,
-      selectedTemplateKey,
-      templateFields,
-      templateCommands,
-      editorMode,
-      visualTab,
       dialogVisible,
       viewDialogVisible,
       isEdit,
@@ -1185,19 +642,7 @@ export default {
       viewConfig,
       deleteConfig,
       saveConfig,
-      handleProtocolTypeChange,
-      applyProtocolTemplate,
-      syncTemplateFields,
-      syncTemplateCommands,
-      addTemplateField,
-      removeTemplateField,
-      addTemplateCommand,
-      removeTemplateCommand,
-      loadTemplate,
-      addValidationRule,
-      removeValidationRule,
-      addModbusRegister,
-      removeModbusRegister,
+      formatConfigJSON,
       handleDialogClose,
       formatDate,
       formatJSON
@@ -1232,6 +677,20 @@ export default {
 
 .config-editors {
   margin-top: 20px;
+}
+
+.json-config-notice {
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  color: var(--text-secondary);
+  background: var(--fill-lighter);
+  border-left: 3px solid var(--primary-color);
+  border-radius: 4px;
+}
+
+.config-editors :deep(textarea) {
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+  line-height: 1.55;
 }
 
 .field-mapping-panel {
