@@ -4283,6 +4283,7 @@ class MqttService {
       const protocolDeviceType = String(protocolConfig.device_type || '').trim().toLowerCase();
       const isAirConditionerProtocol = [
         '分散空调控制器',
+        '空调控制器',
         'air_conditioner',
         'air-conditioner'
       ].includes(protocolDeviceType);
