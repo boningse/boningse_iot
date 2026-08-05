@@ -46,11 +46,12 @@
             <el-icon><Refresh /></el-icon>
             重置
           </el-button>
-        </el-col>
           <el-button type="primary" @click="showAddDialog">
             <el-icon><Plus /></el-icon>
             添加厂商
           </el-button>
+        </el-col>
+
       </el-row>
     </el-card>
 

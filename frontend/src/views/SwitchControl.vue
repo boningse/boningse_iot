@@ -12,67 +12,69 @@
 
     <div class="filter-section">
       <div class="filter-row">
-        <div class="search-input">
-          <el-input
-            v-model="filters.keyword"
-            placeholder="搜索设备名称、设备ID或IMEI"
+        <div style="display:flex;gap:15px;">
+          <div class="search-input">
+            <el-input
+              v-model="filters.keyword"
+              placeholder="搜索设备名称、设备ID或IMEI"
+              clearable
+              @input="search"
+            >
+              <template #prefix><el-icon><Search /></el-icon></template>
+            </el-input>
+          </div>
+          <div class="filter-controls">
+          <el-select
+            v-if="isAdmin"
+            v-model="filters.tenantId"
+            placeholder="所属租户"
             clearable
-            @input="search"
-          >
-            <template #prefix><el-icon><Search /></el-icon></template>
-          </el-input>
-        </div>
-        <div class="filter-controls">
-        <el-select
-          v-if="isAdmin"
-          v-model="filters.tenantId"
-          placeholder="所属租户"
-          clearable
-          filterable
-          class="filter-select"
-          @change="tenantChanged"
-          ><el-option label="全部租户" value="" /><el-option
-            v-for="item in tenants"
-            :key="item.id"
-            :label="item.name"
-            :value="item.id"
-        /></el-select>
-        <el-select
-          v-model="filters.buildingId"
-          placeholder="所属建筑"
-          clearable
-          filterable
-          class="filter-select"
-          @change="buildingChanged"
-          ><el-option label="全部建筑" value="" /><el-option
-            v-for="item in filterBuildings"
-            :key="item.id"
-            :label="item.name"
-            :value="item.id"
-        /></el-select>
-        <el-select
-          v-model="filters.projectGroupId"
-          placeholder="所属分组"
-          clearable
-          filterable
-          class="filter-select"
-          @change="search"
-          ><el-option label="全部分组" value="" /><el-option
-            v-for="item in filterGroups"
-            :key="item.id"
-            :label="item.name"
-            :value="item.id"
-        /></el-select>
-        <el-select
-          v-model="filters.status"
-          placeholder="状态"
-          clearable
-          class="filter-select"
-          @change="search"
-          ><el-option label="在线" value="online" /><el-option
-            label="离线"
-            value="offline" /><el-option label="故障" value="error"
-        /></el-select>
+            filterable
+            class="filter-select"
+            @change="tenantChanged"
+            ><el-option label="全部租户" value="" /><el-option
+              v-for="item in tenants"
+              :key="item.id"
+              :label="item.name"
+              :value="item.id"
+          /></el-select>
+          <el-select
+            v-model="filters.buildingId"
+            placeholder="所属建筑"
+            clearable
+            filterable
+            class="filter-select"
+            @change="buildingChanged"
+            ><el-option label="全部建筑" value="" /><el-option
+              v-for="item in filterBuildings"
+              :key="item.id"
+              :label="item.name"
+              :value="item.id"
+          /></el-select>
+          <el-select
+            v-model="filters.projectGroupId"
+            placeholder="所属分组"
+            clearable
+            filterable
+            class="filter-select"
+            @change="search"
+            ><el-option label="全部分组" value="" /><el-option
+              v-for="item in filterGroups"
+              :key="item.id"
+              :label="item.name"
+              :value="item.id"
+          /></el-select>
+          <el-select
+            v-model="filters.status"
+            placeholder="状态"
+            clearable
+            class="filter-select"
+            @change="search"
+            ><el-option label="在线" value="online" /><el-option
+              label="离线"
+              value="offline" /><el-option label="故障" value="error"
+          /></el-select>
+          </div>
         </div>
         <div class="stats-info">
           <span class="device-count">共 {{ pagination.total }} 个设备</span>
@@ -480,9 +482,10 @@
             ><span>{{ detailDevice.deviceId }}</span>
           </div>
           <div class="detail-tags">
-            <el-tag>{{ phaseText(detailDevice.phaseType) }}</el-tag
+            <el-tag style="display:flex;justify-content: center;align-items:center;">{{ phaseText(detailDevice.phaseType) }}</el-tag
             ><el-tag
               :type="detailDevice.status === 'online' ? 'success' : 'info'"
+              style="display:flex;justify-content: center;align-items:center;"
               >{{ statusText(detailDevice.status) }}</el-tag
             >
           </div>
@@ -498,6 +501,7 @@
         <el-table
           v-if="detailDevice.phaseType === 'three_phase'"
           :data="detailPhaseRows"
+          max-height="30vh"
         >
           <el-table-column prop="phase" label="相位" />
           <el-table-column prop="voltage" label="电压(V)" />
@@ -505,7 +509,7 @@
           <el-table-column prop="power" label="功率(W)" />
           <el-table-column prop="temperature" label="温度(℃)" />
         </el-table>
-        <el-table :data="history" max-height="420"
+        <el-table :data="history" max-height="35vh"
           ><el-table-column prop="created_at" label="时间" min-width="180"
             ><template #default="{ row }">{{
               formatTime(row.created_at || row.timestamp)
@@ -1390,6 +1394,7 @@ onMounted(async () => {
   max-width: 300px;
 }
 .filter-controls {
+
   display: flex;
   align-items: center;
   gap: 10px;
@@ -1584,7 +1589,7 @@ onMounted(async () => {
   padding: 18px;
   border-radius: 12px;
   color: #fff;
-  background: linear-gradient(115deg, #155eef, #397ef5 58%, #7b61ff);
+  background: linear-gradient(115deg, #0f766e, #0d9488 58%, #14b8a6);
 }
 .scene-guide-kicker { color: rgba(255, 255, 255, 0.72); }
 .scene-guide strong { display: block; font-size: 18px; }

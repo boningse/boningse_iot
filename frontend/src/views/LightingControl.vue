@@ -278,6 +278,7 @@
       v-model="showDetailDialog" 
       title="设备详情" 
       width="800px"
+      style="height:700px;overflow:auto"
     >
       <div v-if="selectedDevice">
         <div class="detail-info">
@@ -494,7 +495,7 @@
       </div>
     </el-dialog>
 
-    <el-dialog v-model="showTimerDialog" title="照明策略管理" width="1080px">
+    <el-dialog v-model="showTimerDialog" title="照明策略管理" width="1080px" :close-on-click-modal="false">
       <div class="lighting-strategy-container">
         <div class="strategy-guide">
           <strong>照明运行策略</strong>
@@ -1998,7 +1999,6 @@ const aggregateDataByHour = (data, startDate, endDate) => {
 const aggregateDataByHourMultiDay = (data, startDate, endDate) => {
   const result = []
   const current = new Date(startDate)
-  
   while (current <= endDate) {
     for (let hour = 0; hour < 24; hour++) {
       const hourStart = new Date(current.getFullYear(), current.getMonth(), current.getDate(), hour)
@@ -3917,7 +3917,7 @@ const getIconComponent = (iconName) => {
   border-radius: 21px;
   border: 1px solid rgba(226, 232, 240, 0.6);
   box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.05);
-  transform: scale(1.3) translateY(-10px);
+  transform: translateY(-10px);
   
   @media (max-width: 768px) {
     transform: scale(1) translateY(0);
@@ -4287,7 +4287,7 @@ const getIconComponent = (iconName) => {
 }
 
 .total-energy-card {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(115deg, #0f766e, #0d9488 58%, #14b8a6);;
   color: white;
   padding: 20px 30px;
   border-radius: 12px;
@@ -4475,6 +4475,7 @@ const getIconComponent = (iconName) => {
   padding: 16px;
   background: #fff;
   transition: all 0.3s ease;
+  margin-bottom:12px;
 }
 
 .custom-scene-card:hover {
@@ -4670,7 +4671,10 @@ const getIconComponent = (iconName) => {
   margin-bottom: 20px;
   border: 1px solid #e9ecef;
 }
-
+.custom-scenes-list{
+  height:30vh;
+  overflow-y:auto
+}
 .filter-row {
   display: flex;
   gap: 15px;

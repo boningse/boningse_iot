@@ -320,13 +320,14 @@
       v-model="dialogVisible"
       :title="dialogTitle"
       width="600px"
+      :close-on-click-modal="false"
       @close="resetForm"
     >
       <el-form
         ref="formRef"
         :model="deviceForm"
         :rules="formRules"
-        label-width="100px"
+        label-width="120px"
       >
         <el-form-item label="设备名称" prop="name">
           <el-input v-model="deviceForm.name" placeholder="请输入设备名称" />

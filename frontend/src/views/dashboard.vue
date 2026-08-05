@@ -124,7 +124,7 @@ const dataCards = ref([
   {
     title: '离线设备',
     value: '0',
-    icon: 'OfflineOutlined',
+    icon: 'DocumentDelete',
     iconClass: 'icon-offline',
     trend: '+0',
     trendClass: 'trend-down'
@@ -470,7 +470,9 @@ const initRadarChart = async () => {
         }
       },
       legend: {
-        data: ['当前状态', '平均水平']
+        data: ['当前状态', '平均水平'],
+        top: 'top',
+        right: 'right'
       },
       radar: {
         indicator: [
@@ -829,7 +831,7 @@ const getDeviceStats = async () => {
         {
           title: '离线设备',
           value: (deviceStats.offline || 0).toString(),
-          icon: 'OfflineOutlined',
+          icon: 'DocumentDelete',
           iconClass: 'icon-offline',
           trend: '-' + Math.floor(Math.random() * 3),
           trendClass: 'trend-down'
