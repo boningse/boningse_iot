@@ -1363,8 +1363,7 @@ onMounted(async () => {
   }
 
   :deep(.el-tabs--border-card > .el-tabs__header) {
-    border-bottom-color: var(--border-light);
-    background: var(--fill-lighter);
+    display: none;
   }
 
   .card-header {
