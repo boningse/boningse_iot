@@ -37,10 +37,8 @@
               :label="building.name"
               :value="building.id" /></el-select
         ></el-col>
-        <el-col :span="5"
-          ></el-col
-        >
-        <el-col :span="4" class="text-right"
+
+        <el-col :span="9" class="text-right"
           >
           <el-button type="primary" :icon="Search" @click="loadGroups"
             >搜索</el-button

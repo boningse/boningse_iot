@@ -30,10 +30,7 @@
               label="停用"
               value="inactive" /></el-select
         ></el-col>
-        <el-col :span="6"
-          ></el-col
-        >
-        <el-col :span="4" class="text-right"
+        <el-col :span="10" class="text-right"
           >
           <el-button type="primary" :icon="Search" @click="loadBuildings"
             >搜索</el-button

@@ -28,10 +28,8 @@
             <el-option label="个人" value="individual" />
           </el-select>
         </el-col>
-        <el-col :span="6">
 
-        </el-col>
-        <el-col :span="4" class="text-right">
+        <el-col :span="10" class="text-right">
           <el-button type="primary" @click="handleSearch">
             <el-icon><Search /></el-icon>
             搜索
