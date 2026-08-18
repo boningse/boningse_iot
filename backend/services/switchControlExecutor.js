@@ -1,5 +1,6 @@
 const mqttService = require('./mqttService');
 const telemetryStore = require('./telemetryStore');
+const { createTemplateValues } = require('../utils/configuredJsonProtocol');
 
 const parseJsonField = (value) => {
   if (!value || typeof value === 'object') return value || {};
@@ -14,12 +15,15 @@ const renderTopic = (template, device) => {
   const connectionConfig = parseJsonField(device.connection_config);
   const corp = device.manufacturer_code || '';
   const gatewayMac = connectionConfig.gatewayMac || connectionConfig.gateway_mac || device.imei;
+  const gatewayId = connectionConfig.gatewayId || connectionConfig.gateway_id || gatewayMac;
+  const deviceId = connectionConfig.deviceId || connectionConfig.device_id || device.device_code || device.device_id || device.imei || '';
   return template
     .replace(/\{corp\}/g, corp)
     .replace(/\{manufacturerCode\}/g, corp)
     .replace(/\{gatewayMac\}/g, gatewayMac)
+    .replace(/\{gatewayId\}/g, gatewayId)
     .replace(/\{imei\}/g, device.imei || '')
-    .replace(/\{deviceId\}/g, device.device_code || device.imei || '');
+    .replace(/\{deviceId\}|\{deviceid\}|\{device_id\}/g, deviceId);
 };
 
 const renderPayload = (payloadTemplate, values) => {
@@ -49,7 +53,10 @@ const buildProtocolControlMessages = (device, controlData) => {
   const nextId = () => Number(`${Date.now()}${Math.floor(Math.random() * 1000)}`.slice(-9));
   const buildMessage = (command, values) => ({
     topic: renderTopic(command.topic || topicTemplate, device),
-    payload: renderPayload(command.payload || {}, values)
+    payload: renderPayload(command.payload || {}, {
+      ...createTemplateValues(device),
+      ...values
+    })
   });
 
   if (controlData.type === 'statistic') {
@@ -107,5 +114,6 @@ const executeSwitchControl = async (device, controlData, userId = null) => {
 };
 
 module.exports = {
+  buildProtocolControlMessages,
   executeSwitchControl
 };

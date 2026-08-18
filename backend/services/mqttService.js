@@ -7,6 +7,10 @@ const { mqttLogger: logger } = require('../utils/logger');
 const { Pool } = require('pg');
 const { getPoolConfig } = require('../config/database');
 const { parseConfiguredUplink, parseConfiguredWriteAck } = require('../utils/configuredModbusProtocol');
+const {
+  buildConfiguredJsonAutoResponse,
+  parseConfiguredJsonUplink
+} = require('../utils/configuredJsonProtocol');
 const { parseZqcSwitchStatus } = require('../utils/zqcSwitchProtocol');
 const telemetryStore = require('./telemetryStore');
 const alarmService = require('./alarmService');
@@ -4034,6 +4038,7 @@ class MqttService {
       // 根据协议配置的数据解析配置解析字段
       const extractedData = {};
       const dataParsingConfig = protocolConfig.data_parsing_config;
+      let configuredJsonMatched = false;
 
       if (dataParsingConfig?.codec === 'configured_modbus_rtu') {
         const commandAck = parseConfiguredWriteAck(parsedData, protocolConfig.command_config || {});
@@ -4048,8 +4053,31 @@ class MqttService {
         parsedData = { ...parsedData, decoded: parseConfiguredUplink(parsedData, dataParsingConfig) };
       }
 
+      if (dataParsingConfig?.codec === 'configured_json') {
+        const autoResponse = buildConfiguredJsonAutoResponse(
+          parsedData,
+          device,
+          protocolConfig.command_config || {}
+        );
+        if (autoResponse?.topic) {
+          await this.sendCommandToDevice(device.imei || device.device_id, autoResponse.payload, {
+            mqttTopic: autoResponse.topic
+          });
+          logger.debug('已按协议配置自动回复JSON消息', {
+            deviceId: device.id,
+            protocolConfigId: protocolConfig.id,
+            responseName: autoResponse.name,
+            topic: autoResponse.topic
+          });
+        }
+        const configuredResult = parseConfiguredJsonUplink(parsedData, dataParsingConfig);
+        if (!configuredResult.matched) return Boolean(autoResponse);
+        Object.assign(extractedData, configuredResult.data);
+        configuredJsonMatched = true;
+      }
+
       // 检查是否为温控器特殊响应格式（包含items和data数组）
-      if (parsedData.body && parsedData.body.items && parsedData.body.data && 
+      if (!configuredJsonMatched && parsedData.body && parsedData.body.items && parsedData.body.data &&
           Array.isArray(parsedData.body.items) && Array.isArray(parsedData.body.data) &&
           parsedData.body.data.length > 0 && Array.isArray(parsedData.body.data[0])) {
         
@@ -4088,7 +4116,7 @@ class MqttService {
             extractedData[itemName] = itemValue;
           }
         }
-      } else if (dataParsingConfig && dataParsingConfig.params_mapping) {
+      } else if (!configuredJsonMatched && dataParsingConfig && dataParsingConfig.params_mapping) {
         // 处理params_mapping格式的协议配置（如温控器）
         for (const [paramName, paramConfig] of Object.entries(dataParsingConfig.params_mapping)) {
           const fieldPath = paramConfig.field || paramName; // 支持字段映射
@@ -4100,7 +4128,7 @@ class MqttService {
             extractedData[paramName] = this.convertFieldValue(rawValue, paramConfig.type);
           }
         }
-      } else if (dataParsingConfig && dataParsingConfig.fields && Array.isArray(dataParsingConfig.fields)) {
+      } else if (!configuredJsonMatched && dataParsingConfig && dataParsingConfig.fields && Array.isArray(dataParsingConfig.fields)) {
         // 原有的路径解析逻辑
         for (const field of dataParsingConfig.fields) {
           const fieldName = field.name;
