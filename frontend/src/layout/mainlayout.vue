@@ -26,7 +26,7 @@
           background-color="var(--sidebar-bg)"
           text-color="#bfcbd9"
           active-text-color="#409EFF"
-          router
+          @select="handleMenuSelect"
         >
           <template v-for="menuRoute in routes" :key="menuRoute.path">
             <el-sub-menu
@@ -43,7 +43,6 @@
                 v-for="child in menuRoute.children"
                 :key="child.path"
                 :index="child.path"
-                @click="handleMenuClick"
               >
                 <el-icon
                   ><component :is="getIconComponent(child.meta.icon)"
@@ -54,7 +53,6 @@
             <el-menu-item
               v-else
               :index="menuRoute.path"
-              @click="handleMenuClick"
             >
               <el-icon
                 ><component :is="getIconComponent(menuRoute.meta.icon)"
@@ -71,7 +69,6 @@
             index="logout"
             @click="
               handleLogout();
-              handleMenuClick();
             "
           >
             <el-icon>
@@ -173,11 +170,7 @@
       <!-- 页面内容 -->
       <div class="content">
         <router-view v-slot="{ Component }">
-          <transition name="fade" mode="out-in">
-            <keep-alive>
-              <component :is="Component" />
-            </keep-alive>
-          </transition>
+          <component :is="Component" :key="route.name || route.path" />
         </router-view>
       </div>
     </div>
@@ -192,6 +185,7 @@ import * as ElementPlusIconsVue from "@element-plus/icons-vue";
 import Breadcrumb from "@/components/Breadcrumb.vue";
 import { alarmAPI } from "@/api";
 import { getRelativeTime } from "@/utils/date";
+import { hasRoutePermission } from "@/utils/routePermission.js";
 
 // 注册所有图标组件
 for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
@@ -233,6 +227,7 @@ const isDark = ref(false);
 const unreadAlarmCount = ref(0);
 const alarmNotifications = ref([]);
 const notificationsLoading = ref(false);
+const navigatingTo = ref("");
 let notificationTimer = null;
 
 const canUseAlarmNotifications = computed(() => {
@@ -300,6 +295,23 @@ const toggleSidebar = () => {
 const handleMenuClick = () => {
   if (isMobile.value) {
     mobileMenuOpen.value = false;
+  }
+};
+
+const handleMenuSelect = async (index) => {
+  if (!index || index === "logout") return;
+  handleMenuClick();
+  if (route.path === index || navigatingTo.value === index) return;
+  navigatingTo.value = index;
+  try {
+    await router.push(index);
+  } catch (error) {
+    if (!/dynamically imported module|ChunkLoadError/i.test(String(error?.message || error))) {
+      console.error("菜单跳转失败:", error);
+      ElMessage.error("页面切换失败，请稍后重试");
+    }
+  } finally {
+    if (navigatingTo.value === index) navigatingTo.value = "";
   }
 };
 
@@ -409,62 +421,6 @@ const activeMenu = computed(() => route.path);
  * @param {string} routeName 路由名称
  * @returns {boolean} 是否有权限
  */
-const hasPermission = (
-  requiredRoles,
-  userRole,
-  userPermissions = [],
-  routeName,
-) => {
-  if (!requiredRoles || requiredRoles.length === 0) {
-    return true; // 没有角色要求，允许访问
-  }
-
-  // 管理员和租户管理员直接通过角色检查
-  if (userRole === "admin" || userRole === "tenant_admin") {
-    return requiredRoles.includes(userRole);
-  }
-
-  // 普通用户需要检查页面权限
-  if (["user", "building_user", "group_user"].includes(userRole)) {
-    if (!requiredRoles.includes("user")) {
-      return false; // 该页面不允许普通用户访问
-    }
-
-    // 定义路由名称到权限的映射
-    if (routeName === "SystemSettings") {
-      return ["user", "building_user"].includes(userRole);
-    }
-
-    const routePermissionMap = {
-      // 'Dashboard': 'dashboard', // Dashboard设为默认可访问，不需要特殊权限
-      TenantManagement: "tenants",
-      ManufacturerManagement: "manufacturers",
-      DeviceTypeManagement: "device-types",
-      DeviceManagement: "devices",
-      ProtocolConfigManagement: "protocols",
-      LightingControl: "lighting",
-      SwitchControl: "switch-control",
-      ThermostatControl: "thermostat",
-      AirConditionerControl: "air-conditioner",
-      AlarmManagement: "alarms",
-      SystemSettings: "system-settings",
-      // 'ChangePassword': 不需要特殊权限，所有登录用户都可以修改密码
-    };
-
-    const requiredPermission = routePermissionMap[routeName];
-
-    // 如果是特殊页面（如个人信息、修改密码），不需要权限检查
-    if (!requiredPermission) {
-      return true;
-    }
-
-    // 检查用户是否有该页面的权限
-    return userPermissions.includes(requiredPermission);
-  }
-
-  return requiredRoles.includes(userRole);
-};
-
 // 获取路由列表（用于生成菜单）- 根据用户角色和权限过滤
 const routes = computed(() => {
   const mainRoute = router.options.routes.find((r) => r.path === "/");
@@ -475,25 +431,12 @@ const routes = computed(() => {
   const userRole = userInfo.value.role;
   const userPermissions = userInfo.value.profile?.permissions || [];
 
-  console.log("菜单权限检查:", {
-    userRole,
-    userPermissions,
-    userInfo: userInfo.value,
-  });
-
   const filterRoute = (route) => {
     const hasAccess =
       route.meta &&
       route.meta.title &&
       !route.meta.hideInMenu &&
-      hasPermission(route.meta.roles, userRole, userPermissions, route.name);
-
-    console.log(`菜单项 ${route.name}:`, {
-      title: route.meta?.title,
-      roles: route.meta?.roles,
-      hasAccess,
-      routeName: route.name,
-    });
+      hasRoutePermission(route.meta.roles, userRole, userPermissions, route.name);
 
     if (!hasAccess) return null;
     if (route.children?.length) {
@@ -503,14 +446,7 @@ const routes = computed(() => {
     return { ...route };
   };
 
-  const filteredRoutes = mainRoute.children.map(filterRoute).filter(Boolean);
-
-  console.log(
-    "过滤后的菜单:",
-    filteredRoutes.map((r) => r.name),
-  );
-
-  return filteredRoutes;
+  return mainRoute.children.map(filterRoute).filter(Boolean);
 });
 
 onMounted(() => {
@@ -849,17 +785,6 @@ onMounted(() => {
   z-index: 999;
   background: rgba(15, 23, 42, 0.5);
   backdrop-filter: blur(2px);
-}
-
-/* 页面切换动画 */
-.fade-enter-active,
-.fade-leave-active {
-  transition: opacity 0.3s ease;
-}
-
-.fade-enter-from,
-.fade-leave-to {
-  opacity: 0;
 }
 
 /* 暗色主题支持 */

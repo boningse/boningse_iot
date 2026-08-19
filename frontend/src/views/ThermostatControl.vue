@@ -2094,6 +2094,8 @@ export default {
 
     // 定义运行时间图表引用
     const runtimeChart = ref(null)
+    let runtimeChartInstance = null
+    const resizeRuntimeChart = () => runtimeChartInstance?.resize()
     
     // 初始化运行时间图表
     const initRuntimeChart = () => {
@@ -2115,6 +2117,7 @@ export default {
         }
         
         const chart = echarts.init(runtimeChart.value)
+        runtimeChartInstance = chart
         
         // 准备图表数据
         const historyData = deviceRuntimeHistory.value || []
@@ -2221,10 +2224,6 @@ export default {
       
       chart.setOption(option)
       
-      // 响应式调整
-      window.addEventListener('resize', () => {
-        chart.resize()
-      })
       } catch (error) {
         console.error('初始化运行时间图表失败:', error)
       }
@@ -3175,6 +3174,7 @@ export default {
     // 生命周期
     onMounted(async () => {
       console.log('温控器页面开始初始化')
+      window.addEventListener('resize', resizeRuntimeChart)
       
       await Promise.all([
         loadTenantList(),
@@ -3206,6 +3206,9 @@ export default {
 
     // 组件卸载时清理资源
     onUnmounted(() => {
+      window.removeEventListener('resize', resizeRuntimeChart)
+      runtimeChartInstance?.dispose()
+      runtimeChartInstance = null
       // 移除WebSocket监听器
       websocketService.off('device_status_update', handleDeviceStatusUpdate)
       websocketService.off('device_data', handleDeviceData)

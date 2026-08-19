@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from "vue-router";
+import { hasRoutePermission } from "@/utils/routePermission.js";
 
 const roles = ["admin", "tenant_admin", "user"];
 
@@ -158,40 +159,6 @@ const routes = [
 
 const router = createRouter({ history: createWebHistory(), routes });
 
-const permissionMap = {
-  TenantManagement: "tenants",
-  ManufacturerManagement: "manufacturers",
-  DeviceTypeManagement: "device-types",
-  DeviceManagement: "devices",
-  ProtocolConfigManagement: "protocols",
-  LightingControl: "lighting",
-  SwitchControl: "switch-control",
-  ThermostatControl: "thermostat",
-  AirConditionerControl: "air-conditioner",
-  ElectricalPush: "electrical-push",
-  AlarmManagement: "alarms",
-  SystemSettings: "system-settings",
-};
-
-function hasPermission(
-  requiredRoles,
-  userRole,
-  userPermissions = [],
-  routeName,
-) {
-  if (!requiredRoles?.length) return true;
-  if (userRole === "admin" || userRole === "tenant_admin")
-    return requiredRoles.includes(userRole);
-  if (["user", "building_user", "group_user"].includes(userRole)) {
-    if (!requiredRoles.includes("user")) return false;
-    if (routeName === "SystemSettings")
-      return ["user", "building_user"].includes(userRole);
-    const permission = permissionMap[routeName];
-    return permission ? userPermissions.includes(permission) : true;
-  }
-  return requiredRoles.includes(userRole);
-}
-
 function getUserInfo() {
   try {
     return JSON.parse(localStorage.getItem("userInfo") || "null");
@@ -211,10 +178,36 @@ router.beforeEach((to, from, next) => {
   const permissions = userInfo.profile?.permissions || [];
   if (
     to.meta.roles &&
-    !hasPermission(to.meta.roles, userInfo.role, permissions, to.name)
+    !hasRoutePermission(to.meta.roles, userInfo.role, permissions, to.name)
   )
     return next("/403");
   next();
+});
+
+const CHUNK_RELOAD_KEY = "route-chunk-reload-target";
+const isChunkLoadError = (error) =>
+  /Failed to fetch dynamically imported module|Importing a module script failed|error loading dynamically imported module|Loading chunk .* failed|ChunkLoadError/i.test(
+    String(error?.message || error || ""),
+  );
+
+router.onError((error, to) => {
+  if (!isChunkLoadError(error)) {
+    console.error("路由切换失败:", error);
+    return;
+  }
+  const target =
+    to?.fullPath || `${window.location.pathname}${window.location.search}`;
+  if (sessionStorage.getItem(CHUNK_RELOAD_KEY) === target) {
+    sessionStorage.removeItem(CHUNK_RELOAD_KEY);
+    console.error("页面资源刷新后仍加载失败:", error);
+    return;
+  }
+  sessionStorage.setItem(CHUNK_RELOAD_KEY, target);
+  window.location.assign(target);
+});
+
+router.afterEach(() => {
+  sessionStorage.removeItem(CHUNK_RELOAD_KEY);
 });
 
 export default router;
