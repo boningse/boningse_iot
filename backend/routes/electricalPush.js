@@ -4,7 +4,7 @@ const { authenticateToken, requireRole } = require('../middleware/auth');
 const { getPoolConfig } = require('../config/database');
 const logger = require('../utils/logger');
 const {
-  PUSH_ENDPOINT, METRICS, normalizeMetricFields, pushConfig
+  PUSH_ENDPOINT, METRICS, SOURCE_TABLES, normalizeMetricFields, pushConfig
 } = require('../services/electricalPushService');
 
 const router = express.Router();
@@ -33,7 +33,8 @@ function cleanPayload(body) {
     propertyno: String(body.propertyno ?? '0').trim(),
     metricFields: normalizeMetricFields(body.metricFields),
     intervalMinutes: Math.round(Number(body.intervalMinutes || 5)),
-    enabled: body.enabled !== false
+    enabled: body.enabled !== false,
+    dataSource: SOURCE_TABLES[body.dataSource] ? body.dataSource : 'switch'
   };
 }
 
@@ -47,6 +48,8 @@ function validatePayload(data) {
 
 router.get('/options', ...manage, async (req, res) => {
   try {
+    const dataSource = SOURCE_TABLES[req.query.dataSource] ? req.query.dataSource : 'switch';
+    const sourceTable = SOURCE_TABLES[dataSource];
     const params = [];
     let scope = tenantWhere(req, params, 'd');
     if (req.query.keyword) {
@@ -63,12 +66,8 @@ router.get('/options', ...manage, async (req, res) => {
     }
     const result = await pool.query(
       `WITH electrical_devices AS (
-         SELECT device_id, max(measured_at) measured_at FROM (
-           SELECT device_id, measured_at FROM lighting_latest_electrical
-           UNION ALL SELECT device_id, measured_at FROM switch_latest_electrical
-           UNION ALL SELECT device_id, measured_at FROM thermostat_latest_electrical
-           UNION ALL SELECT device_id, measured_at FROM air_conditioner_latest_electrical
-         ) all_latest GROUP BY device_id
+         SELECT device_id, max(measured_at) measured_at
+         FROM ${sourceTable} GROUP BY device_id
        )
        SELECT d.id, d.name, d.device_id, d.imei, d.status, d.tenant_id,
               d.project_building_id, d.project_group_id,
@@ -87,6 +86,7 @@ router.get('/options', ...manage, async (req, res) => {
     );
     res.json({ success: true, data: {
       endpoint: PUSH_ENDPOINT,
+      dataSource,
       metrics: Object.entries(METRICS).map(([field, item]) => ({ field, ...item })),
       devices: result.rows
     } });
@@ -143,6 +143,10 @@ router.get('/', ...manage, async (req, res) => {
       params.push(req.query.enabled === 'true');
       where += ` AND c.enabled = $${params.length}`;
     }
+    if (SOURCE_TABLES[req.query.dataSource]) {
+      params.push(req.query.dataSource);
+      where += ` AND c.data_source = $${params.length}`;
+    }
     const count = await pool.query(`SELECT count(*)::int total FROM electrical_push_configs c JOIN devices d ON d.id=c.device_id ${where}`, params);
     params.push(pageSize, (page - 1) * pageSize);
     const list = await pool.query(
@@ -179,20 +183,17 @@ router.post('/', ...manage, async (req, res) => {
        WHERE d.id=$1${deviceScope.replace('tenant_id', 'd.tenant_id')}
          AND EXISTS (
            SELECT 1 FROM (
-             SELECT device_id FROM lighting_latest_electrical
-             UNION SELECT device_id FROM switch_latest_electrical
-             UNION SELECT device_id FROM thermostat_latest_electrical
-             UNION SELECT device_id FROM air_conditioner_latest_electrical
+             SELECT device_id FROM ${SOURCE_TABLES[data.dataSource]}
            ) electrical WHERE electrical.device_id=d.id
          )`, deviceParams
     );
     if (!device.rows[0]) return res.status(404).json({ success: false, message: '设备不存在、无电气数据或无权配置' });
     const result = await pool.query(
       `INSERT INTO electrical_push_configs
-       (tenant_id, device_id, project_code, external_device_code, insname, propertyno,
+       (tenant_id, device_id, data_source, project_code, external_device_code, insname, propertyno,
         metric_fields, interval_minutes, enabled, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
-      [device.rows[0].tenant_id, data.deviceId, data.projectCode, data.externalDeviceCode,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
+      [device.rows[0].tenant_id, data.deviceId, data.dataSource, data.projectCode, data.externalDeviceCode,
         data.insname, data.propertyno, JSON.stringify(data.metricFields), data.intervalMinutes,
         data.enabled, req.user.id]
     );
@@ -210,12 +211,13 @@ router.put('/:id', ...manage, async (req, res) => {
     const validation = validatePayload(data);
     if (validation) return res.status(400).json({ success: false, message: validation });
     const params = [req.params.id, data.projectCode, data.externalDeviceCode, data.insname,
-      data.propertyno, JSON.stringify(data.metricFields), data.intervalMinutes, data.enabled];
+      data.propertyno, JSON.stringify(data.metricFields), data.intervalMinutes, data.enabled,
+      data.dataSource];
     const scope = tenantWhere(req, params, 'electrical_push_configs');
     const result = await pool.query(
       `UPDATE electrical_push_configs SET project_code=$2, external_device_code=$3,
        insname=$4, propertyno=$5, metric_fields=$6, interval_minutes=$7, enabled=$8,
-       updated_at=now() WHERE id=$1${scope} RETURNING *`, params
+       data_source=$9, updated_at=now() WHERE id=$1${scope} RETURNING *`, params
     );
     if (!result.rows[0]) return res.status(404).json({ success: false, message: '推送配置不存在' });
     res.json({ success: true, message: '推送配置已更新', data: result.rows[0] });

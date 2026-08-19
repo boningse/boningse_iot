@@ -23,19 +23,17 @@ const METRICS = Object.freeze({
   temperature: { paraname: '温度', unit: '℃' }
 });
 
-const COMMON_COLUMNS = `device_id, tenant_id, measured_at, voltage, current, power,
-  active_power, reactive_power, apparent_power, power_factor, frequency, energy,
-  import_energy, export_energy, leakage_current, temperature`;
-const LATEST_SQL = `
-  SELECT * FROM (
-    SELECT 'lighting' AS source_type, ${COMMON_COLUMNS} FROM lighting_latest_electrical
-    UNION ALL SELECT 'switch', ${COMMON_COLUMNS} FROM switch_latest_electrical
-    UNION ALL SELECT 'thermostat', ${COMMON_COLUMNS} FROM thermostat_latest_electrical
-    UNION ALL SELECT 'air_conditioner', ${COMMON_COLUMNS} FROM air_conditioner_latest_electrical
-  ) latest
-  WHERE latest.device_id = $1
-  ORDER BY latest.measured_at DESC
-  LIMIT 1`;
+const SOURCE_TABLES = Object.freeze({
+  switch: 'switch_latest_electrical',
+  lighting: 'lighting_latest_electrical',
+  thermostat: 'thermostat_latest_electrical',
+  air_conditioner: 'air_conditioner_latest_electrical'
+});
+
+function latestSql(dataSource) {
+  const table = SOURCE_TABLES[dataSource] || SOURCE_TABLES.switch;
+  return `SELECT * FROM ${table} WHERE device_id = $1 ORDER BY measured_at DESC LIMIT 1`;
+}
 
 function formatReportTime(value) {
   const parts = new Intl.DateTimeFormat('zh-CN', {
@@ -96,7 +94,7 @@ async function pushConfig(configOrId, { force = false } = {}) {
     if (!config) throw new Error('推送配置不存在');
     if (!config.enabled && !force) return { success: false, skipped: true, message: '配置未启用' };
 
-    const measurementResult = await pool.query(LATEST_SQL, [config.device_id]);
+    const measurementResult = await pool.query(latestSql(config.data_source), [config.device_id]);
     const measurement = measurementResult.rows[0];
     if (!measurement) throw new Error('设备暂无电气数据');
     if (!force && config.last_pushed_measurement_at &&
@@ -164,7 +162,8 @@ async function pushDueConfigs() {
 module.exports = {
   PUSH_ENDPOINT,
   METRICS,
-  LATEST_SQL,
+  SOURCE_TABLES,
+  latestSql,
   formatReportTime,
   normalizeMetricFields,
   buildPayload,

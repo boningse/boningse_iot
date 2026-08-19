@@ -23,6 +23,9 @@
         <el-input v-model="filters.keyword" placeholder="设备名称、编码、项目编码" clearable @keyup.enter="search">
           <template #prefix><el-icon><Search /></el-icon></template>
         </el-input>
+        <el-select v-model="filters.dataSource" placeholder="数据来源">
+          <el-option v-for="item in sourceOptions" :key="item.value" :label="item.label" :value="item.value" />
+        </el-select>
         <el-select v-model="filters.enabled" placeholder="推送状态" clearable>
           <el-option label="自动推送中" value="true" />
           <el-option label="已暂停" value="false" />
@@ -48,6 +51,7 @@
         </el-table-column>
         <el-table-column prop="project_code" label="项目编码" width="130" />
         <el-table-column prop="external_device_code" label="对方设备编码" width="140" />
+        <el-table-column label="数据来源" width="105"><template #default="{ row }">{{ sourceName(row.data_source) }}</template></el-table-column>
         <el-table-column label="推送指标" min-width="170">
           <template #default="{ row }">
             <el-tag v-for="field in row.metric_fields" :key="field" size="small" class="metric-tag">{{ metricName(field) }}</el-tag>
@@ -82,6 +86,11 @@
     <el-dialog v-model="dialogVisible" :title="editingId ? '编辑推送配置' : '添加推送设备'" width="720px" destroy-on-close>
       <el-form ref="formRef" :model="form" :rules="rules" label-width="116px">
         <el-alert title="接收地址固定为系统指定接口，不能在页面中修改，避免数据误发。" type="info" :closable="false" />
+        <el-form-item label="数据来源" prop="dataSource">
+          <el-select v-model="form.dataSource" :disabled="!!editingId" style="width:100%" @change="changeSource">
+            <el-option v-for="item in sourceOptions" :key="item.value" :label="item.label" :value="item.value" />
+          </el-select>
+        </el-form-item>
         <el-form-item v-if="!editingId" label="筛选设备">
           <div class="device-filters">
             <el-input v-model="deviceFilter.keyword" placeholder="关键字" clearable />
@@ -135,9 +144,10 @@ const loading=ref(false), saving=ref(false), dialogVisible=ref(false), logsVisib
 const rows=ref([]), devices=ref([]), metrics=ref([]), logs=ref([]), endpoint=ref('https://caiji.boningse.com/api/electrical/upload-data')
 const editingId=ref(''), formRef=ref(), logConfigId=ref(''), logDeviceName=ref('')
 const user=JSON.parse(localStorage.getItem('userInfo')||'{}'), isAdmin=user.role==='admin'
-const filters=reactive({keyword:'',enabled:''}), pagination=reactive({page:1,pageSize:20,total:0}), logPagination=reactive({page:1,total:0})
+const sourceOptions=[{label:'开关控制',value:'switch'},{label:'照明控制',value:'lighting'},{label:'温控控制',value:'thermostat'},{label:'空调控制',value:'air_conditioner'}]
+const filters=reactive({keyword:'',dataSource:'switch',enabled:''}), pagination=reactive({page:1,pageSize:20,total:0}), logPagination=reactive({page:1,total:0})
 const deviceFilter=reactive({keyword:'',tenantId:'',buildingId:'',groupId:''})
-const emptyForm=()=>({deviceId:'',projectCode:'',externalDeviceCode:'',insname:'1001',propertyno:'0',metricFields:['energy'],intervalMinutes:5,enabled:true})
+const emptyForm=()=>({deviceId:'',dataSource:'switch',projectCode:'3703022601',externalDeviceCode:'',insname:'1001',propertyno:'0',metricFields:['energy'],intervalMinutes:5,enabled:true})
 const form=reactive(emptyForm())
 const rules={deviceId:[{required:true,message:'请选择设备',trigger:'change'}],projectCode:[{required:true,message:'请输入项目编码',trigger:'blur'}],externalDeviceCode:[{required:true,message:'请输入对方设备编码',trigger:'blur'}],insname:[{required:true,message:'请输入采集点编码',trigger:'blur'}],metricFields:[{type:'array',required:true,min:1,message:'请至少选择一个指标',trigger:'change'}]}
 const enabledCount=computed(()=>rows.value.filter(x=>x.enabled).length), errorCount=computed(()=>rows.value.filter(x=>x.last_error).length)
@@ -147,13 +157,15 @@ const buildingOptions=computed(()=>unique('project_building_id','building_name')
 const groupOptions=computed(()=>unique('project_group_id','group_name').filter(x=>!deviceFilter.buildingId||devices.value.some(d=>d.project_group_id===x.id&&d.project_building_id===deviceFilter.buildingId)))
 const filteredDevices=computed(()=>devices.value.filter(d=>(!deviceFilter.keyword||`${d.name} ${d.device_id} ${d.imei}`.toLowerCase().includes(deviceFilter.keyword.toLowerCase()))&&(!deviceFilter.tenantId||d.tenant_id===deviceFilter.tenantId)&&(!deviceFilter.buildingId||d.project_building_id===deviceFilter.buildingId)&&(!deviceFilter.groupId||d.project_group_id===deviceFilter.groupId)))
 const metricName=(field)=>metrics.value.find(x=>x.field===field)?.paraname||field
+const sourceName=(value)=>sourceOptions.find(x=>x.value===value)?.label||value
 const formatTime=(value)=>value?new Date(value).toLocaleString('zh-CN',{hour12:false}):'—'
 async function loadList(){loading.value=true;try{const r=await electricalPushAPI.getList({...filters,page:pagination.page,pageSize:pagination.pageSize});if(r.success){rows.value=r.data.list;pagination.total=r.data.total;endpoint.value=r.data.endpoint}}finally{loading.value=false}}
-async function loadOptions(){const r=await electricalPushAPI.getOptions();if(r.success){devices.value=r.data.devices;metrics.value=r.data.metrics;endpoint.value=r.data.endpoint}}
-function search(){pagination.page=1;loadList()} function resetFilters(){filters.keyword='';filters.enabled='';search()}
+async function loadOptions(){const r=await electricalPushAPI.getOptions({dataSource:form.dataSource});if(r.success){devices.value=r.data.devices;metrics.value=r.data.metrics;endpoint.value=r.data.endpoint}}
+function search(){pagination.page=1;loadList()} function resetFilters(){filters.keyword='';filters.dataSource='switch';filters.enabled='';search()}
 function resetForm(){Object.assign(form,emptyForm());Object.assign(deviceFilter,{keyword:'',tenantId:'',buildingId:'',groupId:''})}
 async function openCreate(){editingId.value='';resetForm();await loadOptions();dialogVisible.value=true}
-async function openEdit(row){editingId.value=row.id;Object.assign(form,{deviceId:row.device_id,projectCode:row.project_code,externalDeviceCode:row.external_device_code,insname:row.insname,propertyno:row.propertyno,metricFields:[...row.metric_fields],intervalMinutes:row.interval_minutes,enabled:row.enabled});if(!metrics.value.length)await loadOptions();dialogVisible.value=true}
+async function openEdit(row){editingId.value=row.id;Object.assign(form,{deviceId:row.device_id,dataSource:row.data_source||'switch',projectCode:row.project_code,externalDeviceCode:row.external_device_code,insname:row.insname,propertyno:row.propertyno,metricFields:[...row.metric_fields],intervalMinutes:row.interval_minutes,enabled:row.enabled});await loadOptions();dialogVisible.value=true}
+async function changeSource(){form.deviceId='';Object.assign(deviceFilter,{keyword:'',tenantId:'',buildingId:'',groupId:''});await loadOptions()}
 async function save(){await formRef.value.validate();saving.value=true;try{const r=editingId.value?await electricalPushAPI.update(editingId.value,form):await electricalPushAPI.create(form);if(!r.success)throw new Error(r.message);ElMessage.success(r.message);dialogVisible.value=false;await Promise.all([loadList(),loadOptions()])}catch(e){ElMessage.error(e.message||'保存失败')}finally{saving.value=false}}
 async function toggleEnabled(row){try{const r=await electricalPushAPI.toggle(row.id,row.enabled);if(!r.success)throw new Error(r.message);ElMessage.success(r.message)}catch(e){row.enabled=!row.enabled;ElMessage.error(e.message||'修改失败')}}
 async function pushNow(row){await ElMessageBox.confirm(`立即把“${row.device_name}”的最新电气数据推送给对方单位？`,'确认推送',{type:'warning'});const r=await electricalPushAPI.pushNow(row.id);if(!r.success)throw new Error(r.message);ElMessage.success(r.message);loadList()}
@@ -164,5 +176,5 @@ onMounted(()=>Promise.all([loadList(),loadOptions()]))
 </script>
 
 <style scoped>
-.push-page{padding:0 2px 24px}.page-hero{display:flex;align-items:center;justify-content:space-between;padding:30px 34px;margin-bottom:18px;border:1px solid #e4eaf2;border-radius:16px;background:linear-gradient(120deg,#f4faff 0%,#fff 58%,#f3fbf8 100%)}.eyebrow{color:#0d9488;font-size:12px;font-weight:700;letter-spacing:1.6px}.page-hero h1{margin:7px 0 6px;font-size:28px}.page-hero p{margin:0;color:#87909d}.endpoint{display:inline-flex;align-items:center;gap:6px;margin-top:14px;padding:6px 10px;border-radius:7px;background:#fff;color:#667085;font-size:12px;border:1px solid #e5e9f0}.summary-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:14px}.summary-card{padding:16px 20px;border:1px solid #e6eaf0;border-radius:12px;background:#fff}.summary-card span{color:#8a939f;font-size:13px}.summary-card strong{display:block;margin-top:5px;font-size:25px}.summary-card.success strong{color:#159c89}.summary-card.danger strong{color:#e55a5a}.filter-card,.table-card{border-radius:12px;margin-bottom:14px}.filter-row{display:grid;grid-template-columns:minmax(260px,420px) 150px auto auto;gap:12px;align-items:center}.card-title{display:flex;align-items:baseline;gap:12px;font-weight:600}.card-title small{color:#9aa1ab;font-weight:400}.device-cell{display:flex;flex-direction:column}.device-cell span,.device-option small{color:#9299a4;font-size:12px}.metric-tag{margin:2px 4px 2px 0}.last-error{max-width:180px;margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#d65a5a;font-size:12px}.pagination{display:flex;justify-content:flex-end;margin-top:18px}.device-filters{display:grid;width:100%;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.device-option{display:flex;flex-direction:column;line-height:20px}.form-grid{display:grid;grid-template-columns:1fr 1fr}.metric-options{display:grid;grid-template-columns:repeat(3,1fr);width:100%}.metric-options small{color:#999}.unit{margin-left:8px;color:#8b94a1}.el-alert{margin-bottom:20px}@media(max-width:900px){.page-hero{padding:22px;align-items:flex-start;gap:18px}.endpoint{max-width:100%;word-break:break-all}.summary-grid{grid-template-columns:1fr}.filter-row,.device-filters,.form-grid{grid-template-columns:1fr}.metric-options{grid-template-columns:1fr 1fr}}
+.push-page{padding:0 2px 24px}.page-hero{display:flex;align-items:center;justify-content:space-between;padding:30px 34px;margin-bottom:18px;border:1px solid #e4eaf2;border-radius:16px;background:linear-gradient(120deg,#f4faff 0%,#fff 58%,#f3fbf8 100%)}.eyebrow{color:#0d9488;font-size:12px;font-weight:700;letter-spacing:1.6px}.page-hero h1{margin:7px 0 6px;font-size:28px}.page-hero p{margin:0;color:#87909d}.endpoint{display:inline-flex;align-items:center;gap:6px;margin-top:14px;padding:6px 10px;border-radius:7px;background:#fff;color:#667085;font-size:12px;border:1px solid #e5e9f0}.summary-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:14px}.summary-card{padding:16px 20px;border:1px solid #e6eaf0;border-radius:12px;background:#fff}.summary-card span{color:#8a939f;font-size:13px}.summary-card strong{display:block;margin-top:5px;font-size:25px}.summary-card.success strong{color:#159c89}.summary-card.danger strong{color:#e55a5a}.filter-card,.table-card{border-radius:12px;margin-bottom:14px}.filter-row{display:grid;grid-template-columns:minmax(250px,390px) 150px 140px auto auto;gap:12px;align-items:center}.card-title{display:flex;align-items:baseline;gap:12px;font-weight:600}.card-title small{color:#9aa1ab;font-weight:400}.device-cell{display:flex;flex-direction:column}.device-cell span,.device-option small{color:#9299a4;font-size:12px}.metric-tag{margin:2px 4px 2px 0}.last-error{max-width:180px;margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#d65a5a;font-size:12px}.pagination{display:flex;justify-content:flex-end;margin-top:18px}.device-filters{display:grid;width:100%;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.device-option{display:flex;flex-direction:column;line-height:20px}.form-grid{display:grid;grid-template-columns:1fr 1fr}.metric-options{display:grid;grid-template-columns:repeat(3,1fr);width:100%}.metric-options small{color:#999}.unit{margin-left:8px;color:#8b94a1}.el-alert{margin-bottom:20px}@media(max-width:900px){.page-hero{padding:22px;align-items:flex-start;gap:18px}.endpoint{max-width:100%;word-break:break-all}.summary-grid{grid-template-columns:1fr}.filter-row,.device-filters,.form-grid{grid-template-columns:1fr}.metric-options{grid-template-columns:1fr 1fr}}
 </style>
