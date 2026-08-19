@@ -1102,6 +1102,17 @@ const alarmAPI = {
     del(`/alarms/${alarmId}/photos/${photoId}`),
 };
 
+const electricalPushAPI = {
+  getList: (params = {}) => get('/electrical-push', params),
+  getOptions: (params = {}) => get('/electrical-push/options', params),
+  create: (data) => post('/electrical-push', data),
+  update: (id, data) => put(`/electrical-push/${id}`, data),
+  toggle: (id, enabled) => patch(`/electrical-push/${id}/enabled`, { enabled }),
+  pushNow: (id) => post(`/electrical-push/${id}/push`),
+  remove: (id) => del(`/electrical-push/${id}`),
+  getLogs: (params = {}) => get('/electrical-push/logs', params),
+};
+
 // 默认导出所有API
 export default {
   authAPI,
@@ -1120,6 +1131,7 @@ export default {
   protocolConfigAPI,
   thermostatAPI,
   alarmAPI,
+  electricalPushAPI,
 };
 
 // 命名导出
@@ -1146,4 +1158,5 @@ export {
   protocolConfigAPI,
   thermostatAPI,
   alarmAPI,
+  electricalPushAPI,
 };

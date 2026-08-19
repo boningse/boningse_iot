@@ -45,6 +45,7 @@ const userRoutes = require('./routes/users');
 const thermostatRoutes = require('./routes/thermostat');
 const eqinfoRoutes = require('./routes/eqinfo');
 const alarmRoutes = require('./routes/alarms');
+const electricalPushRoutes = require('./routes/electricalPush');
 
 
 const app = express();
@@ -108,6 +109,7 @@ app.use('/api/users', userRoutes);
 app.use('/api/thermostat', thermostatRoutes);
 app.use('/api/v1/eqinfo', eqinfoRoutes);
 app.use('/api/alarms', alarmRoutes);
+app.use('/api/electrical-push', electricalPushRoutes);
 
 
 // 404处理

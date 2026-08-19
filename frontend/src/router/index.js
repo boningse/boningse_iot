@@ -121,6 +121,16 @@ const routes = [
         meta: { title: "空调控制", icon: "Refrigerator", roles },
       },
       {
+        path: "/electrical-push",
+        name: "ElectricalPush",
+        component: () => import("../views/ElectricalPush.vue"),
+        meta: {
+          title: "数据推送",
+          icon: "UploadFilled",
+          roles: ["admin", "tenant_admin"],
+        },
+      },
+      {
         path: "/alarms",
         name: "AlarmManagement",
         component: () => import("../views/AlarmManagement.vue"),
@@ -158,6 +168,7 @@ const permissionMap = {
   SwitchControl: "switch-control",
   ThermostatControl: "thermostat",
   AirConditionerControl: "air-conditioner",
+  ElectricalPush: "electrical-push",
   AlarmManagement: "alarms",
   SystemSettings: "system-settings",
 };

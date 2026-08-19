@@ -3,6 +3,7 @@ const logger = require('./utils/logger');
 const lightingTimerService = require('./services/lightingTimerService');
 const switchScheduleService = require('./services/switchScheduleService');
 const airConditionerScheduleService = require('./services/airConditionerScheduleService');
+const electricalPushService = require('./services/electricalPushService');
 
 // 定时任务变量
 let scheduledTask = null;
@@ -19,7 +20,8 @@ function start() {
     const results = await Promise.allSettled([
       lightingTimerService.checkAndExecuteLightingTimers(),
       switchScheduleService.checkAndExecuteSwitchSchedules(),
-      airConditionerScheduleService.checkAndExecuteAirConditionerSchedules()
+      airConditionerScheduleService.checkAndExecuteAirConditionerSchedules(),
+      electricalPushService.pushDueConfigs()
     ]);
     if (results[0].status === 'rejected') {
       logger.error('执行照明设备定时任务调度失败:', results[0].reason);
@@ -29,6 +31,9 @@ function start() {
     }
     if (results[2].status === 'rejected') {
       logger.error('执行空调设备策略调度失败:', results[2].reason);
+    }
+    if (results[3].status === 'rejected') {
+      logger.error('执行电气数据推送调度失败:', results[3].reason);
     }
   }, {
     scheduled: false // 不立即启动，等待手动启动
