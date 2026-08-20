@@ -9,7 +9,7 @@ const {
 
 const router = express.Router();
 const pool = new Pool(getPoolConfig());
-const manage = [authenticateToken, requireRole(['admin', 'tenant_admin'])];
+const manage = [authenticateToken, requireRole(['admin'])];
 const isAdmin = (user) => user?.role === 'admin' || user?.role === 'super_admin';
 
 function tenantWhere(req, params, alias = 'c') {

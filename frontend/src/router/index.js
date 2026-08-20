@@ -90,7 +90,7 @@ const routes = [
         path: "/protocol-configs",
         name: "ProtocolConfigManagement",
         component: () => import("../views/ProtocolConfigManagement.vue"),
-        meta: { title: "协议配置", icon: "Document", roles },
+        meta: { title: "协议配置", icon: "Document", roles: ["admin"] },
       },
       {
         path: "/devices",
@@ -129,7 +129,7 @@ const routes = [
         meta: {
           title: "数据推送",
           icon: "UploadFilled",
-          roles: ["admin", "tenant_admin"],
+          roles: ["admin"],
         },
       },
       {
