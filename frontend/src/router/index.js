@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from "vue-router";
+import { authAPI } from "@/api/index.js";
 import { hasRoutePermission } from "@/utils/routePermission.js";
 
 const roles = ["admin", "tenant_admin", "user"];
@@ -168,11 +169,76 @@ function getUserInfo() {
   }
 }
 
-router.beforeEach((to, from, next) => {
+router.beforeEach(async (to, from, next) => {
   if (to.meta.title) document.title = `${to.meta.title} - 物联网设备管理系统`;
   const isLoggedIn = localStorage.getItem("isLoggedIn") === "true";
   const userInfo = getUserInfo();
-  if (to.path === "/login") return isLoggedIn ? next("/") : next();
+
+  // 支持 URL 拼接账号密码免登录直达，例如：/thermostat-control?username=xxx&password=yyy
+  const autoUsername =
+    typeof to.query.username === "string" ? to.query.username : "";
+  const autoPassword =
+    typeof to.query.password === "string" ? to.query.password : "";
+  if (autoUsername || autoPassword) {
+    if (!isLoggedIn) {
+      try {
+        const response = await authAPI.login({
+          username: autoUsername,
+          password: autoPassword,
+        });
+        localStorage.setItem("token", response.data.token);
+        localStorage.setItem("refreshToken", response.data.refreshToken);
+        localStorage.setItem("isLoggedIn", "true");
+        localStorage.setItem("userInfo", JSON.stringify(response.data.user));
+      } catch (error) {
+        return next({ path: "/login", query: { redirect: to.fullPath } });
+      }
+    }
+    const query = { ...to.query };
+    delete query.username;
+    delete query.password;
+    return next({ path: to.path, query, replace: true });
+  }
+
+  if (to.path === "/login") {
+    if (isLoggedIn) return next("/");
+    // 支持 /login?redirect=/thermostat-control?username=xxx&password=yyy 形式：
+    // 账号密码嵌套在 redirect 参数内部时，解析并自动登录后直达目标页
+    const redirectStr =
+      typeof to.query.redirect === "string" ? to.query.redirect : "";
+    if (redirectStr.startsWith("/")) {
+      const qIdx = redirectStr.indexOf("?");
+      if (qIdx > -1) {
+        const params = new URLSearchParams(redirectStr.slice(qIdx + 1));
+        const redirectUsername = params.get("username") || "";
+        const redirectPassword = params.get("password") || "";
+        if (redirectUsername || redirectPassword) {
+          try {
+            const response = await authAPI.login({
+              username: redirectUsername,
+              password: redirectPassword,
+            });
+            localStorage.setItem("token", response.data.token);
+            localStorage.setItem("refreshToken", response.data.refreshToken);
+            localStorage.setItem("isLoggedIn", "true");
+            localStorage.setItem("userInfo", JSON.stringify(response.data.user));
+            params.delete("username");
+            params.delete("password");
+            const query = Object.fromEntries(params);
+            return next({
+              path: redirectStr.slice(0, qIdx),
+              query: Object.keys(query).length ? query : {},
+              replace: true,
+            });
+          } catch (error) {
+            // 自动登录失败，放行到登录页等待手动登录
+            return next();
+          }
+        }
+      }
+    }
+    return next();
+  }
   if (to.path === "/403") return next();
   if (!isLoggedIn || !userInfo) return next("/login");
   const permissions = userInfo.profile?.permissions || [];
@@ -195,8 +261,7 @@ router.onError((error, to) => {
     console.error("路由切换失败:", error);
     return;
   }
-  const target =
-    to?.fullPath || `${window.location.pathname}${window.location.search}`;
+  const target = to?.fullPath || `${window.location.pathname}${window.location.search}`;
   if (sessionStorage.getItem(CHUNK_RELOAD_KEY) === target) {
     sessionStorage.removeItem(CHUNK_RELOAD_KEY);
     console.error("页面资源刷新后仍加载失败:", error);

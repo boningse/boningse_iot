@@ -147,11 +147,12 @@
 
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { authAPI } from '@/api'
 
 const router = useRouter()
+const route = useRoute()
 
 /**
  * 登录表单数据
@@ -276,8 +277,13 @@ const handleLogin = async () => {
       
       ElMessage.success(response.message || '登录成功')
       
-      // 跳转到首页
-      router.push('/')
+      // 优先跳转到 redirect 指定的页面（如其他系统拼接链接直达温控页）
+      const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : ''
+      if (redirect.startsWith('/')) {
+        router.push(redirect)
+      } else {
+        router.push('/')
+      }
     } else {
       ElMessage.error(response.message || '登录失败')
       showCaptcha.value = true
