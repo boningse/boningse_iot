@@ -1,0 +1,57 @@
+<view class="page control-page">
+  <view class="control-head">
+    <view>
+      <text class="control-kicker">{{tenantName}}</text>
+      <text class="page-title">控制台</text>
+      <text class="page-subtitle">{{userName}}，现场状态已同步</text>
+    </view>
+    <view class="sync-state">
+      <view class="sync-state__dot"></view>
+      <text>{{updatedAt || "--:--"}}</text>
+    </view>
+  </view>
+
+  <view class="work-order-band" bindtap="openWorkOrders">
+    <view class="work-order-band__icon">
+      <image src="/assets/tab/work-order-active.png" mode="aspectFit"></image>
+    </view>
+    <view class="work-order-band__copy">
+      <text class="work-order-band__title">现场工单</text>
+      <text class="work-order-band__text">查看待接单与处理中任务</text>
+    </view>
+    <image class="work-order-band__arrow" src="/assets/icons/arrow-right.png" mode="aspectFit"></image>
+  </view>
+
+  <view class="section-row">
+    <text class="section-title">设备控制</text>
+    <text class="section-meta">{{modules.length}}个业务模块</text>
+  </view>
+
+  <view class="module-list">
+    <view wx:for="{{modules}}" wx:key="key" class="module-row module-row--{{item.tone}}" data-url="{{item.url}}" bindtap="openModule">
+      <view class="module-row__accent"></view>
+      <view class="module-row__icon">
+        <image src="{{item.icon}}" mode="aspectFit"></image>
+      </view>
+      <view class="module-row__copy">
+        <text class="module-row__title">{{item.title}}</text>
+        <text class="module-row__subtitle">{{item.subtitle}}</text>
+      </view>
+      <view class="module-row__aside">
+        <text class="module-row__count numeric">{{item.total || '--'}}</text>
+        <!-- <text wx:else class="module-row__count module-row__count--muted">--</text> -->
+        <text class="module-row__unit">台设备</text>
+      </view>
+      <image class="module-row__arrow" src="/assets/icons/arrow-right.png" mode="aspectFit"></image>
+    </view>
+  </view>
+
+  <view wx:if="{{!modules.length && !loading}}" class="permission-note panel">
+    <image src="/assets/icons/lock.png" mode="aspectFit"></image>
+    <view>
+      <text class="permission-note__title">暂无控制权限</text>
+      <text class="permission-note__text">请联系租户管理员调整模块权限</text>
+    </view>
+  </view>
+
+</view>

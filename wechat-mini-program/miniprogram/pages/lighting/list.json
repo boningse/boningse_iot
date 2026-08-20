@@ -1,0 +1,10 @@
+{
+  "navigationBarTitleText": "照明控制",
+  "enablePullDownRefresh": true,
+  "onReachBottomDistance": 120,
+  "usingComponents": {
+    "status-badge": "/components/status-badge/index",
+    "empty-state": "/components/empty-state/index",
+    "scope-filter": "/components/scope-filter/index"
+  }
+}

@@ -1,0 +1,5 @@
+@import "../../styles/device-detail.wxss";
+
+.lighting-hero {
+  background: #33291e;
+}

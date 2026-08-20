@@ -1,0 +1,62 @@
+<view class="page detail-page">
+  <view class="device-hero">
+    <view class="device-hero__head">
+      <view class="device-hero__copy"><text class="device-hero__name">{{name}}</text><text class="device-hero__code">{{imei}}</text></view>
+      <status-badge status="{{status}}"></status-badge>
+    </view>
+    <view class="temperature-readout">
+      <view><text class="temperature-readout__label">当前室温</text><text class="temperature-readout__value numeric">{{currentTemperature}}<text>°C</text></text></view>
+      <view class="temperature-readout__target"><text>设定</text><text class="numeric">{{targetTemperature}}°C</text></view>
+    </view>
+    <view class="device-hero__meta"><image src="/assets/icons/map.png" mode="aspectFit"></image><text>{{building}} · {{group}}</text></view>
+  </view>
+
+  <view class="section-title">运行控制</view>
+  <view class="control-panel panel">
+    <view class="control-row">
+      <text class="control-row__label">电源</text>
+      <button class="power-control {{powerOn ? 'power-control--on' : ''}}" disabled="{{status !== 'online' || controlling}}" bindtap="togglePower">
+        <image src="/assets/icons/power.png" mode="aspectFit"></image><text>{{powerOn ? "运行中" : "已关机"}}</text>
+      </button>
+    </view>
+    <view class="control-row">
+      <text class="control-row__label">设定温度</text>
+      <view class="stepper">
+        <button class="stepper__button" disabled="{{status !== 'online' || controlling || targetTemperature <= 16}}" data-delta="-1" bindtap="adjustTemperature"><image src="/assets/icons/minus.png" mode="aspectFit"></image></button>
+        <text class="stepper__value numeric">{{targetTemperature}}°</text>
+        <button class="stepper__button" disabled="{{status !== 'online' || controlling || targetTemperature >= 30}}" data-delta="1" bindtap="adjustTemperature"><image src="/assets/icons/plus.png" mode="aspectFit"></image></button>
+      </view>
+    </view>
+    <view class="control-row control-row--stack">
+      <text class="control-row__label">模式</text>
+      <view class="segmented segmented--wrap">
+        <button class="segment {{mode === 'cool' ? 'segment--active' : ''}}" data-mode="cool" bindtap="setMode">制冷</button>
+        <button class="segment {{mode === 'heat' ? 'segment--active' : ''}}" data-mode="heat" bindtap="setMode">制热</button>
+        <button class="segment {{mode === 'dehumidify' ? 'segment--active' : ''}}" data-mode="dehumidify" bindtap="setMode">除湿</button>
+        <button class="segment {{mode === 'fan' ? 'segment--active' : ''}}" data-mode="fan" bindtap="setMode">送风</button>
+      </view>
+    </view>
+    <view class="control-row control-row--stack">
+      <text class="control-row__label">风速</text>
+      <view class="segmented">
+        <button class="segment {{fanSpeed === 0 ? 'segment--active' : ''}}" data-speed="0" bindtap="setFan">自动</button>
+        <button class="segment {{fanSpeed === 1 ? 'segment--active' : ''}}" data-speed="1" bindtap="setFan">低</button>
+        <button class="segment {{fanSpeed === 2 ? 'segment--active' : ''}}" data-speed="2" bindtap="setFan">中</button>
+        <button class="segment {{fanSpeed === 3 ? 'segment--active' : ''}}" data-speed="3" bindtap="setFan">高</button>
+      </view>
+    </view>
+  </view>
+
+  <view class="section-title">近 7 天运行趋势</view>
+  <view class="runtime-panel panel">
+    <view wx:if="{{runtimeBars.length}}" class="runtime-chart">
+      <view wx:for="{{runtimeBars}}" wx:key="label" class="runtime-bar">
+        <text class="runtime-bar__value numeric">{{item.value}}</text>
+        <view class="runtime-bar__track"><view class="runtime-bar__fill" style="height: {{item.height}}%;"></view></view>
+        <text class="runtime-bar__label">{{item.label}}</text>
+      </view>
+    </view>
+    <view wx:else class="runtime-empty">暂无运行统计</view>
+  </view>
+  <view class="updated-at">状态更新于 {{updatedAt}}</view>
+</view>

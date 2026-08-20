@@ -1,0 +1,31 @@
+<scroll-view class="filters" scroll-x enhanced show-scrollbar="{{false}}">
+  <view class="filters__inner">
+    <picker wx:if="{{isAdmin}}" mode="selector" range="{{tenantOptions}}" value="{{tenantIndex}}" bindchange="onTenantChange">
+      <view class="filter-chip {{tenantIndex ? 'filter-chip--active' : ''}}">
+        <text>{{tenantOptions[tenantIndex]}}</text>
+        <image src="/assets/icons/chevron-down.png" mode="aspectFit"></image>
+      </view>
+    </picker>
+    <picker mode="selector" range="{{buildingOptions}}" value="{{buildingIndex}}" bindchange="onBuildingChange">
+      <view class="filter-chip {{buildingIndex ? 'filter-chip--active' : ''}}">
+        <text>{{buildingOptions[buildingIndex]}}</text>
+        <image src="/assets/icons/chevron-down.png" mode="aspectFit"></image>
+      </view>
+    </picker>
+    <picker mode="selector" range="{{groupOptions}}" value="{{groupIndex}}" bindchange="onGroupChange">
+      <view class="filter-chip {{groupIndex ? 'filter-chip--active' : ''}}">
+        <text>{{groupOptions[groupIndex]}}</text>
+        <image src="/assets/icons/chevron-down.png" mode="aspectFit"></image>
+      </view>
+    </picker>
+    <picker wx:if="{{showStatus}}" mode="selector" range="{{statusOptions}}" value="{{statusIndex}}" bindchange="onStatusChange">
+      <view class="filter-chip {{statusIndex ? 'filter-chip--active' : ''}}">
+        <text>{{statusOptions[statusIndex]}}</text>
+        <image src="/assets/icons/chevron-down.png" mode="aspectFit"></image>
+      </view>
+    </picker>
+    <!-- <button class="filter-reset" bindtap="reset" aria-label="重置筛选">
+      <image src="/assets/icons/rotate-ccw.png" mode="aspectFit"></image>
+    </button> -->
+  </view>
+</scroll-view>
