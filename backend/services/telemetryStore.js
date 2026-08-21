@@ -155,7 +155,8 @@ const stateValue = (state, name) => {
     mode: ['mode', 'ac_mode'],
     target_temperature: ['target_temperature', 'target_temp'],
     current_temperature: ['current_temperature', 'current_temp'],
-    power_status: ['power_status', 'power_state', 'switch_status']
+    power_status: ['power_status', 'power_state', 'switch_status'],
+    key_lock: ['key_lock', 'temp_locked', 'lock']
   };
   const keys = aliases[name] || [name];
   const key = keys.find((candidate) => state[candidate] !== undefined);

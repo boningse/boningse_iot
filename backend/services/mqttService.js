@@ -4122,7 +4122,10 @@ class MqttService {
           const fieldPath = paramConfig.field || paramName; // 支持字段映射
           
           // 根据路径获取值（支持嵌套路径如 "body.runOn"）
-          const rawValue = this.getValueByPath(parsedData, fieldPath);
+          let rawValue = this.getValueByPath(parsedData, fieldPath);
+          if ((rawValue === undefined || rawValue === null) && parsedData.body) {
+            rawValue = this.getValueByPath(parsedData.body, fieldPath);
+          }
           
           if (rawValue !== undefined && rawValue !== null) {
             extractedData[paramName] = this.convertFieldValue(rawValue, paramConfig.type);
@@ -4436,7 +4439,8 @@ class MqttService {
         target_temp: null,
         power_status: null,
         ac_mode: null,
-        humidity: null
+        humidity: null,
+        temp_locked: null
       };
 
       // 准备风速数据（不存储到数据库，通过WebSocket实时推送）
@@ -4522,6 +4526,11 @@ class MqttService {
         fields.humidity = this.extractNumericValue(data.humidity);
       }
 
+      // lock 已由协议配置转换为标准的 0/1 或布尔值。
+      if (data.lock !== undefined) {
+        fields.temp_locked = this.extractBooleanValue(data.lock);
+      }
+
       // 处理风速数据 - runFanSpeed用于反映当前风速，setFanSpeed用于设置命令
       // runFanSpeed是当前实际风速，setFanSpeed是设置风速命令
       if (data.runFanSpeed !== undefined) {
@@ -4595,6 +4604,9 @@ class MqttService {
           // 添加处理后的风速数据
           if (fanSpeed !== null) {
             pushData.fanSpeed = fanSpeed;
+          }
+          if (fields.temp_locked !== null) {
+            pushData.temp_locked = fields.temp_locked;
           }
           
           websocketService.broadcastToTenant(device.tenant_id, 'device_data', {

@@ -124,6 +124,7 @@ class ThermostatService {
         tp.fan_speed,
         tp.humidity,
         tp.power_status as is_on,
+        tp.temp_locked,
         tp.last_data_time,
         tp.group_id,
         tg.name as group_name,
@@ -247,6 +248,7 @@ class ThermostatService {
         tp.ac_mode as mode,
         tp.fan_speed,
         tp.power_status as is_on,
+        tp.temp_locked,
         tp.humidity,
         tp.group_id,
         tg.name as group_name,
@@ -1137,10 +1139,10 @@ class ThermostatService {
       // 更新设备属性 - 记录童锁状态
       const updateQuery = `
         UPDATE thermostat_properties 
-        SET last_data_time = NOW(), updated_at = NOW()
-        WHERE device_id = $1
+        SET temp_locked = $1, last_data_time = NOW(), updated_at = NOW()
+        WHERE device_id = $2
       `;
-      await db.query(updateQuery, [deviceId]);
+      await db.query(updateQuery, [Boolean(locked), deviceId]);
 
       // 记录控制日志
       await this.logControlAction(deviceId, userId, locked ? 'lock_device' : 'unlock_device', controlCommand, tenantId);
@@ -1197,6 +1199,8 @@ class ThermostatService {
         targetTemperature: device.target_temperature || 26,
         mode: device.mode || 'cool',
         isOn: device.is_on || false,
+        tempLocked: Boolean(device.temp_locked),
+        temp_locked: Boolean(device.temp_locked),
         humidity: device.humidity || null,
         fanSpeed: cachedStatus.fanSpeed !== undefined ? cachedStatus.fanSpeed : 0,
         acMode: device.acMode || device.mode || 'cool',
