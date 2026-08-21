@@ -91,7 +91,8 @@ const MODULE_CONFIG = {
     electricalTable: 'thermostat_electrical_measurements',
     controlTable: 'thermostat_control_logs',
     statusFields: [
-      field('power_status', 'boolean'), field('mode', 'text'), field('fan_speed', 'text'),
+      field('power_status', 'boolean'), field('running_status', 'boolean'),
+      field('mode', 'text'), field('fan_speed', 'text'),
       field('target_temperature'), field('current_temperature'), field('humidity'),
       field('valve_state', 'text'), field('relay_state', 'boolean'), field('key_lock', 'boolean'),
       field('battery_level'), field('error_code', 'text'), field('online', 'boolean')

@@ -1663,6 +1663,128 @@ class MqttService {
   }
 
   /**
+   * Route a configured gateway batch response to its child devices.
+   *
+   * The protocol configuration owns the array paths and child identity format;
+   * this service only applies that configuration and does not hard-code a
+   * particular gateway protocol or child address range.
+   */
+  async routeConfiguredSubdeviceData(gatewayDevice, data, topic) {
+    const isGateway = gatewayDevice?.device_category === 'gateway'
+      && !gatewayDevice?.parent_device_id;
+    if (!isGateway || !gatewayDevice?.protocol_config_id || !data || typeof data !== 'object') {
+      return false;
+    }
+
+    const { ProtocolConfig } = require('../models');
+    const protocolConfig = await ProtocolConfig.findByPk(gatewayDevice.protocol_config_id, {
+      attributes: ['id', 'data_parsing_config', 'status']
+    });
+    const routingConfig = protocolConfig?.data_parsing_config?.subdevice_routing;
+
+    if (protocolConfig?.status !== 'active' || routingConfig?.enabled !== true) {
+      return false;
+    }
+
+    const idPath = routingConfig.id_path;
+    const rowsPath = routingConfig.rows_path;
+    const identityTemplate = routingConfig.identity_template;
+    if (!idPath || !rowsPath || !identityTemplate) {
+      logger.warn('子设备路由配置不完整', {
+        gatewayDeviceId: gatewayDevice.id,
+        protocolConfigId: protocolConfig.id
+      });
+      return false;
+    }
+
+    const childIds = this.getValueByPath(data, idPath);
+    const dataRows = this.getValueByPath(data, rowsPath);
+    if (!Array.isArray(childIds) || !Array.isArray(dataRows)) {
+      return false;
+    }
+
+    if (childIds.length !== dataRows.length) {
+      logger.warn('网关子设备编号与数据行数量不一致', {
+        gatewayDeviceId: gatewayDevice.id,
+        childIdCount: childIds.length,
+        dataRowCount: dataRows.length
+      });
+    }
+
+    const gatewayIdentity = String(gatewayDevice.imei || gatewayDevice.device_id || '').trim();
+    if (!gatewayIdentity) {
+      logger.warn('网关缺少可用于子设备路由的IMEI', { gatewayDeviceId: gatewayDevice.id });
+      return true;
+    }
+
+    const rowCount = Math.min(childIds.length, dataRows.length);
+    const routeEntries = [];
+    for (let index = 0; index < rowCount; index += 1) {
+      if (!Array.isArray(dataRows[index])) continue;
+      const childSequence = String(childIds[index]).trim();
+      const childIdentity = identityTemplate
+        .replaceAll('{gateway_imei}', gatewayIdentity)
+        .replaceAll('{subdevice_id}', childSequence);
+      routeEntries.push({ childSequence, childIdentity, row: dataRows[index] });
+    }
+
+    if (routeEntries.length === 0) {
+      return true;
+    }
+
+    const identities = [...new Set(routeEntries.map(entry => entry.childIdentity))];
+    const childDevices = await Device.findAll({
+      where: {
+        parent_device_id: gatewayDevice.id,
+        [Op.or]: [
+          { device_id: { [Op.in]: identities } },
+          { imei: { [Op.in]: identities } }
+        ]
+      }
+    });
+    const childByIdentity = new Map();
+    for (const childDevice of childDevices) {
+      if (childDevice.device_id) childByIdentity.set(String(childDevice.device_id), childDevice);
+      if (childDevice.imei) childByIdentity.set(String(childDevice.imei), childDevice);
+    }
+
+    const unmatched = [];
+    for (const entry of routeEntries) {
+      const childDevice = childByIdentity.get(entry.childIdentity);
+      if (!childDevice) {
+        unmatched.push({ sequence: entry.childSequence, identity: entry.childIdentity });
+        continue;
+      }
+
+      const childPayload = JSON.parse(JSON.stringify(data));
+      this.setValueByPath(childPayload, idPath, [Number.isNaN(Number(entry.childSequence))
+        ? entry.childSequence
+        : Number(entry.childSequence)]);
+      this.setValueByPath(childPayload, rowsPath, [entry.row]);
+
+      await this.updateDeviceStatus(childDevice, 'online');
+      await this.parseAndStoreDeviceData(childDevice, childPayload, topic);
+    }
+
+    if (unmatched.length > 0) {
+      logger.warn('网关上报中存在未配置的子设备', {
+        gatewayDeviceId: gatewayDevice.id,
+        gatewayIdentity,
+        unmatched
+      });
+    }
+
+    logger.debug('已按协议配置完成网关子设备数据分发', {
+      gatewayDeviceId: gatewayDevice.id,
+      protocolConfigId: protocolConfig.id,
+      receivedRows: routeEntries.length,
+      matchedChildren: routeEntries.length - unmatched.length,
+      unmatchedChildren: unmatched.length
+    });
+    return true;
+  }
+
+  /**
    * 处理设备数据
    */
   async handleDeviceData(deviceId, data, topic, messageId) {
@@ -1685,11 +1807,15 @@ class MqttService {
 
       const receivedAt = new Date();
 
-      // 根据设备类型解析和存储数据
-      await this.parseAndStoreDeviceData(device, data, topic);
+      // 网关批量上报由协议配置决定是否拆分到子设备。
+      const routedToSubdevices = await this.routeConfiguredSubdeviceData(device, data, topic);
+      if (!routedToSubdevices) {
+        // 根据设备类型解析和存储数据
+        await this.parseAndStoreDeviceData(device, data, topic);
 
-      // 特殊处理照明开关设备数据（保持向后兼容）
-      await this.handleLightingDeviceData(device, data, topic);
+        // 特殊处理照明开关设备数据（保持向后兼容）
+        await this.handleLightingDeviceData(device, data, topic);
+      }
 
       // 清理设备数据中的无效Unicode字符
       const cleanedData = this.sanitizeDataForStorage(data);
@@ -1716,22 +1842,24 @@ class MqttService {
       }
 
       // 通过WebSocket推送给前端
-      websocketService.broadcastToClients('device_data', {
-        deviceId: device.id,
-        device_id: device.id,
-        device_name: device.name,
-        device_id_value: device.device_id,
-        imei: device.imei,
-        tenant_id: device.tenant_id,
-        direction: 'incoming',
-        source: 'mqtt',
-        topic: topic,
-        payload: data,
-        data: data,
-        dataSize: JSON.stringify(data).length,
-        messageType: 'data',
-        timestamp: receivedAt
-      });
+      if (!routedToSubdevices) {
+        websocketService.broadcastToClients('device_data', {
+          deviceId: device.id,
+          device_id: device.id,
+          device_name: device.name,
+          device_id_value: device.device_id,
+          imei: device.imei,
+          tenant_id: device.tenant_id,
+          direction: 'incoming',
+          source: 'mqtt',
+          topic: topic,
+          payload: data,
+          data: data,
+          dataSize: JSON.stringify(data).length,
+          messageType: 'data',
+          timestamp: receivedAt
+        });
+      }
 
       // 同时推送通信日志
       websocketService.broadcastToClients('communication_log', {
@@ -4232,6 +4360,29 @@ class MqttService {
   }
 
   /**
+   * 设置对象中的嵌套路径值。
+   */
+  setValueByPath(obj, path, value) {
+    if (!obj || typeof obj !== 'object' || !path || typeof path !== 'string') {
+      return false;
+    }
+
+    const keys = path.split('.').filter(Boolean);
+    if (keys.length === 0) return false;
+
+    let current = obj;
+    for (let index = 0; index < keys.length - 1; index += 1) {
+      const key = keys[index];
+      if (!current[key] || typeof current[key] !== 'object' || Array.isArray(current[key])) {
+        current[key] = {};
+      }
+      current = current[key];
+    }
+    current[keys[keys.length - 1]] = value;
+    return true;
+  }
+
+  /**
    * 根据协议配置的验证规则验证数据
    */
   validateDataByProtocolConfig(data, validationRules) {
@@ -4428,6 +4579,13 @@ class MqttService {
     return thermostatFields.some(field => data.hasOwnProperty(field));
   }
 
+  mapThermostatRunningStatus(value) {
+    const numericValue = this.extractNumericValue(value);
+    if (numericValue === 1 || numericValue === 17) return true;
+    if (numericValue === 0 || numericValue === 16) return false;
+    return null;
+  }
+
   /**
    * 保存温控器设备数据
    */
@@ -4438,6 +4596,7 @@ class MqttService {
         current_temperature: null,
         target_temp: null,
         power_status: null,
+        running_status: null,
         ac_mode: null,
         humidity: null,
         temp_locked: null
@@ -4461,40 +4620,26 @@ class MqttService {
         fields.target_temp = this.extractNumericValue(data.runTemp) / 10; // 协议中单位是0.1℃
       }
 
-      // 处理设备开关状态 - runOn用于反映当前状态，setOn用于设置命令
-      // 根据用户要求调整映射策略：
-      // runOn = 16 -> 视为 0 (关机状态)
-      // runOn = 17 -> 视为 1 (运行状态)
-      // 其他值保持原有逻辑: 0 -> 关机, 1 -> 运行
-      if (data.runOn !== undefined) {
-        const runOnValue = this.extractNumericValue(data.runOn);
-        
-        // 新的映射策略：16->0, 17->1
-        let mappedValue;
-        if (runOnValue === 16) {
-          mappedValue = 0; // 16视为0（关机）
-        } else if (runOnValue === 17) {
-          mappedValue = 1; // 17视为1（运行）
-        } else {
-          mappedValue = runOnValue; // 其他值保持不变
-        }
-        
-        fields.power_status = (mappedValue === 1);
-        logger.debug('使用runOn字段设置电源状态（当前运行状态）', {
-          deviceId: device.id,
-          原始runOnValue: runOnValue,
-          映射后值: mappedValue,
-          powerStatus: fields.power_status,
-          状态解释: (mappedValue === 1) ? '运行' : '关机'
-        });
-      } else if (data.setOn !== undefined) {
-        // setOn字段：0=关机，1=开机（设置命令字段，仅在没有runOn时用于状态参考）
+      // setOn 表示开关机设置状态，runOn 表示设备是否正在运行，两者必须独立保存。
+      if (data.setOn !== undefined) {
         const setOnValue = this.extractNumericValue(data.setOn);
         fields.power_status = setOnValue === 1;
-        logger.debug('使用setOn字段设置电源状态（设置命令）', {
+        logger.debug('使用setOn字段设置开关机状态', {
           deviceId: device.id,
-          setOnValue: setOnValue,
+          setOnValue,
           powerStatus: fields.power_status
+        });
+      }
+
+      // runOn兼容两套协议值：0/16=待机，1/17=运行。
+      if (data.runOn !== undefined) {
+        const runOnValue = this.extractNumericValue(data.runOn);
+        fields.running_status = this.mapThermostatRunningStatus(runOnValue);
+        logger.debug('使用runOn字段设置实际运行状态', {
+          deviceId: device.id,
+          原始runOnValue: runOnValue,
+          runningStatus: fields.running_status,
+          状态解释: fields.running_status === null ? '未知' : (fields.running_status ? '运行' : '待机')
         });
       }
 
@@ -4607,6 +4752,12 @@ class MqttService {
           }
           if (fields.temp_locked !== null) {
             pushData.temp_locked = fields.temp_locked;
+          }
+          if (fields.power_status !== null) {
+            pushData.power_status = fields.power_status;
+          }
+          if (fields.running_status !== null) {
+            pushData.running_status = fields.running_status;
           }
           
           websocketService.broadcastToTenant(device.tenant_id, 'device_data', {

@@ -79,8 +79,10 @@ class ThermostatService {
 
     // 状态过滤
     if (status === 'running') {
-      whereClause += ' AND COALESCE(tp.power_status, false) = true';
+      whereClause += ' AND d.status != \'offline\' AND COALESCE(tp.power_status, false) = true AND COALESCE(tp.running_status, false) = true';
     } else if (status === 'standby') {
+      whereClause += ' AND d.status != \'offline\' AND COALESCE(tp.power_status, false) = true AND COALESCE(tp.running_status, false) = false';
+    } else if (status === 'off') {
       whereClause += ' AND d.status != \'offline\' AND COALESCE(tp.power_status, false) = false';
     } else if (status === 'offline') {
       whereClause += ' AND d.status = \'offline\'';
@@ -124,6 +126,7 @@ class ThermostatService {
         tp.fan_speed,
         tp.humidity,
         tp.power_status as is_on,
+        tp.running_status,
         tp.temp_locked,
         tp.last_data_time,
         tp.group_id,
@@ -248,6 +251,7 @@ class ThermostatService {
         tp.ac_mode as mode,
         tp.fan_speed,
         tp.power_status as is_on,
+        tp.running_status,
         tp.temp_locked,
         tp.humidity,
         tp.group_id,
@@ -1199,6 +1203,8 @@ class ThermostatService {
         targetTemperature: device.target_temperature || 26,
         mode: device.mode || 'cool',
         isOn: device.is_on || false,
+        runningStatus: Boolean(device.running_status),
+        running_status: Boolean(device.running_status),
         tempLocked: Boolean(device.temp_locked),
         temp_locked: Boolean(device.temp_locked),
         humidity: device.humidity || null,
@@ -1635,7 +1641,7 @@ class ThermostatService {
           d.location,
           tg.name AS group_name,
           tsm.measured_at,
-          tsm.power_status,
+          COALESCE(tsm.running_status, tsm.power_status) AS running_status,
           LOWER(TRIM(COALESCE(tsm.fan_speed, ''))) AS fan_speed,
           LEAD(tsm.measured_at) OVER (
             PARTITION BY tsm.device_id ORDER BY tsm.measured_at
@@ -1668,13 +1674,13 @@ class ThermostatService {
         group_name,
         TO_CHAR(segment_start AT TIME ZONE 'Asia/Shanghai', 'YYYY-MM-DD') AS stat_date,
         ROUND(SUM(CASE
-          WHEN power_status IS TRUE AND fan_speed IN ('1', 'low', '低', '低速')
+          WHEN running_status IS TRUE AND fan_speed IN ('1', 'low', '低', '低速')
           THEN GREATEST(EXTRACT(EPOCH FROM segment_end - segment_start), 0) ELSE 0 END))::bigint AS runtime_speed1,
         ROUND(SUM(CASE
-          WHEN power_status IS TRUE AND fan_speed IN ('2', 'medium', 'middle', '中', '中速')
+          WHEN running_status IS TRUE AND fan_speed IN ('2', 'medium', 'middle', '中', '中速')
           THEN GREATEST(EXTRACT(EPOCH FROM segment_end - segment_start), 0) ELSE 0 END))::bigint AS runtime_speed2,
         ROUND(SUM(CASE
-          WHEN power_status IS TRUE AND fan_speed IN ('3', 'high', '高', '高速')
+          WHEN running_status IS TRUE AND fan_speed IN ('3', 'high', '高', '高速')
           THEN GREATEST(EXTRACT(EPOCH FROM segment_end - segment_start), 0) ELSE 0 END))::bigint AS runtime_speed3,
         MIN(measured_at) AS created_at,
         MAX(measured_at) AS updated_at
@@ -1719,7 +1725,7 @@ class ThermostatService {
    */
   async getScenes(tenantId) {
     const query = `
-      SELECT * FROM thermostat_scenes
+      SELECT *, scene_config AS settings FROM thermostat_scenes
       WHERE tenant_id = $1
       ORDER BY scene_type, created_at DESC
     `;
@@ -1739,7 +1745,7 @@ class ThermostatService {
   async createScene(sceneData, tenantId) {
     const query = `
       INSERT INTO thermostat_scenes (
-        name, description, scene_type, settings, tenant_id
+        name, description, scene_type, scene_config, tenant_id
       )
       VALUES ($1, $2, 'custom', $3, $4)
       RETURNING *
@@ -1769,7 +1775,7 @@ class ThermostatService {
       SET 
         name = $1,
         description = $2,
-        settings = $3,
+        scene_config = $3,
         updated_at = NOW()
       WHERE id = $4 AND tenant_id = $5 AND scene_type = 'custom'
       RETURNING *
@@ -1809,91 +1815,117 @@ class ThermostatService {
     }
   }
 
+  normalizeSceneSettings(settings = {}) {
+    const source = settings && typeof settings === 'object' ? settings : {};
+    const powerValue = source.is_on ?? source.power_status ?? source.power_action ?? source.power;
+    let powerAction = null;
+    if (powerValue === true || ['on', 'power_on', 'open'].includes(String(powerValue).toLowerCase())) {
+      powerAction = 'on';
+    } else if (powerValue === false || ['off', 'power_off', 'close'].includes(String(powerValue).toLowerCase())) {
+      powerAction = 'off';
+    }
+
+    const lockValue = source.temp_locked ?? source.locked ?? source.lock_action;
+    let locked = null;
+    if (lockValue === true || ['lock', 'locked'].includes(String(lockValue).toLowerCase())) {
+      locked = true;
+    } else if (lockValue === false || ['unlock', 'unlocked'].includes(String(lockValue).toLowerCase())) {
+      locked = false;
+    }
+
+    return {
+      powerAction,
+      targetTemp: source.target_temp ?? source.temperature ?? null,
+      mode: source.ac_mode ?? source.mode ?? null,
+      fanSpeed: source.fan_speed ?? source.fanSpeed ?? null,
+      locked
+    };
+  }
+
+  async executeSceneActionsForDevice(deviceId, settings, tenantId, userId) {
+    const device = await this.getThermostatDevice(deviceId, tenantId);
+    if (!device) {
+      throw new Error('温控器设备不存在');
+    }
+
+    const normalized = this.normalizeSceneSettings(settings);
+    const hasTargetTemp = normalized.targetTemp !== null && normalized.targetTemp !== undefined;
+    const hasMode = normalized.mode !== null && normalized.mode !== undefined && normalized.mode !== '';
+    const hasFanSpeed = normalized.fanSpeed !== null && normalized.fanSpeed !== undefined;
+    const hasLock = normalized.locked !== null;
+    if (!normalized.powerAction && !hasTargetTemp && !hasMode && !hasFanSpeed && !hasLock) {
+      throw new Error('情景模式未配置有效控制动作');
+    }
+
+    const actions = [];
+    if (normalized.powerAction === 'on') {
+      await this.powerOnDevice(deviceId, {}, tenantId, userId);
+      actions.push('power_on');
+    }
+    if (hasMode) {
+      await this.setMode(deviceId, normalized.mode, tenantId, userId);
+      actions.push('set_mode');
+    }
+    if (hasFanSpeed) {
+      await this.setFanSpeed(deviceId, normalized.fanSpeed, tenantId, userId);
+      actions.push('set_fan_speed');
+    }
+    if (hasTargetTemp) {
+      await this.setTemperature(deviceId, normalized.targetTemp, tenantId, userId);
+      actions.push('set_temperature');
+    }
+    if (hasLock) {
+      await this.toggleTempLock(deviceId, normalized.locked, tenantId, userId);
+      actions.push(normalized.locked ? 'lock_device' : 'unlock_device');
+    }
+    if (normalized.powerAction === 'off') {
+      await this.powerOffDevice(deviceId, tenantId, userId);
+      actions.push('power_off');
+    }
+
+    return actions;
+  }
+
   /**
    * 执行情景模式
    */
   async executeScene(sceneId, deviceIds, tenantId, userId) {
     try {
       // 获取情景模式
-      const sceneQuery = `
-        SELECT * FROM thermostat_scenes
-        WHERE id = $1 AND tenant_id = $2
-      `;
-      const sceneResult = await db.query(sceneQuery, [sceneId, tenantId]);
+      if (!Array.isArray(deviceIds) || deviceIds.length === 0) {
+        throw new Error('设备ID列表不能为空');
+      }
+
+      const sceneQuery = tenantId === null || tenantId === undefined
+        ? 'SELECT *, scene_config AS settings FROM thermostat_scenes WHERE id = $1'
+        : 'SELECT *, scene_config AS settings FROM thermostat_scenes WHERE id = $1 AND tenant_id = $2';
+      const sceneParams = tenantId === null || tenantId === undefined
+        ? [sceneId]
+        : [sceneId, tenantId];
+      const sceneResult = await db.query(sceneQuery, sceneParams);
       
       if (sceneResult.rows.length === 0) {
         throw new Error('情景模式不存在');
       }
 
       const scene = sceneResult.rows[0];
-      const settings = scene.settings;
+      const settings = scene.settings || scene.scene_config || {};
+      const effectiveTenantId = tenantId === null || tenantId === undefined
+        ? scene.tenant_id
+        : tenantId;
       const results = [];
       const errors = [];
 
       // 应用到指定设备
       for (const deviceId of deviceIds) {
         try {
-          const device = await this.getThermostatDevice(deviceId, tenantId);
-          if (!device) {
-            errors.push({ deviceId, error: '设备不存在' });
-            continue;
-          }
-
-          // 构建控制命令
-          const controlCommand = {
-            device_id: device.device_id,
-            action: 'apply_scene',
-            scene_id: sceneId,
-            scene_name: scene.name,
-            ...settings,
-            timestamp: new Date().toISOString()
-          };
-
-          // 发送MQTT控制命令
-          if (mqttService && mqttService.publish) {
-            const topic = this.buildMqttTopic(device);
-            await mqttService.publish(topic, JSON.stringify(controlCommand));
-          }
-
-          // 更新设备属性
-          if (settings.target_temp || settings.mode || settings.humidity || settings.is_on !== undefined) {
-            const updateFields = [];
-            const updateValues = [];
-            let paramIndex = 1;
-
-            if (settings.target_temp) {
-          updateFields.push(`target_temp = $${paramIndex++}`);
-          updateValues.push(settings.target_temp);
-            }
-            if (settings.mode) {
-          updateFields.push(`mode = $${paramIndex++}`);
-          updateValues.push(this.convertModeToDatabase(settings.mode));
-            }
-            if (settings.humidity) {
-          updateFields.push(`humidity = $${paramIndex++}`);
-          updateValues.push(settings.humidity);
-            }
-            if (settings.is_on !== undefined) {
-          updateFields.push(`is_on = $${paramIndex++}`);
-          updateValues.push(settings.is_on);
-            }
-
-            updateFields.push(`updated_at = NOW()`);
-            updateValues.push(deviceId);
-
-            const updateQuery = `
-              UPDATE thermostat_properties 
-              SET ${updateFields.join(', ')}
-              WHERE device_id = $${paramIndex}
-            `;
-            
-            await db.query(updateQuery, updateValues);
-          }
-
-          // 记录控制日志
-          await this.logControlAction(deviceId, userId, 'apply_scene', controlCommand, tenantId);
-
-          results.push({ deviceId, status: 'success' });
+          const actions = await this.executeSceneActionsForDevice(
+            deviceId,
+            settings,
+            effectiveTenantId,
+            userId
+          );
+          results.push({ deviceId, status: 'success', actions });
         } catch (error) {
           logger.error(`应用情景模式到设备 ${deviceId} 失败:`, error);
           errors.push({ deviceId, error: error.message });
@@ -1902,7 +1934,7 @@ class ThermostatService {
 
       // 通过WebSocket通知情景模式执行
       if (websocketService && websocketService.broadcastToTenant) {
-        websocketService.broadcastToTenant(tenantId, 'scene_executed', {
+        websocketService.broadcastToTenant(effectiveTenantId, 'scene_executed', {
           sceneId,
           sceneName: scene.name,
           results,

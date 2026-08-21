@@ -78,7 +78,8 @@
             >
               <el-option label="全部状态" value="" />
               <el-option label="运行中" value="running" />
-              <el-option label="待机" value="standby" />
+              <el-option label="待机中" value="standby" />
+              <el-option label="已关机" value="off" />
               <el-option label="离线" value="offline" />
             </el-select>
           </div>
@@ -162,10 +163,10 @@
           <div class="power-status-card" :class="{ 'active': device.powerStatus }">
             <div class="power-indicator">
               <div class="power-icon">
-                <el-icon :class="{ 'fan-rotating': device.powerStatus }"><Fan /></el-icon>
+                <el-icon :class="{ 'fan-rotating': device.powerStatus && device.runningStatus && device.status !== 'offline' }"><Fan /></el-icon>
               </div>
               <div class="power-info">
-                <div class="power-text">{{ device.powerStatus ? '运行中' : '已关机' }}</div>
+                <div class="power-text">{{ device.status === 'offline' ? '离线' : (!device.powerStatus ? '已关机' : (device.runningStatus ? '运行中' : '待机中')) }}</div>
                 <div class="power-subtitle">设备状态</div>
               </div>
             </div>
@@ -678,7 +679,8 @@
               clearable
             >
               <el-option label="运行中" value="running" />
-              <el-option label="待机" value="standby" />
+              <el-option label="待机中" value="standby" />
+              <el-option label="已关机" value="off" />
               <el-option label="离线" value="offline" />
             </el-select>
           </div>
@@ -1378,9 +1380,13 @@ export default {
               // 映射后端字段到前端期望的字段名，确保数据类型正确
               currentTemp: device.current_temperature ? parseFloat(device.current_temperature) : 20,
               targetTemp: device.target_temperature ? parseFloat(device.target_temperature) : 22,
-              powerStatus: device.is_on,
-              // 离线优先，其余设备再按电源状态区分运行和待机。
-              status: device.status === 'offline' ? 'offline' : (device.is_on ? 'running' : 'standby'),
+              powerStatus: Boolean(device.is_on),
+              runningStatus: Boolean(device.running_status),
+              networkStatus: device.status,
+              // 网络、开关机和实际运行状态分别处理。
+              status: device.status === 'offline'
+                ? 'offline'
+                : (!device.is_on ? 'off' : (device.running_status ? 'running' : 'standby')),
               acMode: device.mode || 'cool',
               // 修复风速初始化：优先使用后端的fan_speed字段，避免默认为0（A档）
               fanSpeed: device.fan_speed !== undefined && device.fan_speed !== null ? device.fan_speed : (device.fanSpeed !== undefined && device.fanSpeed !== null ? device.fanSpeed : 0),
@@ -1601,6 +1607,9 @@ export default {
               thermostatDevices.value.push({
                 ...device,
                 powerStatus: false,
+                runningStatus: false,
+                networkStatus: device.status,
+                status: device.status === 'offline' ? 'offline' : 'off',
                 currentTemp: null,
                 targetTemp: 24,
                 // 修复：新设备默认风速设为1档而不是A档
@@ -1625,6 +1634,9 @@ export default {
                 thermostatDevices.value.push({
                   ...device,
                   powerStatus: false,
+                  runningStatus: false,
+                  networkStatus: device.status,
+                  status: device.status === 'offline' ? 'offline' : 'off',
                   currentTemp: null,
                   targetTemp: 24,
                   // 修复：新设备默认风速设为1档而不是A档
@@ -1711,7 +1723,9 @@ export default {
           
           // 立即更新设备状态，避免界面延迟
           device.powerStatus = true
-          device.status = 'running'
+          device.status = device.networkStatus === 'offline'
+            ? 'offline'
+            : (device.runningStatus ? 'running' : 'standby')
           
           console.log(`✅ [开机状态更新] 设备 ${device.name} 状态已更新:`, {
             powerStatus: device.powerStatus,
@@ -1759,7 +1773,9 @@ export default {
           
           // 立即更新设备状态，避免界面延迟
           device.powerStatus = false
-          device.status = 'standby'
+          device.status = device.networkStatus === 'offline'
+            ? 'offline'
+            : 'off'
           
           console.log(`✅ [关机状态更新] 设备 ${device.name} 状态已更新:`, {
             powerStatus: device.powerStatus,
@@ -2910,7 +2926,7 @@ export default {
       
       // 更新设备基本信息
       if (parsedData.deviceName) device.name = parsedData.deviceName
-      if (parsedData.status) device.status = parsedData.status
+      if (parsedData.status) device.networkStatus = parsedData.status
       if (parsedData.location) device.location = parsedData.location
       
       // 更新温控器状态信息 - 兼容多种字段名格式，确保数据类型正确
@@ -2960,101 +2976,75 @@ export default {
         console.log(`🔄 [模式转换] ${oldMode} → ${device.acMode} (原始值: ${modeValue})`)
       }
       
-      // 处理电源状态 - runOn用于反映当前状态，setOn用于设置命令
-      // 根据协议文档：runOn是当前运行状态（0=关机，1=开机），setOn是设置开关机命令（0=关机，1=开机）
-      // 注意：runOn和setOn作用不同，runOn用于显示当前状态，setOn仅在没有runOn时作为状态参考
-      console.log(`⚡ [电源状态分析] 开始分析电源相关字段:`, {
+      // setOn只表示开关机，runOn只表示是否正在运行，两者不能互相覆盖。
+      console.log(`⚡ [温控状态分析] 开始分析开关机与运行字段:`, {
         runOn: parsedData.runOn,
         setOn: parsedData.setOn,
+        running_status: parsedData.running_status,
         isOn: parsedData.isOn,
         is_on: parsedData.is_on,
         powerStatus: parsedData.powerStatus,
         当前设备状态: {
           powerStatus: device.powerStatus,
+          runningStatus: device.runningStatus,
           status: device.status
         }
       })
       
       let powerStatus = null
       let powerSource = ''
-      
-      // 修复逻辑：优先使用runOn字段，它反映设备的真实运行状态
-      if (parsedData.runOn !== null && parsedData.runOn !== undefined) {
-        // runOn字段：需要与后端映射逻辑保持一致
-        const runOnValue = typeof parsedData.runOn === 'string' ? parseInt(parsedData.runOn) : parsedData.runOn
-        
-        // 修复：与后端映射逻辑保持一致 - 16→0(关机), 17→1(开机), 其他值保持不变
-        let mappedValue
-        if (runOnValue === 16) {
-          mappedValue = 0 // 16视为0（关机）
-        } else if (runOnValue === 17) {
-          mappedValue = 1 // 17视为1（运行）
-        } else {
-          mappedValue = runOnValue // 其他值保持不变
-        }
-        
-        powerStatus = mappedValue === 1
-         device.status = mappedValue === 1 ? 'running' : 'standby'
-        
-        powerSource = 'runOn'
-        console.log(`⚡ [电源字段] 使用runOn字段(当前状态): ${parsedData.runOn} → 映射值:${mappedValue} → 状态:${device.status}, 可操作:${powerStatus}，说明: ${mappedValue === 1 ? '运行' : '待机'}`)
-      } else if (parsedData.isOn !== null && parsedData.isOn !== undefined) {
-        powerStatus = parsedData.isOn
-        powerSource = 'isOn'
-        console.log(`⚡ [电源字段] 使用isOn字段: ${parsedData.isOn} → ${powerStatus ? '开机' : '关机'}`)
-      } else if (parsedData.is_on !== null && parsedData.is_on !== undefined) {
-        powerStatus = parsedData.is_on
-        powerSource = 'is_on'
-        console.log(`⚡ [电源字段] 使用is_on字段: ${parsedData.is_on} → ${powerStatus ? '开机' : '关机'}`)
-      } else if (parsedData.powerStatus !== null && parsedData.powerStatus !== undefined) {
-        powerStatus = parsedData.powerStatus
-        powerSource = 'powerStatus'
-        console.log(`⚡ [电源字段] 使用powerStatus字段: ${parsedData.powerStatus} → ${powerStatus ? '开机' : '关机'}`)
-      } else if (parsedData.setOn !== null && parsedData.setOn !== undefined) {
-        // setOn字段：0=关机，1=开机（设置命令字段，仅在没有runOn时用于状态参考）
+      if (parsedData.setOn !== null && parsedData.setOn !== undefined) {
         const setOnValue = typeof parsedData.setOn === 'string' ? parseInt(parsedData.setOn) : parsedData.setOn
         powerStatus = setOnValue === 1
         powerSource = 'setOn'
-        console.log(`⚡ [电源字段] 使用setOn字段(设置命令): ${parsedData.setOn} → ${powerStatus ? '开机' : '关机'}`)
-      } else {
-        console.log(`⚠️ [电源字段] 未找到任何电源状态字段，保持当前状态`)
+      } else if (parsedData.isOn !== null && parsedData.isOn !== undefined) {
+        powerStatus = parsedData.isOn
+        powerSource = 'isOn'
+      } else if (parsedData.is_on !== null && parsedData.is_on !== undefined) {
+        powerStatus = parsedData.is_on
+        powerSource = 'is_on'
+      } else if (parsedData.powerStatus !== null && parsedData.powerStatus !== undefined) {
+        powerStatus = parsedData.powerStatus
+        powerSource = 'powerStatus'
       }
-      
+
+      let runningStatus = null
+      let runningSource = ''
+      if (parsedData.running_status !== null && parsedData.running_status !== undefined) {
+        runningStatus = Boolean(parsedData.running_status)
+        runningSource = 'running_status'
+      } else if (parsedData.runningStatus !== null && parsedData.runningStatus !== undefined) {
+        runningStatus = Boolean(parsedData.runningStatus)
+        runningSource = 'runningStatus'
+      } else if (parsedData.runOn !== null && parsedData.runOn !== undefined) {
+        const runOnValue = typeof parsedData.runOn === 'string' ? parseInt(parsedData.runOn) : parsedData.runOn
+        if (runOnValue === 1 || runOnValue === 17) {
+          runningStatus = true
+          runningSource = 'runOn'
+        } else if (runOnValue === 0 || runOnValue === 16) {
+          runningStatus = false
+          runningSource = 'runOn'
+        }
+      }
+
       if (powerStatus !== null) {
-        const oldPowerStatus = device.powerStatus
-        const oldStatus = device.status
-        
-        // 简化逻辑：只有明确的电源操作才更新powerStatus
-        // 风速和模式操作不应影响电源状态
-        
         device.powerStatus = Boolean(powerStatus)
-        // 只有在使用runOn字段时，status已经在上面设置了，其他情况按原逻辑
-        if (powerSource !== 'runOn') {
-          device.status = device.powerStatus ? 'running' : 'standby'
-        }
-        
-        console.log(`✅ [电源状态更新] 设备 ${device.name} 电源状态已更新:`, {
-          数据源: powerSource,
-          原始值: parsedData.setOn || parsedData.isOn || parsedData.is_on || parsedData.powerStatus || parsedData.runOn,
-          状态变化: {
-            powerStatus: `${oldPowerStatus} → ${device.powerStatus}`,
-            status: `${oldStatus} → ${device.status}`,
-            显示文本: device.status === 'running' ? '运行中' : (device.status === 'standby' ? '待机' : '离线'),
-            可操作: device.powerStatus ? '是' : '否'
-          },
-          保护机制: powerSource === 'setOn' && oldPowerStatus && !Boolean(powerStatus) ? '已启用' : '未触发',
-          时间戳: new Date().toLocaleTimeString()
-        })
-        
-        // 如果状态发生变化，额外记录
-        if (oldPowerStatus !== device.powerStatus) {
-          console.log(`🔄 [状态变化] 设备 ${device.name} 状态发生变化: ${oldStatus} → ${device.status}`)
-        } else {
-          console.log(`📍 [状态保持] 设备 ${device.name} 状态保持不变: ${device.status}`)
-        }
-      } else {
-        console.log(`🛡️ [保护机制] 设备 ${device.name} 未找到有效的电源状态信息，保持当前状态: powerStatus=${device.powerStatus}, status=${device.status}`)
       }
+      if (runningStatus !== null) {
+        device.runningStatus = Boolean(runningStatus)
+      }
+
+      device.status = device.networkStatus === 'offline'
+        ? 'offline'
+        : (!device.powerStatus ? 'off' : (device.runningStatus ? 'running' : 'standby'))
+
+      console.log(`✅ [温控状态更新] 设备 ${device.name} 状态已更新:`, {
+        powerSource,
+        runningSource,
+        powerStatus: device.powerStatus,
+        runningStatus: device.runningStatus,
+        status: device.status
+      })
       
       // 处理湿度
       if (parsedData.humidity !== null && parsedData.humidity !== undefined) {
@@ -3064,8 +3054,9 @@ export default {
       
       console.log(`✅ [状态更新完成] 设备 ${device.name} 最终状态:`, {
         powerStatus: device.powerStatus,
+        runningStatus: device.runningStatus,
         status: device.status,
-        显示状态: device.status === 'running' ? '运行中' : '待机',
+        显示状态: device.status === 'running' ? '运行中' : (device.status === 'standby' ? '待机中' : (device.status === 'off' ? '已关机' : '离线')),
         currentTemp: device.currentTemp,
         targetTemp: device.targetTemp,
         acMode: device.acMode,
@@ -3119,8 +3110,11 @@ export default {
       // 查找对应的设备并更新状态 - 修复：使用id字段匹配（WebSocket中的device_id实际是数据库主键ID）
       const device = thermostatDevices.value.find(d => d.id === data.device_id)
       if (device) {
-        device.status = data.status
-        console.log(`🎯 [状态更新] 设备 ${device.name} (id: ${device.id}) 状态已更新为: ${data.status}`)
+        device.networkStatus = data.status
+        device.status = data.status === 'offline'
+          ? 'offline'
+          : (!device.powerStatus ? 'off' : (device.runningStatus ? 'running' : 'standby'))
+        console.log(`🎯 [状态更新] 设备 ${device.name} (id: ${device.id}) 网络状态已更新为: ${data.status}`)
       } else {
         console.warn(`⚠️ [设备匹配] 未找到id为 ${data.device_id} 的设备，当前设备列表:`, 
           thermostatDevices.value.map(d => ({ id: d.id, device_id: d.device_id, name: d.name })))
