@@ -4,6 +4,7 @@ const { authenticateToken, requirePermission } = require('../middleware/auth');
 const logger = require('../utils/logger');
 const { getPoolConfig } = require('../config/database');
 const telemetryStore = require('../services/telemetryStore');
+const { appendDeviceScope } = require('../utils/dataScope');
 
 const router = express.Router();
 const pool = new Pool(getPoolConfig());
@@ -13,11 +14,7 @@ const numberOrNull = (value) => value === null || value === undefined ? null : N
 
 const getDevice = async (req, identifier, moduleType) => {
   const params = [identifier, moduleType];
-  let tenantClause = '';
-  if (!isAdminUser(req.user)) {
-    params.push(req.user.tenant_id);
-    tenantClause = ` AND d.tenant_id = $${params.length}`;
-  }
+  const tenantClause = appendDeviceScope(req.dataScope, params, 'd');
   const result = await pool.query(
     `SELECT d.id, d.name, d.imei, d.device_id, d.manufacturer_code, d.tenant_id,
             assignment.subtype
@@ -200,18 +197,21 @@ router.post('/batch-insert', authenticateToken, requirePermission('lighting'), a
 
 router.get('/stats/:manufacturer_code', authenticateToken, requirePermission('lighting'), async (req, res) => {
   try {
+    const params = [req.params.manufacturer_code];
+    const scopeClause = appendDeviceScope(req.dataScope, params, 'd');
     const result = await pool.query(
       `SELECT COUNT(*)::integer AS total_records,
-              COUNT(DISTINCT device_id)::integer AS device_count,
-              MIN(measured_at) AS earliest_data,
-              MAX(measured_at) AS latest_data,
-              AVG(voltage) AS avg_voltage,
-              AVG(current) AS avg_current,
-              AVG(power) AS avg_power,
-              SUM(energy) AS total_energy
-       FROM lighting_electrical_measurements
-       WHERE manufacturer_code = $1`,
-      [req.params.manufacturer_code]
+              COUNT(DISTINCT measurement.device_id)::integer AS device_count,
+              MIN(measurement.measured_at) AS earliest_data,
+              MAX(measurement.measured_at) AS latest_data,
+              AVG(measurement.voltage) AS avg_voltage,
+              AVG(measurement.current) AS avg_current,
+              AVG(measurement.power) AS avg_power,
+              SUM(measurement.energy) AS total_energy
+       FROM lighting_electrical_measurements measurement
+       JOIN devices d ON d.id = measurement.device_id
+       WHERE measurement.manufacturer_code = $1${scopeClause}`,
+      params
     );
     const stats = result.rows[0];
     res.json({

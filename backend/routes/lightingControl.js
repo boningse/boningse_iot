@@ -4,6 +4,7 @@ const { authenticateToken } = require('../middleware/auth');
 const logger = require('../utils/logger');
 const { getPoolConfig } = require('../config/database');
 const { executeLightingControl } = require('../services/lightingControlExecutor');
+const { appendDeviceScope } = require('../utils/dataScope');
 
 const router = express.Router();
 
@@ -172,10 +173,7 @@ router.post('/', authenticateToken, async (req, res) => {
     // 检查设备是否存在且属于当前租户
     const deviceCheckParams = [device_id, deviceType];
     let deviceTenantClause = '';
-    if (!isAdmin) {
-      deviceCheckParams.push(tenant_id);
-      deviceTenantClause = ` AND d.tenant_id = $${deviceCheckParams.length}`;
-    }
+    deviceTenantClause = appendDeviceScope(req.dataScope, deviceCheckParams, 'd');
 
     const deviceCheck = await pool.query(
       `SELECT d.id, d.name, d.tenant_id, d.device_category, dt.name as device_type_name
@@ -557,6 +555,7 @@ router.get('/available-devices', authenticateToken, async (req, res) => {
       queryParams.push(tenant_id);
       tenantClause = ` AND d.tenant_id = $${queryParams.length}`;
     }
+    tenantClause += appendDeviceScope(req.dataScope, queryParams, 'd');
 
     const query = `
       SELECT 
@@ -627,10 +626,7 @@ router.post('/batch/control', authenticateToken, async (req, res) => {
     };
     const params = [devices];
     let tenantClause = '';
-    if (!isAdminUser(req.user)) {
-      params.push(tenant_id);
-      tenantClause = ` AND lc.tenant_id = $${params.length}`;
-    }
+    tenantClause = appendDeviceScope(req.dataScope, params, 'd');
     const deviceResult = await pool.query(
       `SELECT d.id, lc.id AS assignment_id, lc.device_id, lc.tenant_id,
               d.device_id AS device_code, d.imei, d.name, d.manufacturer_code,
@@ -759,10 +755,7 @@ router.post('/:deviceId/control', authenticateToken, async (req, res) => {
     // 验证设备是否存在且属于用户可访问的照明控制列表
     const deviceCheckParams = [deviceId];
     let tenantClause = '';
-    if (!isAdminUser(req.user)) {
-      deviceCheckParams.push(tenant_id);
-      tenantClause = ` AND lc.tenant_id = $${deviceCheckParams.length}`;
-    }
+    tenantClause = appendDeviceScope(req.dataScope, deviceCheckParams, 'd');
 
     const deviceCheck = await pool.query(`
       SELECT

@@ -2,11 +2,19 @@ const thermostatService = require('../services/thermostatService');
 const scheduleService = require('../services/scheduleService');
 const { validationResult } = require('express-validator');
 const logger = require('../utils/logger');
+const { deviceInScope } = require('../utils/dataScope');
 
 const getTenantScope = (req) => (
   req.user.role === 'admin' || req.user.role === 'super_admin'
     ? null
     : req.user.tenant_id
+);
+
+const resourceInScope = (resource, req) => (
+  req.dataScope?.level === 'global'
+  || (Array.isArray(resource?.devices)
+    && resource.devices.length > 0
+    && resource.devices.every((device) => deviceInScope(device, req.dataScope)))
 );
 
 /**
@@ -96,7 +104,7 @@ class ThermostatController {
       const { deviceId } = req.params;
       const tenantId = getTenantScope(req);
 
-      const device = await thermostatService.getThermostatDevice(deviceId, tenantId);
+      let device = await thermostatService.getThermostatDevice(deviceId, tenantId);
 
       if (!device) {
         return res.status(404).json({
@@ -604,7 +612,8 @@ class ThermostatController {
     try {
       const tenantId = getTenantScope(req);
 
-      const schedules = await scheduleService.getScheduleList(tenantId);
+      const schedules = (await scheduleService.getScheduleList(tenantId))
+        .filter((schedule) => resourceInScope(schedule, req));
 
       res.json({
         success: true,
@@ -631,7 +640,7 @@ class ThermostatController {
       
       const schedule = await scheduleService.getScheduleById(scheduleId, tenantId);
       
-      if (!schedule) {
+      if (!schedule || !resourceInScope(schedule, req)) {
         return res.status(404).json({
           success: false,
           message: '计划不存在'
@@ -720,6 +729,11 @@ class ThermostatController {
       const scheduleData = req.body;
       const tenantId = getTenantScope(req);
 
+      const currentSchedule = await scheduleService.getScheduleById(scheduleId, tenantId);
+      if (!currentSchedule || !resourceInScope(currentSchedule, req)) {
+        return res.status(404).json({ success: false, message: '计划不存在或无权限' });
+      }
+
       // 验证必填字段
       if (!scheduleData.name || !scheduleData.executeTime || !scheduleData.repeatType) {
         return res.status(400).json({
@@ -761,6 +775,11 @@ class ThermostatController {
       const { scheduleId } = req.params;
       const tenantId = getTenantScope(req);
 
+      const currentSchedule = await scheduleService.getScheduleById(scheduleId, tenantId);
+      if (!currentSchedule || !resourceInScope(currentSchedule, req)) {
+        return res.status(404).json({ success: false, message: '计划不存在或无权限' });
+      }
+
       const result = await scheduleService.deleteSchedule(scheduleId, tenantId);
 
       if (!result) {
@@ -793,6 +812,11 @@ class ThermostatController {
       const { scheduleId } = req.params;
       const { enabled } = req.body;
       const tenantId = getTenantScope(req);
+
+      const currentSchedule = await scheduleService.getScheduleById(scheduleId, tenantId);
+      if (!currentSchedule || !resourceInScope(currentSchedule, req)) {
+        return res.status(404).json({ success: false, message: '计划不存在或无权限' });
+      }
 
       if (typeof enabled !== 'boolean') {
         return res.status(400).json({
@@ -890,7 +914,7 @@ class ThermostatController {
       const tenantId = getTenantScope(req);
       const { date } = req.query;
 
-      const summary = await thermostatService.getTenantStatsSummary(tenantId, date);
+      const summary = await thermostatService.getTenantStatsSummary(tenantId, date, req.dataScope);
 
       res.json({
         success: true,
@@ -913,7 +937,7 @@ class ThermostatController {
   async getRunningStats(req, res) {
     try {
       const tenantId = getTenantScope(req);
-      const { dateRange, startDate, endDate, deviceId, groupId, mode } = req.query;
+      const { dateRange, startDate, endDate, deviceId, groupId, mode, buildingId, projectGroupId } = req.query;
       
       const options = {
         dateRange: startDate && endDate
@@ -921,7 +945,9 @@ class ThermostatController {
           : (dateRange ? JSON.parse(dateRange) : []),
         deviceId: deviceId || null,
         groupId: groupId || null,
-        mode: mode || null
+        mode: mode || null,
+        buildingId: buildingId || null,
+        projectGroupId: projectGroupId || null
       };
       
       const stats = await thermostatService.getRunningStats(tenantId, options);
@@ -946,12 +972,14 @@ class ThermostatController {
   async getRuntimeStats(req, res) {
     try {
       const tenantId = getTenantScope(req);
-      const { startDate, endDate, deviceId, groupId } = req.query;
+      const { startDate, endDate, deviceId, groupId, buildingId, projectGroupId } = req.query;
       
       const options = {
         dateRange: startDate && endDate ? [startDate, endDate] : [],
         deviceId: deviceId || null,
-        groupId: groupId || null
+        groupId: groupId || null,
+        buildingId: buildingId || null,
+        projectGroupId: projectGroupId || null
       };
       
       const stats = await thermostatService.getRunningStats(tenantId, options);

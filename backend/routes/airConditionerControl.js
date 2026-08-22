@@ -5,6 +5,7 @@ const { authenticateToken } = require('../middleware/auth');
 const logger = require('../utils/logger');
 const { getPoolConfig } = require('../config/database');
 const { executeAirConditionerControl } = require('../services/airConditionerExecutor');
+const { appendDeviceScope, deviceInScope } = require('../utils/dataScope');
 
 const router = express.Router();
 const pool = new Pool(getPoolConfig());
@@ -46,11 +47,7 @@ const collectProtocolFields = (config) => {
 
 const findAssignedDevice = async (req, deviceId) => {
   const params = [deviceId];
-  let tenantClause = '';
-  if (!isAdminUser(req.user)) {
-    params.push(req.user.tenant_id);
-    tenantClause = ` AND acc.tenant_id = $${params.length}`;
-  }
+  const tenantClause = appendDeviceScope(req.dataScope, params, 'd');
   const result = await pool.query(
     `SELECT d.id, d.name, d.imei, d.device_id, d.status, d.location, d.description,
             d.tenant_id, d.manufacturer_code, d.protocol_config_id,
@@ -213,6 +210,7 @@ router.post('/sync-devices', authenticateToken, async (req, res) => {
       params.push(req.user.tenant_id);
       tenantClause = ` AND d.tenant_id = $${params.length}`;
     }
+    tenantClause += appendDeviceScope(req.dataScope, params, 'd');
     const result = await pool.query(
       `INSERT INTO control_device_assignments (tenant_id, device_id, module_type, is_active)
        SELECT d.tenant_id, d.id, 'air_conditioner', true
@@ -276,11 +274,7 @@ const validateStrategyPayload = (strategy) => {
 
 const findStrategyDevices = async (client, req, deviceIds) => {
   const params = [deviceIds];
-  let tenantClause = '';
-  if (!isAdminUser(req.user)) {
-    params.push(req.user.tenant_id);
-    tenantClause = ` AND assignment.tenant_id = $${params.length}`;
-  }
+  const tenantClause = appendDeviceScope(req.dataScope, params, 'd');
   const result = await client.query(
     `SELECT DISTINCT assignment.device_id, assignment.tenant_id
      FROM control_device_assignments assignment
@@ -293,6 +287,17 @@ const findStrategyDevices = async (client, req, deviceIds) => {
     params
   );
   return result.rows;
+};
+
+const canAccessStrategyGroup = async (client, req, groupId) => {
+  const result = await client.query(
+    `SELECT d.id, d.tenant_id, d.project_building_id, d.project_group_id
+     FROM air_conditioner_schedules schedule
+     JOIN devices d ON d.id = schedule.device_id
+     WHERE schedule.group_id = $1`,
+    [groupId]
+  );
+  return result.rows.length > 0 && result.rows.every((device) => deviceInScope(device, req.dataScope));
 };
 
 const saveStrategyRows = async (client, req, groupId, strategy, devicesToSave) => {
@@ -355,11 +360,7 @@ const saveStrategyRows = async (client, req, groupId, strategy, devicesToSave) =
 router.get('/strategy-devices', authenticateToken, async (req, res) => {
   try {
     const params = [];
-    let tenantClause = '';
-    if (!isAdminUser(req.user)) {
-      params.push(req.user.tenant_id);
-      tenantClause = ` AND assignment.tenant_id = $${params.length}`;
-    }
+    const tenantClause = appendDeviceScope(req.dataScope, params, 'd');
     const result = await pool.query(
       `SELECT DISTINCT d.id, d.name, d.device_id, d.imei, d.status,
               d.tenant_id, d.project_building_id, d.project_group_id,
@@ -387,11 +388,7 @@ router.get('/strategy-devices', authenticateToken, async (req, res) => {
 router.get('/strategies', authenticateToken, async (req, res) => {
   try {
     const params = [];
-    let tenantClause = '';
-    if (!isAdminUser(req.user)) {
-      params.push(req.user.tenant_id);
-      tenantClause = ` AND d.tenant_id = $${params.length}`;
-    }
+    const tenantClause = appendDeviceScope(req.dataScope, params, 'd');
     const result = await pool.query(
       `SELECT schedule.*, d.name AS device_name, d.device_id AS device_code,
               d.imei, d.tenant_id, t.name AS tenant_name
@@ -480,20 +477,7 @@ router.put('/strategies/:groupId', authenticateToken, async (req, res) => {
     if (validationError) return res.status(400).json({ success: false, message: validationError });
 
     await client.query('BEGIN');
-    const existingParams = [req.params.groupId];
-    let tenantClause = '';
-    if (!isAdminUser(req.user)) {
-      existingParams.push(req.user.tenant_id);
-      tenantClause = ` AND d.tenant_id = $${existingParams.length}`;
-    }
-    const existing = await client.query(
-      `SELECT schedule.id
-       FROM air_conditioner_schedules schedule
-       JOIN devices d ON d.id = schedule.device_id
-       WHERE schedule.group_id = $1${tenantClause}`,
-      existingParams
-    );
-    if (!existing.rows.length) {
+    if (!await canAccessStrategyGroup(client, req, req.params.groupId)) {
       await client.query('ROLLBACK');
       return res.status(404).json({ success: false, message: '空调策略不存在或无权限' });
     }
@@ -522,18 +506,16 @@ router.put('/strategies/:groupId', authenticateToken, async (req, res) => {
 
 router.post('/strategies/:groupId/toggle', authenticateToken, async (req, res) => {
   try {
-    const params = [req.body.enabled !== false, req.params.groupId];
-    let tenantClause = '';
-    if (!isAdminUser(req.user)) {
-      params.push(req.user.tenant_id);
-      tenantClause = ` AND d.tenant_id = $${params.length}`;
+    if (!await canAccessStrategyGroup(pool, req, req.params.groupId)) {
+      return res.status(404).json({ success: false, message: '空调策略不存在或无权限' });
     }
+    const params = [req.body.enabled !== false, req.params.groupId];
     const result = await pool.query(
       `UPDATE air_conditioner_schedules schedule
        SET enabled = $1, updated_at = CURRENT_TIMESTAMP
        FROM devices d
        WHERE schedule.device_id = d.id
-         AND schedule.group_id = $2${tenantClause}`,
+         AND schedule.group_id = $2`,
       params
     );
     if (!result.rowCount) return res.status(404).json({ success: false, message: '空调策略不存在或无权限' });
@@ -546,17 +528,15 @@ router.post('/strategies/:groupId/toggle', authenticateToken, async (req, res) =
 
 router.delete('/strategies/:groupId', authenticateToken, async (req, res) => {
   try {
-    const params = [req.params.groupId];
-    let tenantClause = '';
-    if (!isAdminUser(req.user)) {
-      params.push(req.user.tenant_id);
-      tenantClause = ` AND d.tenant_id = $${params.length}`;
+    if (!await canAccessStrategyGroup(pool, req, req.params.groupId)) {
+      return res.status(404).json({ success: false, message: '空调策略不存在或无权限' });
     }
+    const params = [req.params.groupId];
     const result = await pool.query(
       `DELETE FROM air_conditioner_schedules schedule
        USING devices d
        WHERE schedule.device_id = d.id
-         AND schedule.group_id = $1${tenantClause}`,
+         AND schedule.group_id = $1`,
       params
     );
     if (!result.rowCount) return res.status(404).json({ success: false, message: '空调策略不存在或无权限' });

@@ -152,7 +152,7 @@
               </div>
               <div class="temp-info">
                 <div class="temp-status">{{ getAcModeLabel(device.acMode) }}</div>
-                <div class="temp-label">{{ getFanSpeedLabel(device.fanSpeed) }}</div>
+                <div class="temp-label">{{ getRunningFanSpeedLabel(device) }}</div>
               </div>
             </div>
           </div>
@@ -203,7 +203,7 @@
             <div class="control-panel fan-speed">
               <div class="control-header">
                 <el-icon><WindPower /></el-icon>
-                <span>风速档位</span>
+                <span>设定风速</span>
               </div>
               <div class="control-options">
                 <el-select 
@@ -1016,6 +1016,7 @@
         <el-descriptions :column="2" border>
           <el-descriptions-item label="设备名称">{{ selectedDevice.name }}</el-descriptions-item>
           <el-descriptions-item label="IMEI">{{ selectedDevice.imei }}</el-descriptions-item>
+          <el-descriptions-item label="ICCID">{{ selectedDevice.iccid || '暂未读取' }}</el-descriptions-item>
           <el-descriptions-item label="所属租户">{{ selectedDevice.tenant?.name || '--' }}</el-descriptions-item>
           <el-descriptions-item label="设备类型">{{ selectedDevice.device_type?.name || '--' }}</el-descriptions-item>
           <el-descriptions-item label="当前状态">
@@ -1025,7 +1026,7 @@
           </el-descriptions-item>
           <el-descriptions-item label="当前温度">{{ selectedDevice.currentTemp || '--' }}°C</el-descriptions-item>
           <el-descriptions-item label="目标温度">{{ selectedDevice.targetTemp || '--' }}°C</el-descriptions-item>
-          <el-descriptions-item label="风速档位">{{ selectedDevice.fanSpeed || '--' }}档</el-descriptions-item>
+          <el-descriptions-item label="风速档位">{{ getFanSpeedLabel(selectedDevice.fanSpeed) }}</el-descriptions-item>
           <el-descriptions-item label="温度锁定">
             <el-tag :type="selectedDevice.tempLocked ? 'warning' : 'success'">
               {{ selectedDevice.tempLocked ? '已锁定' : '未锁定' }}
@@ -1390,6 +1391,7 @@ export default {
               acMode: device.mode || 'cool',
               // 修复风速初始化：优先使用后端的fan_speed字段，避免默认为0（A档）
               fanSpeed: device.fan_speed !== undefined && device.fan_speed !== null ? device.fan_speed : (device.fanSpeed !== undefined && device.fanSpeed !== null ? device.fanSpeed : 0),
+              runningFanSpeed: device.running_fan_speed !== undefined && device.running_fan_speed !== null ? device.running_fan_speed : null,
               tempLocked: device.temp_locked || false,
               group: device.project_group_name || device.project_group?.name || '',
               deviceId: device.device_id || device.imei || '',
@@ -1612,8 +1614,7 @@ export default {
                 status: device.status === 'offline' ? 'offline' : 'off',
                 currentTemp: null,
                 targetTemp: 24,
-                // 修复：新设备默认风速设为1档而不是A档
-                fanSpeed: 1,
+                fanSpeed: 0,
                 tempLocked: false,
                 runtime: {
                   speed1: 0,
@@ -1639,8 +1640,7 @@ export default {
                   status: device.status === 'offline' ? 'offline' : 'off',
                   currentTemp: null,
                   targetTemp: 24,
-                  // 修复：新设备默认风速设为1档而不是A档
-                  fanSpeed: 1,
+                  fanSpeed: 0,
                   tempLocked: false,
                   runtime: {
                     speed1: 0,
@@ -1833,7 +1833,7 @@ export default {
             
             // 只更新明确返回的字段，避免undefined覆盖现有状态
             const updateData = {
-              fanSpeed: updatedDevice.fan_speed || speed
+              fanSpeed: updatedDevice.fan_speed ?? speed
             }
             
             // 只有当后端明确返回这些字段时才更新
@@ -2104,6 +2104,14 @@ export default {
     const showDeviceDetail = async (device) => {
       selectedDevice.value = device
       showDetailDialog.value = true
+      try {
+        const response = await API.thermostatAPI.getThermostat(device.id)
+        if (response?.success && response.data) {
+          selectedDevice.value = { ...selectedDevice.value, ...response.data }
+        }
+      } catch (error) {
+        console.error('读取温控器详情失败:', error)
+      }
       // 加载该设备的运行时间历史数据
       await loadDeviceRuntimeHistory(device.id)
     }
@@ -2610,6 +2618,13 @@ export default {
        }
        return speedMap[speed] || '未知'
      }
+
+    // runFanSpeed 只表示设备当前实际运行档位；待机/关机时不能显示为“自动”。
+    const getRunningFanSpeedLabel = (device) => {
+      if (device.status === 'offline') return '--'
+      if (!device.powerStatus || !device.runningStatus) return '未运行'
+      return getFanSpeedLabel(device.runningFanSpeed)
+    }
     
     // 空调模式文本转换
     const getAcModeText = (mode) => {
@@ -2976,7 +2991,7 @@ export default {
         console.log(`🔄 [模式转换] ${oldMode} → ${device.acMode} (原始值: ${modeValue})`)
       }
       
-      // setOn只表示开关机，runOn只表示是否正在运行，两者不能互相覆盖。
+      // 优先使用后端依据协议配置解析出的标准状态，前端不再硬编码解释runOn。
       console.log(`⚡ [温控状态分析] 开始分析开关机与运行字段:`, {
         runOn: parsedData.runOn,
         setOn: parsedData.setOn,
@@ -2993,7 +3008,10 @@ export default {
       
       let powerStatus = null
       let powerSource = ''
-      if (parsedData.setOn !== null && parsedData.setOn !== undefined) {
+      if (parsedData.power_status !== null && parsedData.power_status !== undefined) {
+        powerStatus = Boolean(parsedData.power_status)
+        powerSource = 'power_status'
+      } else if (parsedData.setOn !== null && parsedData.setOn !== undefined) {
         const setOnValue = typeof parsedData.setOn === 'string' ? parseInt(parsedData.setOn) : parsedData.setOn
         powerStatus = setOnValue === 1
         powerSource = 'setOn'
@@ -3016,15 +3034,6 @@ export default {
       } else if (parsedData.runningStatus !== null && parsedData.runningStatus !== undefined) {
         runningStatus = Boolean(parsedData.runningStatus)
         runningSource = 'runningStatus'
-      } else if (parsedData.runOn !== null && parsedData.runOn !== undefined) {
-        const runOnValue = typeof parsedData.runOn === 'string' ? parseInt(parsedData.runOn) : parsedData.runOn
-        if (runOnValue === 1 || runOnValue === 17) {
-          runningStatus = true
-          runningSource = 'runOn'
-        } else if (runOnValue === 0 || runOnValue === 16) {
-          runningStatus = false
-          runningSource = 'runOn'
-        }
       }
 
       if (powerStatus !== null) {
@@ -3065,10 +3074,14 @@ export default {
       
       // 处理风速 - 支持协议原始字段和标准字段
       // runFanSpeed用于反映当前风速，setFanSpeed用于设置风速命令
-      const fanSpeed = parsedData.fanSpeed ?? parsedData.runFanSpeed ?? parsedData.setFanSpeed
-      if (fanSpeed !== null && fanSpeed !== undefined) {
-        device.fanSpeed = typeof fanSpeed === 'string' ? parseInt(fanSpeed) : fanSpeed
-        console.log(`🌀 [风速更新] 风速: ${device.fanSpeed} (${getFanSpeedLabel(device.fanSpeed)})`)  
+      const configuredFanSpeed = parsedData.fanSpeed ?? parsedData.fan_speed ?? parsedData.setFanSpeed
+      if (configuredFanSpeed !== null && configuredFanSpeed !== undefined) {
+        device.fanSpeed = typeof configuredFanSpeed === 'string' ? parseInt(configuredFanSpeed) : configuredFanSpeed
+      }
+      const runningFanSpeed = parsedData.runningFanSpeed ?? parsedData.running_fan_speed ?? parsedData.runFanSpeed
+      if (runningFanSpeed !== null && runningFanSpeed !== undefined) {
+        device.runningFanSpeed = typeof runningFanSpeed === 'string' ? parseInt(runningFanSpeed) : runningFanSpeed
+        console.log(`🌀 [风速更新] 设定: ${getFanSpeedLabel(device.fanSpeed)}，实际运行: ${getFanSpeedLabel(device.runningFanSpeed)}`)
       }
       
       const tempLocked = parsedData.tempLocked ?? parsedData.temp_locked
@@ -3323,6 +3336,7 @@ export default {
       executeScene,
       getFanSpeedText,
       getFanSpeedLabel,
+      getRunningFanSpeedLabel,
       getAcModeText,
       getAcModeLabel,
       setAcMode,
@@ -3700,6 +3714,22 @@ export default {
   font-size: 9px;
   color: #6b7280;
   font-weight: 500;
+}
+
+/* 运行模式卡：模式与实际风速需要清晰分层显示。 */
+.temp-card.lock .temp-info {
+  gap: 8px;
+}
+
+.temp-card.lock .temp-status,
+.temp-card.lock .temp-label {
+  font-size: 15px;
+  line-height: 1.35;
+  font-weight: 650;
+}
+
+.temp-card.lock .temp-label {
+  color: #4b5563;
 }
 
 /* 现代化电源控制样式 - 紧凑版 */

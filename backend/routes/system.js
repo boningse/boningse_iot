@@ -12,6 +12,7 @@ const logger = require('../utils/logger');
 const fs = require('fs').promises;
 const path = require('path');
 const os = require('os');
+const { applySequelizeDeviceScope } = require('../utils/dataScope');
 
 const router = express.Router();
 const mqttService = require('../services/mqttService');
@@ -30,22 +31,33 @@ const CURRENT_TELEMETRY_TABLES = [
 ];
 
 const telemetryUnionSql = CURRENT_TELEMETRY_TABLES
-  .map((table) => `SELECT tenant_id, measured_at FROM ${table}`)
+  .map((table) => `SELECT tenant_id, device_id, measured_at FROM ${table}`)
   .join(' UNION ALL ');
 
-async function countCurrentTelemetry({ tenantId = null, since = null } = {}) {
+async function countCurrentTelemetry({ tenantId = null, since = null, scope = null } = {}) {
   const where = [];
   const replacements = {};
   if (tenantId) {
-    where.push('tenant_id = :tenantId');
+    where.push('telemetry.tenant_id = :tenantId');
     replacements.tenantId = tenantId;
   }
   if (since) {
-    where.push('measured_at >= :since');
+    where.push('telemetry.measured_at >= :since');
     replacements.since = since;
   }
+  if (scope?.buildingId) {
+    where.push('d.project_building_id = :scopeBuildingId');
+    replacements.scopeBuildingId = scope.buildingId;
+  }
+  if (scope?.groupId) {
+    where.push('d.project_group_id = :scopeGroupId');
+    replacements.scopeGroupId = scope.groupId;
+  }
   const rows = await sequelize.query(
-    `SELECT COUNT(*)::bigint AS count FROM (${telemetryUnionSql}) telemetry${where.length ? ` WHERE ${where.join(' AND ')}` : ''}`,
+    `SELECT COUNT(*)::bigint AS count
+     FROM (${telemetryUnionSql}) telemetry
+     JOIN devices d ON d.id = telemetry.device_id
+     ${where.length ? `WHERE ${where.join(' AND ')}` : ''}`,
     { replacements, type: QueryTypes.SELECT }
   );
   return Number(rows[0]?.count || 0);
@@ -87,13 +99,14 @@ router.get('/stats', authenticateToken, async (req, res) => {
       deviceWhereClause.tenant_id = user.tenant_id;
       userWhereClause.tenant_id = user.tenant_id;
     }
+    applySequelizeDeviceScope(deviceWhereClause, req.dataScope);
 
     // 获取基础统计
     const [totalUsers, totalTenants, totalDevices, totalDataPoints] = await Promise.all([
       user.role === 'admin' ? User.count() : User.count({ where: userWhereClause }),
       user.role === 'admin' ? Tenant.count() : 1, // 非管理员只显示自己的租户
       Device.count({ where: deviceWhereClause }),
-      countCurrentTelemetry({ tenantId: deviceWhereClause.tenant_id })
+      countCurrentTelemetry({ tenantId: deviceWhereClause.tenant_id, scope: req.dataScope })
     ]);
 
     // 获取活跃统计
@@ -108,7 +121,7 @@ router.get('/stats', authenticateToken, async (req, res) => {
     const [recentUsers, recentDevices, recentDataPoints] = await Promise.all([
       user.role === 'admin' ? User.count({ where: { created_at: { [Op.gte]: last24Hours } } }) : User.count({ where: { ...userWhereClause, created_at: { [Op.gte]: last24Hours } } }),
       Device.count({ where: { ...deviceWhereClause, created_at: { [Op.gte]: last24Hours } } }),
-      countCurrentTelemetry({ tenantId: deviceWhereClause.tenant_id, since: last24Hours })
+      countCurrentTelemetry({ tenantId: deviceWhereClause.tenant_id, since: last24Hours, scope: req.dataScope })
     ]);
 
     // 获取设备类型统计
@@ -274,11 +287,12 @@ router.get('/dashboard-stats', authenticateToken, async (req, res) => {
       deviceWhereClause.tenant_id = user.tenant_id;
       userWhereClause.tenant_id = user.tenant_id;
     }
+    applySequelizeDeviceScope(deviceWhereClause, req.dataScope);
 
     // 获取基础统计
     const [totalDevices, totalDataPoints] = await Promise.all([
       Device.count({ where: deviceWhereClause }),
-      countCurrentTelemetry({ tenantId: deviceWhereClause.tenant_id })
+      countCurrentTelemetry({ tenantId: deviceWhereClause.tenant_id, scope: req.dataScope })
     ]);
 
     // 获取设备状态统计
@@ -291,7 +305,8 @@ router.get('/dashboard-stats', authenticateToken, async (req, res) => {
     const last24Hours = new Date(Date.now() - 24 * 60 * 60 * 1000);
     const recentDataPoints = await countCurrentTelemetry({
       tenantId: deviceWhereClause.tenant_id,
-      since: last24Hours
+      since: last24Hours,
+      scope: req.dataScope
     });
 
     // 获取设备类型统计

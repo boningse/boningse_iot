@@ -1,7 +1,8 @@
 const logger = require('../utils/logger');
 const db = require('../utils/database');
+const { deviceInScope } = require('../utils/dataScope');
 
-const isAdminRole = (role) => role === 'admin' || role === 'super_admin';
+const isAdminRole = (role) => role === 'admin';
 
 /**
  * 温控器设备权限验证中间件
@@ -31,7 +32,7 @@ const checkThermostatAccess = async (req, res, next) => {
     try {
       // 查询设备信息和权限
       const deviceResult = await db.query(`
-        SELECT d.id, d.tenant_id, d.name, d.status,
+        SELECT d.id, d.tenant_id, d.project_building_id, d.project_group_id, d.name, d.status,
                tp.id as thermostat_id
         FROM devices d
         LEFT JOIN thermostat_properties tp ON d.id = tp.device_id
@@ -64,8 +65,8 @@ const checkThermostatAccess = async (req, res, next) => {
         return next();
       }
 
-      // 租户权限检查
-      if (device.tenant_id !== userTenantId) {
+      // 租户、建筑、分组三级数据范围检查
+      if (!deviceInScope(device, req.dataScope)) {
         logger.warn('User attempted to access device from different tenant', {
           userId,
           userTenantId,

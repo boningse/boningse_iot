@@ -4,6 +4,7 @@ const { Pool } = require('pg');
 const { authenticateToken } = require('../middleware/auth');
 const logger = require('../utils/logger');
 const { getPoolConfig } = require('../config/database');
+const { appendDeviceScope, deviceInScope } = require('../utils/dataScope');
 
 const router = express.Router();
 const pool = new Pool({
@@ -42,11 +43,7 @@ const validatePayload = (strategy) => {
 
 const findDevices = async (client, req, deviceIds) => {
   const params = [deviceIds];
-  let tenantClause = '';
-  if (!isAdminUser(req.user)) {
-    params.push(req.user.tenant_id);
-    tenantClause = ` AND assignment.tenant_id = $${params.length}`;
-  }
+  const tenantClause = appendDeviceScope(req.dataScope, params, 'd');
   const result = await client.query(
     `SELECT DISTINCT d.id, assignment.tenant_id
      FROM control_device_assignments assignment
@@ -59,6 +56,17 @@ const findDevices = async (client, req, deviceIds) => {
     params
   );
   return result.rows;
+};
+
+const canAccessTimerGroup = async (client, req, groupId) => {
+  const result = await client.query(
+    `SELECT d.id, d.tenant_id, d.project_building_id, d.project_group_id
+     FROM lighting_device_timers timer
+     JOIN devices d ON d.id::text = timer.device_id
+     WHERE timer.group_id = $1`,
+    [groupId]
+  );
+  return result.rows.length > 0 && result.rows.every((device) => deviceInScope(device, req.dataScope));
 };
 
 const saveRows = async (client, req, groupId, strategy, devices) => {
@@ -84,11 +92,7 @@ const saveRows = async (client, req, groupId, strategy, devices) => {
 router.get('/strategy-devices', authenticateToken, async (req, res) => {
   try {
     const params = [];
-    let tenantClause = '';
-    if (!isAdminUser(req.user)) {
-      params.push(req.user.tenant_id);
-      tenantClause = ` AND assignment.tenant_id = $${params.length}`;
-    }
+    const tenantClause = appendDeviceScope(req.dataScope, params, 'd');
     const result = await pool.query(
       `SELECT DISTINCT d.id, d.name, d.device_id, d.imei, d.status,
               d.tenant_id, d.project_building_id, d.project_group_id,
@@ -118,11 +122,7 @@ router.get('/strategy-devices', authenticateToken, async (req, res) => {
 router.get('/strategies', authenticateToken, async (req, res) => {
   try {
     const params = [];
-    let tenantClause = '';
-    if (!isAdminUser(req.user)) {
-      params.push(req.user.tenant_id);
-      tenantClause = ` AND timer.tenant_id = $${params.length}`;
-    }
+    const tenantClause = appendDeviceScope(req.dataScope, params, 'd');
     const result = await pool.query(
       `SELECT timer.*, d.name AS device_name, d.device_id AS device_code,
               d.imei, tenant.name AS tenant_name
@@ -204,17 +204,7 @@ router.put('/strategies/:groupId', authenticateToken, async (req, res) => {
     const validationError = validatePayload(strategy);
     if (validationError) return res.status(400).json({ success: false, message: validationError });
     await client.query('BEGIN');
-    const params = [req.params.groupId];
-    let tenantClause = '';
-    if (!isAdminUser(req.user)) {
-      params.push(req.user.tenant_id);
-      tenantClause = ` AND tenant_id = $${params.length}`;
-    }
-    const existing = await client.query(
-      `SELECT id FROM lighting_device_timers WHERE group_id = $1${tenantClause}`,
-      params
-    );
-    if (!existing.rows.length) {
+    if (!await canAccessTimerGroup(client, req, req.params.groupId)) {
       await client.query('ROLLBACK');
       return res.status(404).json({ success: false, message: '照明策略不存在或无权限' });
     }
@@ -242,16 +232,14 @@ router.put('/strategies/:groupId', authenticateToken, async (req, res) => {
 
 router.put('/strategies/:groupId/toggle', authenticateToken, async (req, res) => {
   try {
-    const params = [req.body.enabled === true, req.params.groupId];
-    let tenantClause = '';
-    if (!isAdminUser(req.user)) {
-      params.push(req.user.tenant_id);
-      tenantClause = ` AND tenant_id = $${params.length}`;
+    if (!await canAccessTimerGroup(pool, req, req.params.groupId)) {
+      return res.status(404).json({ success: false, message: '照明策略不存在或无权限' });
     }
+    const params = [req.body.enabled === true, req.params.groupId];
     const result = await pool.query(
       `UPDATE lighting_device_timers
        SET enabled = $1, updated_at = CURRENT_TIMESTAMP
-       WHERE group_id = $2${tenantClause}`,
+       WHERE group_id = $2`,
       params
     );
     if (!result.rowCount) return res.status(404).json({ success: false, message: '照明策略不存在或无权限' });
@@ -264,14 +252,12 @@ router.put('/strategies/:groupId/toggle', authenticateToken, async (req, res) =>
 
 router.delete('/strategies/:groupId', authenticateToken, async (req, res) => {
   try {
-    const params = [req.params.groupId];
-    let tenantClause = '';
-    if (!isAdminUser(req.user)) {
-      params.push(req.user.tenant_id);
-      tenantClause = ` AND tenant_id = $${params.length}`;
+    if (!await canAccessTimerGroup(pool, req, req.params.groupId)) {
+      return res.status(404).json({ success: false, message: '照明策略不存在或无权限' });
     }
+    const params = [req.params.groupId];
     const result = await pool.query(
-      `DELETE FROM lighting_device_timers WHERE group_id = $1${tenantClause}`,
+      `DELETE FROM lighting_device_timers WHERE group_id = $1`,
       params
     );
     if (!result.rowCount) return res.status(404).json({ success: false, message: '照明策略不存在或无权限' });

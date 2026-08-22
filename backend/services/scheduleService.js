@@ -21,7 +21,10 @@ class ScheduleService {
               JSON_BUILD_OBJECT(
                 'device_id', d.id,
                 'device_name', d.name,
-                'device_code', d.device_id
+                'device_code', d.device_id,
+                'tenant_id', d.tenant_id,
+                'project_building_id', d.project_building_id,
+                'project_group_id', d.project_group_id
               )
             END
           ) FILTER (WHERE d.id IS NOT NULL), 
@@ -60,7 +63,10 @@ class ScheduleService {
               JSON_BUILD_OBJECT(
                 'device_id', d.id,
                 'device_name', d.name,
-                'device_code', d.device_id
+                'device_code', d.device_id,
+                'tenant_id', d.tenant_id,
+                'project_building_id', d.project_building_id,
+                'project_group_id', d.project_group_id
               )
             END
           ) FILTER (WHERE d.id IS NOT NULL), 
@@ -162,7 +168,10 @@ class ScheduleService {
                 JSON_BUILD_OBJECT(
                   'device_id', d.id,
                   'device_name', d.name,
-                  'device_code', d.device_id
+                  'device_code', d.device_id,
+                  'tenant_id', d.tenant_id,
+                  'project_building_id', d.project_building_id,
+                  'project_group_id', d.project_group_id
                 )
               END
             ) FILTER (WHERE d.id IS NOT NULL), 
@@ -344,7 +353,10 @@ class ScheduleService {
               JSON_BUILD_OBJECT(
                 'device_id', d.id,
                 'device_name', d.name,
-                'device_code', d.device_id
+                'device_code', d.device_id,
+                'tenant_id', d.tenant_id,
+                'project_building_id', d.project_building_id,
+                'project_group_id', d.project_group_id
               )
             END
           ) FILTER (WHERE d.id IS NOT NULL), 

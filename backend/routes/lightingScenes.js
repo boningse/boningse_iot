@@ -10,6 +10,31 @@ const isAdminUser = (user) => ['admin', 'super_admin'].includes(String(user?.rol
 // 数据库连接 - 使用统一的配置
 const pool = new Pool(getPoolConfig());
 
+const buildSceneDeviceScope = (req, params, alias = 'lighting_scenes') => {
+  const scope = req.dataScope;
+  if (!scope || scope.level === 'global') return '';
+  const violations = [];
+  params.push(scope.tenantId);
+  violations.push(`scoped_device.tenant_id IS DISTINCT FROM $${params.length}`);
+  if (scope.buildingId) {
+    params.push(scope.buildingId);
+    violations.push(`scoped_device.project_building_id IS DISTINCT FROM $${params.length}`);
+  }
+  if (scope.groupId) {
+    params.push(scope.groupId);
+    violations.push(`scoped_device.project_group_id IS DISTINCT FROM $${params.length}`);
+  }
+  return ` AND NOT EXISTS (
+    SELECT 1
+    FROM jsonb_array_elements(COALESCE(${alias}.devices_config, '[]'::jsonb)) scene_device
+    LEFT JOIN devices scoped_device
+      ON scoped_device.id::text = COALESCE(scene_device->>'deviceId', scene_device->>'device_id', scene_device->>'imei')
+      OR scoped_device.device_id = COALESCE(scene_device->>'deviceId', scene_device->>'device_id', scene_device->>'imei')
+      OR scoped_device.imei = COALESCE(scene_device->>'deviceId', scene_device->>'device_id', scene_device->>'imei')
+    WHERE scoped_device.id IS NULL OR ${violations.join(' OR ')}
+  )`;
+};
+
 // 获取所有情景模式列表
 router.get('/', authenticateToken, async (req, res) => {
   try {
@@ -36,6 +61,7 @@ router.get('/', authenticateToken, async (req, res) => {
     `;
 
     const params = isAdmin ? [] : [tenant_id];
+    query += buildSceneDeviceScope(req, params, 'lighting_scenes');
 
     if (scene_type) {
       query += ` AND scene_type = $${params.length + 1}`;
@@ -67,6 +93,8 @@ router.get('/:id', authenticateToken, async (req, res) => {
     const isAdmin = isAdminUser(req.user);
     const { id } = req.params;
 
+    const params = isAdmin ? [id] : [id, tenant_id];
+    const sceneScope = buildSceneDeviceScope(req, params, 'lighting_scenes');
     const query = `
       SELECT 
         id,
@@ -82,10 +110,10 @@ router.get('/:id', authenticateToken, async (req, res) => {
         created_at,
         updated_at
       FROM lighting_scenes 
-      WHERE id = $1${isAdmin ? '' : ' AND tenant_id = $2'}
+      WHERE id = $1${isAdmin ? '' : ' AND tenant_id = $2'}${sceneScope}
     `;
 
-    const result = await pool.query(query, isAdmin ? [id] : [id, tenant_id]);
+    const result = await pool.query(query, params);
 
     if (result.rows.length === 0) {
       return res.status(404).json({
@@ -241,8 +269,9 @@ router.put('/:id', authenticateToken, async (req, res) => {
     } = req.body;
 
     // 验证情景模式是否存在
-    const checkQuery = `SELECT id FROM lighting_scenes WHERE id = $1${isAdmin ? '' : ' AND tenant_id = $2'}`;
-    const checkResult = await pool.query(checkQuery, isAdmin ? [id] : [id, tenant_id]);
+    const checkParams = isAdmin ? [id] : [id, tenant_id];
+    const checkQuery = `SELECT id FROM lighting_scenes WHERE id = $1${isAdmin ? '' : ' AND tenant_id = $2'}${buildSceneDeviceScope(req, checkParams, 'lighting_scenes')}`;
+    const checkResult = await pool.query(checkQuery, checkParams);
 
     if (checkResult.rows.length === 0) {
       return res.status(404).json({
@@ -347,8 +376,9 @@ router.delete('/:id', authenticateToken, async (req, res) => {
     const { id } = req.params;
 
     // 验证情景模式是否存在
-    const checkQuery = `SELECT id, scene_name FROM lighting_scenes WHERE id = $1${isAdmin ? '' : ' AND tenant_id = $2'}`;
-    const checkResult = await pool.query(checkQuery, isAdmin ? [id] : [id, tenant_id]);
+    const checkParams = isAdmin ? [id] : [id, tenant_id];
+    const checkQuery = `SELECT id, scene_name FROM lighting_scenes WHERE id = $1${isAdmin ? '' : ' AND tenant_id = $2'}${buildSceneDeviceScope(req, checkParams, 'lighting_scenes')}`;
+    const checkResult = await pool.query(checkQuery, checkParams);
 
     if (checkResult.rows.length === 0) {
       return res.status(404).json({
@@ -400,15 +430,16 @@ router.post('/:id/execute', authenticateToken, async (req, res) => {
     const { id } = req.params;
 
     // 获取情景模式配置
+    const sceneParams = isAdmin ? [id] : [id, tenant_id];
     const sceneQuery = `
       SELECT 
         scene_name,
         devices_config
       FROM lighting_scenes 
-      WHERE id = $1${isAdmin ? '' : ' AND tenant_id = $2'}
+      WHERE id = $1${isAdmin ? '' : ' AND tenant_id = $2'}${buildSceneDeviceScope(req, sceneParams, 'lighting_scenes')}
     `;
 
-    const sceneResult = await pool.query(sceneQuery, isAdmin ? [id] : [id, tenant_id]);
+    const sceneResult = await pool.query(sceneQuery, sceneParams);
 
     if (sceneResult.rows.length === 0) {
       return res.status(404).json({

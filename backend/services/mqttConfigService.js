@@ -167,6 +167,14 @@ class MqttConfigService {
       ...mqttConfig
     };
 
+    // 历史设备可能保存了空主题数组；空数组不能覆盖按厂商订阅方式生成的有效主题。
+    if (!Array.isArray(config.subscribe_topics) || config.subscribe_topics.length === 0) {
+      config.subscribe_topics = subscribeTopics;
+    }
+    if (!Array.isArray(config.publish_topics) || config.publish_topics.length === 0) {
+      config.publish_topics = publishTopics;
+    }
+
 
     return config;
   }

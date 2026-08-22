@@ -55,6 +55,10 @@ router.get('/buildings', async (req, res) => {
     let where = 'WHERE b.is_active = true';
 
     where += buildTenantFilter(tenantId, params, 'b.');
+    if (req.dataScope.buildingId) {
+      params.push(req.dataScope.buildingId);
+      where += ` AND b.id = $${params.length}`;
+    }
 
     if (keyword) {
       params.push(`%${keyword}%`);
@@ -154,7 +158,7 @@ router.delete('/buildings/:id', requireTenantAdmin, async (req, res) => {
 
 router.get('/groups', async (req, res) => {
   try {
-    const { buildingId, keyword, status } = req.query;
+    const { buildingId, groupId, keyword, status } = req.query;
     const tenantId = getReadableTenantId(req);
     if (req.user.role !== 'admin' && !requireTenantScope(tenantId, res)) return;
     const params = [];
@@ -165,6 +169,11 @@ router.get('/groups', async (req, res) => {
     if (buildingId) {
       params.push(buildingId);
       where += ` AND g.building_id = $${params.length}`;
+    }
+    const effectiveGroupId = req.dataScope.groupId || groupId;
+    if (effectiveGroupId) {
+      params.push(effectiveGroupId);
+      where += ` AND g.id = $${params.length}`;
     }
 
     if (keyword) {

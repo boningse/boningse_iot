@@ -12,6 +12,7 @@ const {
   parseConfiguredJsonUplink
 } = require('../utils/configuredJsonProtocol');
 const { parseZqcSwitchStatus } = require('../utils/zqcSwitchProtocol');
+const { resolveThermostatRunOnState } = require('../utils/thermostatStateMapping');
 const telemetryStore = require('./telemetryStore');
 const alarmService = require('./alarmService');
 const { normalizeDeviceLogEntry } = require('../utils/deviceLog');
@@ -4204,8 +4205,19 @@ class MqttService {
         configuredJsonMatched = true;
       }
 
+      // 温控器集中器属性回复：body.data 是对象，字段定义来自 property_mapping。
+      if (!configuredJsonMatched && parsedData.pType === 'property' &&
+          parsedData.body?.data && !Array.isArray(parsedData.body.data) &&
+          typeof parsedData.body.data === 'object' && dataParsingConfig?.property_mapping) {
+        for (const [propertyName, propertyConfig] of Object.entries(dataParsingConfig.property_mapping)) {
+          const fieldPath = propertyConfig.field || propertyName;
+          const rawValue = this.getValueByPath(parsedData.body.data, fieldPath);
+          if (rawValue !== undefined && rawValue !== null) {
+            extractedData[propertyName] = this.convertFieldValue(rawValue, propertyConfig.type);
+          }
+        }
       // 检查是否为温控器特殊响应格式（包含items和data数组）
-      if (!configuredJsonMatched && parsedData.body && parsedData.body.items && parsedData.body.data &&
+      } else if (!configuredJsonMatched && parsedData.body && parsedData.body.items && parsedData.body.data &&
           Array.isArray(parsedData.body.items) && Array.isArray(parsedData.body.data) &&
           parsedData.body.data.length > 0 && Array.isArray(parsedData.body.data[0])) {
         
@@ -4528,9 +4540,9 @@ class MqttService {
         if (SWITCH_ELECTRICAL_FIELDS.some(key => electricalData[key] !== null && electricalData[key] !== undefined)) {
           await this.saveLightingElectricalDataToTable(device, electricalData, manufacturerCode);
         }
-      } else if (this.isThermostatDevice(device, extractedData)) {
+      } else if (protocolConfig.device_type === '空调温控器' || this.isThermostatDevice(device, extractedData)) {
         // 保存温控器设备数据
-        await this.saveThermostatDeviceData(device, extractedData);
+        await this.saveThermostatDeviceData(device, extractedData, protocolConfig);
       } else {
         // 对于其他类型的设备，保存到通用设备数据表
         await this.saveGenericDeviceData(device, extractedData);
@@ -4579,18 +4591,28 @@ class MqttService {
     return thermostatFields.some(field => data.hasOwnProperty(field));
   }
 
-  mapThermostatRunningStatus(value) {
-    const numericValue = this.extractNumericValue(value);
-    if (numericValue === 1 || numericValue === 17) return true;
-    if (numericValue === 0 || numericValue === 16) return false;
-    return null;
-  }
-
   /**
    * 保存温控器设备数据
    */
-  async saveThermostatDeviceData(device, data) {
+  async saveThermostatDeviceData(device, data, protocolConfig) {
     try {
+      // ICCID 属于物理通信设备。独立设备写自身，网关回复写网关；已保存后不再覆盖。
+      if (data.iccid !== undefined && data.iccid !== null) {
+        const iccid = String(data.iccid).trim();
+        if (/^[0-9A-Za-z]{10,64}$/.test(iccid)) {
+          await pool.query(`
+            UPDATE devices
+            SET iccid = COALESCE(iccid, $1),
+                iccid_received_at = COALESCE(iccid_received_at, NOW()),
+                updated_at = NOW()
+            WHERE id = $2
+          `, [iccid, device.id]);
+          logger.info('温控器ICCID已保存', { deviceId: device.id });
+        } else {
+          logger.warn('温控器上报的ICCID格式无效，已忽略', { deviceId: device.id });
+        }
+      }
+
       // 准备数据字段
       const fields = {
         current_temperature: null,
@@ -4598,12 +4620,15 @@ class MqttService {
         power_status: null,
         running_status: null,
         ac_mode: null,
+        fan_speed: null,
+        running_fan_speed: null,
         humidity: null,
         temp_locked: null
       };
 
-      // 准备风速数据（不存储到数据库，通过WebSocket实时推送）
-      let fanSpeed = null;
+      // 设定风速和实际运行风速是两个独立字段，完整参数上报中两者会同时出现。
+      let configuredFanSpeed = null;
+      let runningFanSpeed = null;
 
       // 处理房间温度（当前温度）
       if (data.roomTemp !== undefined) {
@@ -4620,7 +4645,7 @@ class MqttService {
         fields.target_temp = this.extractNumericValue(data.runTemp) / 10; // 协议中单位是0.1℃
       }
 
-      // setOn 表示开关机设置状态，runOn 表示设备是否正在运行，两者必须独立保存。
+      // setOn 是下发/应答中的开关机设置值；上报状态以协议配置中的 runOn 映射为准。
       if (data.setOn !== undefined) {
         const setOnValue = this.extractNumericValue(data.setOn);
         fields.power_status = setOnValue === 1;
@@ -4631,15 +4656,23 @@ class MqttService {
         });
       }
 
-      // runOn兼容两套协议值：0/16=待机，1/17=运行。
+      // runOn 同时描述开关机和风机状态，具体含义完全由协议配置决定。
       if (data.runOn !== undefined) {
         const runOnValue = this.extractNumericValue(data.runOn);
-        fields.running_status = this.mapThermostatRunningStatus(runOnValue);
-        logger.debug('使用runOn字段设置实际运行状态', {
+        const runOnState = resolveThermostatRunOnState(
+          runOnValue,
+          protocolConfig?.data_parsing_config
+        );
+        if (runOnState) {
+          fields.power_status = runOnState.power_status;
+          fields.running_status = runOnState.running_status;
+        }
+        logger.debug('按协议配置使用runOn字段设置开关机与风机状态', {
           deviceId: device.id,
           原始runOnValue: runOnValue,
+          powerStatus: fields.power_status,
           runningStatus: fields.running_status,
-          状态解释: fields.running_status === null ? '未知' : (fields.running_status ? '运行' : '待机')
+          状态解释: runOnState?.label || '未配置，不覆盖现有状态'
         });
       }
 
@@ -4678,11 +4711,17 @@ class MqttService {
 
       // 处理风速数据 - runFanSpeed用于反映当前风速，setFanSpeed用于设置命令
       // runFanSpeed是当前实际风速，setFanSpeed是设置风速命令
+      if (data.setFanSpeed !== undefined) {
+        configuredFanSpeed = this.extractNumericValue(data.setFanSpeed);
+        if (configuredFanSpeed >= 0 && configuredFanSpeed <= 3) {
+          fields.fan_speed = configuredFanSpeed;
+        }
+      }
       if (data.runFanSpeed !== undefined) {
-        fanSpeed = this.extractNumericValue(data.runFanSpeed);
-      } else if (data.setFanSpeed !== undefined) {
-        // setFanSpeed字段：设置风速命令，仅在没有runFanSpeed时用于状态参考
-        fanSpeed = this.extractNumericValue(data.setFanSpeed);
+        runningFanSpeed = this.extractNumericValue(data.runFanSpeed);
+        if (runningFanSpeed >= 0 && runningFanSpeed <= 3) {
+          fields.running_fan_speed = runningFanSpeed;
+        }
       }
 
       // 构建UPSERT查询，只更新非null的字段
@@ -4725,7 +4764,8 @@ class MqttService {
           moduleType: 'thermostat',
           state: {
             ...fields,
-            fan_speed: fanSpeed
+            fan_speed: configuredFanSpeed,
+            running_fan_speed: runningFanSpeed
           },
           source: 'mqtt',
           rawPayload: data
@@ -4739,16 +4779,22 @@ class MqttService {
 
         // 更新设备状态缓存
         const thermostatService = require('./thermostatService');
-        if (fanSpeed !== null) {
-          thermostatService.updateDeviceStatusCache(device.id, { fanSpeed });
+        if (configuredFanSpeed !== null || runningFanSpeed !== null) {
+          thermostatService.updateDeviceStatusCache(device.id, {
+            ...(configuredFanSpeed !== null ? { fanSpeed: configuredFanSpeed } : {}),
+            ...(runningFanSpeed !== null ? { runningFanSpeed } : {})
+          });
         }
         
         // 通过WebSocket推送设备数据更新
         if (websocketService && websocketService.broadcastToTenant) {
           const pushData = { ...data };
           // 添加处理后的风速数据
-          if (fanSpeed !== null) {
-            pushData.fanSpeed = fanSpeed;
+          if (data.setFanSpeed !== undefined && configuredFanSpeed !== null) {
+            pushData.fanSpeed = configuredFanSpeed;
+          }
+          if (data.runFanSpeed !== undefined && runningFanSpeed !== null) {
+            pushData.runningFanSpeed = runningFanSpeed;
           }
           if (fields.temp_locked !== null) {
             pushData.temp_locked = fields.temp_locked;

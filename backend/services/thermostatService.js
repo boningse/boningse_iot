@@ -113,6 +113,7 @@ class ThermostatService {
         d.name,
         d.device_id,
         d.imei,
+        COALESCE(p.iccid, d.iccid) AS iccid,
         d.status,
         d.location,
         d.project_building_id,
@@ -124,6 +125,7 @@ class ThermostatService {
         tp.target_temp as target_temperature,
         tp.ac_mode as mode,
         tp.fan_speed,
+        tp.running_fan_speed,
         tp.humidity,
         tp.power_status as is_on,
         tp.running_status,
@@ -143,6 +145,7 @@ class ThermostatService {
       LEFT JOIN project_groups pg ON d.project_group_id = pg.id
       LEFT JOIN thermostat_properties tp ON d.id = tp.device_id
       LEFT JOIN thermostat_groups tg ON tp.group_id = tg.id
+      LEFT JOIN devices p ON d.parent_device_id = p.id
       ${whereClause}
       ORDER BY d.created_at DESC
       LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
@@ -237,10 +240,13 @@ class ThermostatService {
         d.name,
         d.device_id,
         d.imei,
+        COALESCE(p.iccid, d.iccid) AS iccid,
+        COALESCE(p.iccid_requested_at, d.iccid_requested_at) AS iccid_requested_at,
         d.device_category,
         d.parent_device_id,
         d.sub_device_sequence,
         d.manufacturer_code,
+        d.tenant_id,
         d.status,
         d.location,
         d.created_at,
@@ -250,6 +256,7 @@ class ThermostatService {
         tp.target_temp as target_temperature,
         tp.ac_mode as mode,
         tp.fan_speed,
+        tp.running_fan_speed,
         tp.power_status as is_on,
         tp.running_status,
         tp.temp_locked,
@@ -314,6 +321,42 @@ class ThermostatService {
       return device || null;
     } catch (error) {
       logger.error('获取温控器设备详情失败:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * ICCID只读取一次。先原子标记物理通信设备，再按协议配置发送property读取命令。
+   */
+  async requestIccidOnce(device) {
+    if (!device || device.iccid || device.iccid_requested_at) return false;
+
+    const communicationDeviceId = device.parent_device_id || device.id;
+    const claim = await db.query(`
+      UPDATE devices
+      SET iccid_requested_at = NOW(), updated_at = NOW()
+      WHERE id = $1 AND iccid IS NULL AND iccid_requested_at IS NULL
+      RETURNING id
+    `, [communicationDeviceId]);
+    if (claim.rowCount === 0) return false;
+
+    try {
+      const readPropertyCommand = this.getCommandConfigCommands(device.command_config)?.read_property;
+      if (!readPropertyCommand?.template) {
+        throw new Error('协议配置中缺少read_property命令');
+      }
+
+      const command = JSON.parse(JSON.stringify(readPropertyCommand.template));
+      command.uuid = device.communication_imei || device.imei;
+      const topic = this.buildMqttTopic(device);
+      await mqttService.publish(topic, JSON.stringify(command));
+      await this.logControlAction(device.id, null, 'read_iccid_once', command, device.tenant_id);
+      return true;
+    } catch (error) {
+      await db.query(`
+        UPDATE devices SET iccid_requested_at = NULL
+        WHERE id = $1 AND iccid IS NULL
+      `, [communicationDeviceId]);
       throw error;
     }
   }
@@ -398,6 +441,15 @@ class ThermostatService {
     });
 
     const device = await this.getThermostatDevice(target.id, tenantId);
+    // 新增绑定后立即读取一次物理设备/网关ICCID；失败不影响设备绑定结果。
+    try {
+      await this.requestIccidOnce(device);
+    } catch (iccidError) {
+      logger.warn('新增温控器后自动读取ICCID失败', {
+        deviceId: device.id,
+        error: iccidError.message
+      });
+    }
     if (websocketService && websocketService.broadcastToTenant) {
       websocketService.broadcastToTenant(target.tenantId, 'thermostat_device_added', {
         ...device,
@@ -1208,7 +1260,13 @@ class ThermostatService {
         tempLocked: Boolean(device.temp_locked),
         temp_locked: Boolean(device.temp_locked),
         humidity: device.humidity || null,
-        fanSpeed: cachedStatus.fanSpeed !== undefined ? cachedStatus.fanSpeed : 0,
+        fanSpeed: cachedStatus.fanSpeed !== undefined
+          ? cachedStatus.fanSpeed
+          : (device.fan_speed !== undefined && device.fan_speed !== null ? device.fan_speed : 0),
+        runningFanSpeed: cachedStatus.runningFanSpeed !== undefined
+          ? cachedStatus.runningFanSpeed
+          : device.running_fan_speed,
+        running_fan_speed: device.running_fan_speed,
         acMode: device.acMode || device.mode || 'cool',
         // 分组信息
         groupId: device.group_id,
@@ -1562,9 +1620,19 @@ class ThermostatService {
   /**
    * 获取租户下所有设备统计汇总
    */
-  async getTenantStatsSummary(tenantId, date) {
+  async getTenantStatsSummary(tenantId, date, scope = null) {
     const targetDate = date || new Date().toISOString().split('T')[0];
     
+    const params = [targetDate, tenantId];
+    let scopeClause = '';
+    if (scope?.buildingId) {
+      params.push(scope.buildingId);
+      scopeClause += ` AND d.project_building_id = $${params.length}`;
+    }
+    if (scope?.groupId) {
+      params.push(scope.groupId);
+      scopeClause += ` AND d.project_group_id = $${params.length}`;
+    }
     const query = `
       SELECT 
         COUNT(DISTINCT trs.device_id) as total_devices,
@@ -1576,11 +1644,11 @@ class ThermostatService {
         SUM(trs.runtime_fan) as total_runtime_fan
       FROM thermostat_runtime_stats trs
       JOIN devices d ON trs.device_id = d.id
-      WHERE trs.stat_date = $1 AND d.tenant_id = $2
+      WHERE trs.stat_date = $1 AND d.tenant_id = $2${scopeClause}
     `;
 
     try {
-      const result = await db.query(query, [targetDate, tenantId]);
+      const result = await db.query(query, params);
       return result.rows[0];
     } catch (error) {
       logger.error('获取租户统计汇总失败:', error);
@@ -1596,7 +1664,9 @@ class ThermostatService {
       dateRange = [],
       deviceId = null,
       groupId = null,
-      mode = null
+      mode = null,
+      buildingId = null,
+      projectGroupId = null
     } = options;
 
     const endDate = dateRange?.[1] || new Date().toISOString().slice(0, 10);
@@ -1620,6 +1690,15 @@ class ThermostatService {
     if (groupId) {
       params.push(groupId);
       filters.push(`tp.group_id = $${params.length}`);
+    }
+
+    if (buildingId) {
+      params.push(buildingId);
+      filters.push(`d.project_building_id = $${params.length}`);
+    }
+    if (projectGroupId) {
+      params.push(projectGroupId);
+      filters.push(`d.project_group_id = $${params.length}`);
     }
 
     if (mode && mode !== 'all') {

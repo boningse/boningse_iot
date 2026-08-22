@@ -12,11 +12,12 @@ const {
   ProtocolConfig,
   sequelize
 } = require('../models');
-const { authenticateToken, checkPermission } = require('../middleware/auth');
+const { authenticateToken, checkPermission, requireDeviceAccess } = require('../middleware/auth');
 const { validateDevice, validateDeviceUpdate } = require('../middleware/validation');
 const mqttService = require('../services/mqttService');
 const mqttConfigService = require('../services/mqttConfigService');
 const websocketService = require('../services/websocketService');
+const { applySequelizeDeviceScope, deviceInScope } = require('../utils/dataScope');
 const {
   CLEAR_VALUE,
   buildWorkbook,
@@ -122,7 +123,7 @@ const buildExportWhere = (req) => {
   if (req.query.type) where.device_type_id = req.query.type;
   if (req.query.buildingId) where.project_building_id = req.query.buildingId;
   if (req.query.projectGroupId) where.project_group_id = req.query.projectGroupId;
-  return where;
+  return applySequelizeDeviceScope(where, req.dataScope);
 };
 
 /**
@@ -154,11 +155,10 @@ router.get('/', authenticateToken, async (req, res) => {
     const where = {};
 
     // 根据用户角色过滤数据
-    if (req.user.role !== 'admin') {
-      where.tenant_id = req.user.tenant_id;
-    } else if (tenantId) {
+    if (req.user.role === 'admin' && tenantId) {
       where.tenant_id = tenantId;
     }
+    applySequelizeDeviceScope(where, req.dataScope);
 
     // 关键字搜索
     if (keyword) {
@@ -293,9 +293,7 @@ router.get('/gateways', authenticateToken, async (req, res) => {
     };
 
     // 根据用户角色过滤数据
-    if (req.user.role !== 'admin') {
-      where.tenant_id = req.user.tenant_id;
-    }
+    applySequelizeDeviceScope(where, req.dataScope);
 
     // 查询网关设备列表
     const gateways = await Device.findAll({
@@ -564,7 +562,7 @@ router.post('/import', authenticateToken, excelUpload.single('file'), async (req
     for (const row of rows) {
       try {
         const existing = findExistingDevice(row);
-        if (existing && req.user.role !== 'admin' && existing.tenant_id !== req.user.tenant_id) {
+        if (existing && !deviceInScope(existing, req.dataScope)) {
           throw new Error('无权修改该设备');
         }
 
@@ -582,6 +580,10 @@ router.post('/import', authenticateToken, excelUpload.single('file'), async (req
 
         const next = { ...(existing || {}) };
         next.tenant_id = tenant.id;
+        if (req.dataScope.level === 'building' || req.dataScope.level === 'group') {
+          next.project_building_id = req.dataScope.buildingId;
+        }
+        if (req.dataScope.level === 'group') next.project_group_id = req.dataScope.groupId;
 
         if (hasValue(row.name)) next.name = row.name;
         if (!existing && !hasValue(next.name)) throw new Error('新增设备必须填写设备名称');
@@ -688,6 +690,20 @@ router.post('/import', authenticateToken, excelUpload.single('file'), async (req
           if (!next.device_id && next.imei) next.device_id = next.imei;
           if (!next.imei && next.device_id) next.imei = next.device_id;
           if (!next.device_id || !next.imei) throw new Error('新增设备必须填写设备ID或IMEI');
+        }
+
+        // 导入同样受当前账号的数据范围约束，不能通过 Excel 跨建筑或跨分组写入。
+        if (req.dataScope.level === 'building' || req.dataScope.level === 'group') {
+          if (next.project_building_id && String(next.project_building_id) !== req.dataScope.buildingId) {
+            throw new Error('无权导入到其他建筑');
+          }
+          next.project_building_id = req.dataScope.buildingId;
+        }
+        if (req.dataScope.level === 'group') {
+          if (next.project_group_id && String(next.project_group_id) !== req.dataScope.groupId) {
+            throw new Error('无权导入到其他分组');
+          }
+          next.project_group_id = req.dataScope.groupId;
         }
 
         if (!/^[0-9a-zA-Z_-]+$/.test(next.device_id) || next.device_id.length > 100) {
@@ -848,7 +864,7 @@ router.post('/import', authenticateToken, excelUpload.single('file'), async (req
  * 获取设备详情
  * GET /api/devices/:id
  */
-router.get('/:id', authenticateToken, async (req, res) => {
+router.get('/:id', authenticateToken, requireDeviceAccess, async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -952,6 +968,13 @@ router.post('/', authenticateToken, validateDevice, async (req, res) => {
 
     deviceData.project_building_id = deviceData.project_building_id || null;
     deviceData.project_group_id = deviceData.project_group_id || null;
+    if (req.dataScope.level !== 'global') {
+      deviceData.tenant_id = req.dataScope.tenantId;
+      if (req.dataScope.level === 'building' || req.dataScope.level === 'group') {
+        deviceData.project_building_id = req.dataScope.buildingId;
+      }
+      if (req.dataScope.level === 'group') deviceData.project_group_id = req.dataScope.groupId;
+    }
 
     // 处理设备分类和父设备关系
     // 如果没有提供device_category，根据设备类型名称自动判断
@@ -1007,8 +1030,8 @@ router.post('/', authenticateToken, validateDevice, async (req, res) => {
         }
 
         // 权限检查：确保父设备属于同一租户
-        if (req.user.role !== 'admin') {
-          if (parentDevice.tenant_id !== req.user.tenant_id) {
+        if (req.dataScope.level !== 'global') {
+          if (!deviceInScope(parentDevice, req.dataScope)) {
             return res.status(403).json({
               success: false,
               message: '无权访问指定的父设备'
@@ -1381,7 +1404,7 @@ router.post('/', authenticateToken, validateDevice, async (req, res) => {
  * 更新设备
  * PUT /api/devices/:id
  */
-router.put('/:id', authenticateToken, validateDeviceUpdate, async (req, res) => {
+router.put('/:id', authenticateToken, requireDeviceAccess, validateDeviceUpdate, async (req, res) => {
   try {
     const { id } = req.params;
     const updateData = req.body;
@@ -1390,6 +1413,13 @@ router.put('/:id', authenticateToken, validateDeviceUpdate, async (req, res) => 
     }
     if (Object.prototype.hasOwnProperty.call(updateData, 'project_group_id')) {
       updateData.project_group_id = updateData.project_group_id || null;
+    }
+    if (req.dataScope.level !== 'global') {
+      updateData.tenant_id = req.dataScope.tenantId;
+      if (req.dataScope.level === 'building' || req.dataScope.level === 'group') {
+        updateData.project_building_id = req.dataScope.buildingId;
+      }
+      if (req.dataScope.level === 'group') updateData.project_group_id = req.dataScope.groupId;
     }
 
     const device = await Device.findByPk(id);
@@ -1540,7 +1570,7 @@ router.put('/:id', authenticateToken, validateDeviceUpdate, async (req, res) => 
  * 删除设备
  * DELETE /api/devices/:id
  */
-router.delete('/:id', authenticateToken, async (req, res) => {
+router.delete('/:id', authenticateToken, requireDeviceAccess, async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -1623,7 +1653,7 @@ router.delete('/:id', authenticateToken, async (req, res) => {
  * 获取设备数据
  * GET /api/devices/:id/data
  */
-router.get('/:id/data', authenticateToken, async (req, res) => {
+router.get('/:id/data', authenticateToken, requireDeviceAccess, async (req, res) => {
   try {
     const { id } = req.params;
     const {
@@ -1712,7 +1742,7 @@ router.get('/:id/data', authenticateToken, async (req, res) => {
  * 获取设备日志
  * GET /api/devices/:id/logs
  */
-router.get('/:id/logs', authenticateToken, async (req, res) => {
+router.get('/:id/logs', authenticateToken, requireDeviceAccess, async (req, res) => {
   try {
     const { id } = req.params;
     const {
@@ -1835,7 +1865,7 @@ router.get('/:id/logs', authenticateToken, async (req, res) => {
  * 发送命令到设备
  * POST /api/devices/:id/command
  */
-router.post('/:id/command', authenticateToken, async (req, res) => {
+router.post('/:id/command', authenticateToken, requireDeviceAccess, async (req, res) => {
   try {
     const { id } = req.params;
     const { command, params, timestamp, mqttTopic } = req.body;
@@ -1932,11 +1962,7 @@ router.post('/:id/command', authenticateToken, async (req, res) => {
 router.get('/stats/overview', authenticateToken, async (req, res) => {
   try {
     const where = {};
-
-    // 根据用户角色过滤数据
-    if (req.user.role !== 'admin') {
-      where.tenant_id = req.user.tenant_id;
-    }
+    applySequelizeDeviceScope(where, req.dataScope);
 
     // 总设备数
     const totalDevices = await Device.count({ where });

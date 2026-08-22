@@ -6,6 +6,7 @@ const logger = require('../utils/logger');
 const { getPoolConfig } = require('../config/database');
 const telemetryStore = require('../services/telemetryStore');
 const { executeSwitchControl } = require('../services/switchControlExecutor');
+const { appendDeviceScope, deviceInScope } = require('../utils/dataScope');
 
 const router = express.Router();
 const pool = new Pool(getPoolConfig());
@@ -74,11 +75,7 @@ const buildTenantClause = (req, alias, params) => {
 
 const getAssignedSwitchDevice = async (req, identifier) => {
   const params = [identifier];
-  let tenantClause = '';
-  if (!isAdminUser(req.user)) {
-    params.push(req.user.tenant_id);
-    tenantClause = ` AND d.tenant_id = $${params.length}`;
-  }
+  const tenantClause = appendDeviceScope(req.dataScope, params, 'd');
   const result = await pool.query(
     `SELECT d.id, d.name, d.imei, d.device_id, d.manufacturer_code, d.tenant_id,
             assignment.subtype AS phase_type
@@ -110,6 +107,7 @@ router.get('/', authenticateToken, async (req, res) => {
       params.push(`%${req.query.keyword}%`);
       where += ` AND (d.name ILIKE $${params.length} OR d.imei ILIKE $${params.length} OR d.device_id ILIKE $${params.length})`;
     }
+    where += appendDeviceScope(req.dataScope, params, 'd');
     if (req.query.status) {
       params.push(req.query.status);
       where += ` AND d.status = $${params.length}`;
@@ -185,6 +183,7 @@ router.get('/available-devices', authenticateToken, async (req, res) => {
       params.push(req.user.tenant_id);
       tenantClause = ` AND d.tenant_id = $${params.length}`;
     }
+    tenantClause += appendDeviceScope(req.dataScope, params, 'd');
 
     const result = await pool.query(
       `SELECT d.id, d.name, d.imei, d.status, d.location, d.description, d.tenant_id,
@@ -236,11 +235,7 @@ const validateStrategyPayload = (strategy) => {
 
 const findStrategyDevices = async (client, req, deviceIds) => {
   const params = [deviceIds];
-  let tenantClause = '';
-  if (!isAdminUser(req.user)) {
-    params.push(req.user.tenant_id);
-    tenantClause = ` AND assignment.tenant_id = $${params.length}`;
-  }
+  const tenantClause = appendDeviceScope(req.dataScope, params, 'd');
   const result = await client.query(
     `SELECT DISTINCT assignment.device_id, assignment.tenant_id
      FROM control_device_assignments assignment
@@ -252,6 +247,17 @@ const findStrategyDevices = async (client, req, deviceIds) => {
     params
   );
   return result.rows;
+};
+
+const canAccessStrategyGroup = async (client, req, groupId) => {
+  const result = await client.query(
+    `SELECT d.id, d.tenant_id, d.project_building_id, d.project_group_id
+     FROM switch_control_schedules schedule
+     JOIN devices d ON d.id = schedule.device_id
+     WHERE schedule.group_id = $1`,
+    [groupId]
+  );
+  return result.rows.length > 0 && result.rows.every((device) => deviceInScope(device, req.dataScope));
 };
 
 const saveStrategyRows = async (client, req, groupId, strategy, devices) => {
@@ -275,11 +281,7 @@ const saveStrategyRows = async (client, req, groupId, strategy, devices) => {
 router.get('/strategy-devices', authenticateToken, async (req, res) => {
   try {
     const params = [];
-    let tenantClause = '';
-    if (!isAdminUser(req.user)) {
-      params.push(req.user.tenant_id);
-      tenantClause = ` AND assignment.tenant_id = $${params.length}`;
-    }
+    const tenantClause = appendDeviceScope(req.dataScope, params, 'd');
     const result = await pool.query(
       `SELECT DISTINCT d.id, d.name, d.device_id, d.imei, d.status,
               d.tenant_id, d.project_building_id, d.project_group_id,
@@ -314,6 +316,7 @@ router.get('/strategies', authenticateToken, async (req, res) => {
       params.push(req.query.tenantId);
       where += ` AND schedule.tenant_id = $${params.length}`;
     }
+    where += appendDeviceScope(req.dataScope, params, 'd');
     const result = await pool.query(
       `SELECT schedule.*, d.name AS device_name, d.imei AS device_imei,
               d.device_id AS device_code, t.name AS tenant_name
@@ -396,17 +399,7 @@ router.put('/strategies/:groupId', authenticateToken, async (req, res) => {
     const validationError = validateStrategyPayload(strategy);
     if (validationError) return res.status(400).json({ success: false, message: validationError });
     await client.query('BEGIN');
-    const params = [req.params.groupId];
-    let tenantClause = '';
-    if (!isAdminUser(req.user)) {
-      params.push(req.user.tenant_id);
-      tenantClause = ` AND tenant_id = $${params.length}`;
-    }
-    const existing = await client.query(
-      `SELECT id FROM switch_control_schedules WHERE group_id = $1${tenantClause}`,
-      params
-    );
-    if (!existing.rows.length) {
+    if (!await canAccessStrategyGroup(client, req, req.params.groupId)) {
       await client.query('ROLLBACK');
       return res.status(404).json({ success: false, message: '开关控制策略不存在或无权限' });
     }
@@ -434,16 +427,14 @@ router.put('/strategies/:groupId', authenticateToken, async (req, res) => {
 
 router.put('/strategies/:groupId/toggle', authenticateToken, async (req, res) => {
   try {
-    const params = [req.body.enabled === true, req.params.groupId];
-    let tenantClause = '';
-    if (!isAdminUser(req.user)) {
-      params.push(req.user.tenant_id);
-      tenantClause = ` AND tenant_id = $${params.length}`;
+    if (!await canAccessStrategyGroup(pool, req, req.params.groupId)) {
+      return res.status(404).json({ success: false, message: '开关控制策略不存在或无权限' });
     }
+    const params = [req.body.enabled === true, req.params.groupId];
     const result = await pool.query(
       `UPDATE switch_control_schedules
        SET enabled = $1, updated_at = CURRENT_TIMESTAMP
-       WHERE group_id = $2${tenantClause}`,
+       WHERE group_id = $2`,
       params
     );
     if (!result.rowCount) {
@@ -458,14 +449,12 @@ router.put('/strategies/:groupId/toggle', authenticateToken, async (req, res) =>
 
 router.delete('/strategies/:groupId', authenticateToken, async (req, res) => {
   try {
-    const params = [req.params.groupId];
-    let tenantClause = '';
-    if (!isAdminUser(req.user)) {
-      params.push(req.user.tenant_id);
-      tenantClause = ` AND tenant_id = $${params.length}`;
+    if (!await canAccessStrategyGroup(pool, req, req.params.groupId)) {
+      return res.status(404).json({ success: false, message: '开关控制策略不存在或无权限' });
     }
+    const params = [req.params.groupId];
     const result = await pool.query(
-      `DELETE FROM switch_control_schedules WHERE group_id = $1${tenantClause}`,
+      `DELETE FROM switch_control_schedules WHERE group_id = $1`,
       params
     );
     if (!result.rowCount) {
@@ -505,16 +494,15 @@ const getAccessibleScene = async (req, id) => {
      FROM switch_scenes WHERE id = $1${tenantClause}`,
     params
   );
-  return result.rows[0] || null;
+  const scene = result.rows[0] || null;
+  if (!scene || req.dataScope?.level === 'global') return scene;
+  const scopedDevices = await getSceneDevicesByIds(req, scene.device_ids || []);
+  return scopedDevices.length === (scene.device_ids || []).length ? scene : null;
 };
 
 const getSceneDevicesByIds = async (req, deviceIds) => {
   const params = [deviceIds];
-  let tenantClause = '';
-  if (!isAdminUser(req.user)) {
-    params.push(req.user.tenant_id);
-    tenantClause = ` AND assignment.tenant_id = $${params.length}`;
-  }
+  const tenantClause = appendDeviceScope(req.dataScope, params, 'd');
   const result = await pool.query(
     `SELECT DISTINCT d.id, d.tenant_id
      FROM control_device_assignments assignment
@@ -553,6 +541,7 @@ router.get('/scene-devices', authenticateToken, async (req, res) => {
       AND d.is_switch = true
       AND COALESCE(d.device_category, 'standalone') <> 'gateway'`;
     where += buildTenantClause(req, 'assignment', params);
+    where += appendDeviceScope(req.dataScope, params, 'd');
     const result = await pool.query(
       `SELECT DISTINCT d.id, d.name, d.device_id, d.imei, d.status, d.tenant_id,
               d.project_building_id, d.project_group_id, t.name AS tenant_name,
@@ -584,6 +573,7 @@ router.get('/scenes', authenticateToken, async (req, res) => {
       params.push(req.user.tenant_id);
       where += ` AND s.tenant_id = $${params.length}`;
     }
+    where += appendDeviceScope(req.dataScope, params, 'd');
     const result = await pool.query(
       `SELECT s.id, s.tenant_id, s.name, s.description, s.action, s.device_ids,
               s.created_at, s.updated_at, t.name AS tenant_name,
@@ -597,6 +587,7 @@ router.get('/scenes', authenticateToken, async (req, res) => {
        LEFT JOIN devices d ON d.id = ANY(s.device_ids)
        ${where}
        GROUP BY s.id, t.name
+       HAVING COUNT(d.id) = COALESCE(cardinality(s.device_ids), 0)
        ORDER BY s.created_at DESC`,
       params
     );

@@ -2,6 +2,7 @@ const jwt = require('jsonwebtoken');
 const rateLimit = require('express-rate-limit');
 const db = require('../utils/database');
 const logger = require('../utils/logger');
+const { applyScopeToRequest, buildUserDataScope, deviceInScope } = require('../utils/dataScope');
 
 /**
  * JWT令牌验证中间件 - 优化版本，减少401错误
@@ -165,6 +166,79 @@ const authenticateToken = async (req, res, next) => {
       created_at: user.created_at
     };
 
+    req.dataScope = buildUserDataScope(req.user);
+    const requestScopeResult = applyScopeToRequest(req, req.dataScope);
+    if (!requestScopeResult.allowed) {
+      return res.status(403).json({
+        success: false,
+        message: requestScopeResult.message,
+        code: 'DATA_SCOPE_DENIED'
+      });
+    }
+
+    // 所有以deviceId访问设备的接口统一执行租户/建筑/分组校验。
+    const scopedDeviceId = req.params?.deviceId || req.body?.deviceId || req.body?.device_id;
+    if (scopedDeviceId && req.dataScope.level !== 'global') {
+      const scopedDeviceResult = await db.query(`
+        SELECT id, tenant_id, project_building_id, project_group_id
+        FROM devices
+        WHERE id::text = $1 OR device_id = $1 OR imei = $1
+        LIMIT 1
+      `, [scopedDeviceId]);
+      if (scopedDeviceResult.rows.length > 0 &&
+          !deviceInScope(scopedDeviceResult.rows[0], req.dataScope)) {
+        return res.status(403).json({
+          success: false,
+          message: '无权访问该范围之外的设备',
+          code: 'DEVICE_SCOPE_DENIED'
+        });
+      }
+    }
+
+    // 批量控制、策略和情景模式中的设备数组也必须全部落在当前数据范围内。
+    if (req.dataScope.level !== 'global') {
+      const rawBatch = Array.isArray(req.body?.deviceIds)
+        ? req.body.deviceIds
+        : (Array.isArray(req.body?.devices)
+          ? req.body.devices
+          : (Array.isArray(req.body?.devices_config) ? req.body.devices_config : []));
+      const batchDeviceIds = [...new Set(rawBatch.map((item) => (
+        typeof item === 'object' && item !== null
+          ? (item.id || item.deviceId || item.device_id || item.imei)
+          : item
+      )).filter(Boolean).map(String))];
+      if (batchDeviceIds.length > 500) {
+        return res.status(400).json({ success: false, message: '单次设备数量不能超过 500 台' });
+      }
+      if (batchDeviceIds.length > 0) {
+        const batchResult = await db.query(`
+          SELECT id, device_id, imei, tenant_id, project_building_id, project_group_id
+          FROM devices
+          WHERE id::text = ANY($1::text[]) OR device_id = ANY($1::text[]) OR imei = ANY($1::text[])
+        `, [batchDeviceIds]);
+        const matched = new Set();
+        for (const device of batchResult.rows) {
+          if (!deviceInScope(device, req.dataScope)) {
+            return res.status(403).json({
+              success: false,
+              message: '批量操作中包含无权访问的设备',
+              code: 'DEVICE_SCOPE_DENIED'
+            });
+          }
+          for (const value of [device.id, device.device_id, device.imei]) {
+            if (value && batchDeviceIds.includes(String(value))) matched.add(String(value));
+          }
+        }
+        if (matched.size !== batchDeviceIds.length) {
+          return res.status(403).json({
+            success: false,
+            message: '批量操作中包含不存在或无权访问的设备',
+            code: 'DEVICE_SCOPE_DENIED'
+          });
+        }
+      }
+    }
+
     // 只在调试模式下记录成功的认证
     if (process.env.NODE_ENV === 'development') {
       logger.debug('Token authenticated successfully', {
@@ -302,7 +376,7 @@ const checkTenantAccess = (req, res, next) => {
     // 检查请求中的租户ID
     const requestedTenantId = req.params.tenantId || req.body.tenant_id || req.query.tenantId;
 
-    if (requestedTenantId && parseInt(requestedTenantId) !== req.user.tenant_id) {
+    if (requestedTenantId && String(requestedTenantId) !== String(req.user.tenant_id)) {
       return res.status(403).json({
         success: false,
         message: '无权访问其他租户的数据'
@@ -327,7 +401,7 @@ const checkTenantAccess = (req, res, next) => {
 const requireTenantAccess = (req, res, next) => {
   try {
     if (!req.user) {
-      logger.logSecurityEvent('unauthorized_tenant_access_attempt', {
+      logger.security('unauthorized_tenant_access_attempt', {
         ip: req.ip,
         userAgent: req.get('User-Agent'),
         path: req.path
@@ -346,8 +420,8 @@ const requireTenantAccess = (req, res, next) => {
     // 检查请求中的租户ID
     const requestedTenantId = req.params.tenantId || req.body.tenant_id || req.query.tenantId;
 
-    if (requestedTenantId && parseInt(requestedTenantId) !== req.user.tenant_id) {
-      logger.logSecurityEvent('unauthorized_tenant_access', {
+    if (requestedTenantId && String(requestedTenantId) !== String(req.user.tenant_id)) {
+      logger.security('unauthorized_tenant_access', {
         userId: req.user.id,
         userTenantId: req.user.tenant_id,
         requestedTenantId,
@@ -383,17 +457,19 @@ const requireDeviceAccess = async (req, res, next) => {
       });
     }
 
-    // 管理员可以访问所有设备
-    if (req.user.role === 'admin') {
+    // 只有 admin 可以访问所有设备
+    if (req.dataScope?.level === 'global') {
       return next();
     }
 
-    const deviceId = req.params.deviceId || req.body.device_id || req.query.deviceId;
+    const deviceId = req.params.deviceId || req.params.id || req.body.device_id || req.query.deviceId;
 
     if (deviceId) {
-      // 检查设备是否属于用户的租户
       const device = await db.query(
-        'SELECT tenant_id FROM devices WHERE id = $1',
+        `SELECT id, tenant_id, project_building_id, project_group_id
+         FROM devices
+         WHERE id::text = $1 OR device_id = $1 OR imei = $1
+         LIMIT 1`,
         [deviceId]
       );
 
@@ -404,8 +480,8 @@ const requireDeviceAccess = async (req, res, next) => {
         });
       }
 
-      if (device.rows[0].tenant_id !== req.user.tenant_id) {
-        logger.logSecurityEvent('unauthorized_device_access', {
+      if (!deviceInScope(device.rows[0], req.dataScope)) {
+        logger.security('unauthorized_device_access', {
           userId: req.user.id,
           userTenantId: req.user.tenant_id,
           deviceId,
@@ -509,7 +585,7 @@ const authenticateApiKey = async (req, res, next) => {
     );
 
     if (!keyResult.rows.length) {
-      logger.logSecurityEvent('invalid_api_key_attempt', {
+      logger.security('invalid_api_key_attempt', {
         apiKey: apiKey.substring(0, 8) + '...',
         ip: req.ip,
         userAgent: req.get('User-Agent'),
@@ -566,7 +642,7 @@ const authenticateApiKey = async (req, res, next) => {
 
     req.authMethod = 'api_key';
 
-    logger.logUserBehavior('api_key_used', {
+    logger.info('api_key_used', {
       userId: keyData.user_id,
       apiKeyId: keyData.id,
       apiKeyName: keyData.name,
@@ -712,7 +788,7 @@ const createRateLimit = (options = {}) => {
     const keyRequests = requests.get(key);
 
     if (keyRequests.length >= max) {
-      logger.logSecurityEvent('rate_limit_exceeded', {
+      logger.security('rate_limit_exceeded', {
         key,
         ip: req.ip,
         path: req.path,

@@ -543,7 +543,7 @@ class WebSocketService {
       return false;
     }
 
-    if (client.user.role === 'admin') {
+    if (client.user.role === 'admin' || client.user.role === 'super_admin') {
       return true;
     }
 
@@ -595,8 +595,19 @@ class WebSocketService {
    * 发送消息到指定租户的所有客户端
    */
   broadcastToTenant(tenantId, type, data) {
-    return this.broadcastToClients(type, data, (client) => {
-      return client.user && client.user.tenant_id === tenantId;
+    // 通用权限检查先于租户过滤执行，因此消息体必须携带租户标识。
+    // 否则普通租户用户会在 canClientReceiveMessage 中被提前拦截。
+    const tenantScopedData = {
+      ...data,
+      tenant_id: data?.tenant_id || tenantId
+    };
+
+    return this.broadcastToClients(type, tenantScopedData, (client) => {
+      return client.user && (
+        client.user.role === 'admin' ||
+        client.user.role === 'super_admin' ||
+        client.user.tenant_id === tenantId
+      );
     });
   }
 
