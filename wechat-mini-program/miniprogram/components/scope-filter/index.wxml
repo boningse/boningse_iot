@@ -6,13 +6,13 @@
         <image src="/assets/icons/chevron-down.png" mode="aspectFit"></image>
       </view>
     </picker>
-    <picker mode="selector" range="{{buildingOptions}}" value="{{buildingIndex}}" bindchange="onBuildingChange">
+    <picker wx:if="{{showBuilding}}" mode="selector" range="{{buildingOptions}}" value="{{buildingIndex}}" bindchange="onBuildingChange">
       <view class="filter-chip {{buildingIndex ? 'filter-chip--active' : ''}}">
         <text>{{buildingOptions[buildingIndex]}}</text>
         <image src="/assets/icons/chevron-down.png" mode="aspectFit"></image>
       </view>
     </picker>
-    <picker mode="selector" range="{{groupOptions}}" value="{{groupIndex}}" bindchange="onGroupChange">
+    <picker wx:if="{{showGroup}}" mode="selector" range="{{groupOptions}}" value="{{groupIndex}}" bindchange="onGroupChange">
       <view class="filter-chip {{groupIndex ? 'filter-chip--active' : ''}}">
         <text>{{groupOptions[groupIndex]}}</text>
         <image src="/assets/icons/chevron-down.png" mode="aspectFit"></image>

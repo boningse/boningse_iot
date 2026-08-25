@@ -49,6 +49,8 @@ Page({
     controllingKey: ""
   },
 
+  _loadRequestId: 0,
+
   onLoad() {
     realtime.on("lighting_switch_status", this.handleRealtimeStatus);
     void this.loadDevices(true);
@@ -77,21 +79,24 @@ Page({
   },
 
   onScopeChange(event: WechatMiniprogram.CustomEvent) {
-    this.setData({ filters: event.detail });
-    void this.loadDevices(true);
+    const filters = { ...(event.detail as Query) };
+    this.setData({ filters });
+    void this.loadDevices(true, filters);
   },
 
-  async loadDevices(reset: boolean) {
-    if (this.data.loading || this.data.loadingMore) return;
+  async loadDevices(reset: boolean, filtersOverride?: Query) {
+    if (!reset && (this.data.loading || this.data.loadingMore)) return;
+    const requestId = ++this._loadRequestId;
     const page = reset ? 1 : this.data.page + 1;
-    this.setData(reset ? { loading: true } : { loadingMore: true });
+    this.setData(reset ? { loading: true, loadingMore: false } : { loadingMore: true });
     try {
       const result = await lightingApi.getList({
-        ...this.data.filters,
+        ...(filtersOverride || this.data.filters),
         keyword: this.data.keyword,
         page,
-        pageSize: 3000
+        pageSize: 50
       });
+      if (requestId !== this._loadRequestId) return;
       const incoming = result.list.map((item) => {
         const device = toDeviceView(item);
         return { ...device, circuits: lightingCircuits(device) };
@@ -103,9 +108,12 @@ Page({
         totalPages: result.pagination.totalPages
       });
     } catch (error) {
+      if (requestId !== this._loadRequestId) return;
       wx.showToast({ title: error instanceof Error ? error.message : "加载失败", icon: "none" });
     } finally {
-      this.setData({ loading: false, loadingMore: false });
+      if (requestId === this._loadRequestId) {
+        this.setData({ loading: false, loadingMore: false });
+      }
     }
   },
 

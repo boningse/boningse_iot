@@ -434,6 +434,13 @@ const querySchemas = {
       .messages({
         'string.uuid': '租户ID必须是有效的UUID格式'
       }),
+    // 通用分页校验会剔除未声明字段，因此各级设备筛选必须在这里显式保留。
+    buildingId: Joi.string().uuid().allow(null).optional(),
+    projectBuildingId: Joi.string().uuid().allow(null).optional(),
+    project_building_id: Joi.string().uuid().allow(null).optional(),
+    projectGroupId: Joi.string().uuid().allow(null).optional(),
+    project_group_id: Joi.string().uuid().allow(null).optional(),
+    groupId: Joi.string().uuid().allow(null).optional(),
     startTime: Joi.date().optional(),
     endTime: Joi.date().optional()
   }),

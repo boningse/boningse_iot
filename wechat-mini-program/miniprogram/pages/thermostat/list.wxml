@@ -9,7 +9,7 @@
     </button>
   </view>
 
-  <scope-filter bind:change="onScopeChange"></scope-filter>
+  <scope-filter status-mode="thermostat" bind:change="onScopeChange"></scope-filter>
 
   <view class="device-summary">
     <view class="bounary-line">
