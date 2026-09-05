@@ -34,7 +34,7 @@ const appendDeviceScope = (scope, params, alias = 'd') => {
   const prefix = alias ? `${alias}.` : '';
   params.push(scope.tenantId);
   let clause = ` AND ${prefix}tenant_id = $${params.length}`;
-  if (scope.level === 'building' || scope.level === 'group') {
+  if (scope.level === 'building' || (scope.level === 'group' && scope.buildingId)) {
     params.push(scope.buildingId);
     clause += ` AND ${prefix}project_building_id = $${params.length}`;
   }
@@ -52,7 +52,7 @@ const applySequelizeDeviceScope = (where, scope) => {
     return where;
   }
   where.tenant_id = scope.tenantId;
-  if (scope.level === 'building' || scope.level === 'group') {
+  if (scope.level === 'building' || (scope.level === 'group' && scope.buildingId)) {
     where.project_building_id = scope.buildingId;
   }
   if (scope.level === 'group') where.project_group_id = scope.groupId;
@@ -63,7 +63,7 @@ const deviceInScope = (device, scope) => {
   if (!scope || scope.level === 'global') return true;
   if (!scope.valid || !device) return false;
   if (normalizeId(device.tenant_id) !== scope.tenantId) return false;
-  if ((scope.level === 'building' || scope.level === 'group') &&
+  if ((scope.level === 'building' || (scope.level === 'group' && scope.buildingId)) &&
       normalizeId(device.project_building_id) !== scope.buildingId) return false;
   if (scope.level === 'group' && normalizeId(device.project_group_id) !== scope.groupId) return false;
   return true;

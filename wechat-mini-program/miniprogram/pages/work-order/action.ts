@@ -1,5 +1,6 @@
 import { alarmApi } from "../../api/work-order";
 import type { WorkOrderAction } from "../../models/work-order";
+import { roleLabel } from "../../utils/permission";
 import {
   compressPhoto,
   type LocalPhoto,
@@ -25,11 +26,12 @@ Page({
 
   onLoad(options: Record<string, string>) {
     const action = String(options.action || "comment") as WorkOrderAction;
+    const title = decodeURIComponent(options.title || "处理工单");
     this.setData({
       id: decodeURIComponent(options.id || ""),
       action,
-      title: decodeURIComponent(options.title || "处理工单"),
-      submitLabel: this.submitLabel(action),
+      title,
+      submitLabel: this.submitLabel(action, title),
       photoRequired: ["process", "resolve"].includes(action),
       noteRequired: ["reject", "comment", "resolve", "reopen"].includes(action)
     });
@@ -37,9 +39,9 @@ Page({
     if (action === "assign") void this.loadAssignees();
   },
 
-  submitLabel(action: WorkOrderAction) {
+  submitLabel(action: WorkOrderAction, title = "") {
     const labels: Partial<Record<WorkOrderAction, string>> = {
-      assign: "确认派单",
+      assign: title.includes("转派") ? "确认转派" : "确认派单",
       reject: "确认退回",
       process: "提交处理进展",
       resolve: "提交处理结果",
@@ -51,10 +53,10 @@ Page({
 
   async loadAssignees() {
     try {
-      const result = await alarmApi.getOptions();
+      const result = await alarmApi.getOptions(this.data.id);
       this.setData({
         assignees: result.users,
-        assigneeNames: result.users.map((item) => item.username)
+        assigneeNames: result.users.map((item) => `${item.username} · ${roleLabel(item.role)}`)
       });
     } catch (error) {
       wx.showToast({ title: error instanceof Error ? error.message : "处理人加载失败", icon: "none" });

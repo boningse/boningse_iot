@@ -316,8 +316,11 @@ const requirePermission = (permission) => {
       return next();
     }
 
-    // tenant_admin 拥有 lighting 权限
-    if (req.user.role === 'tenant_admin' && permission === 'lighting') {
+    // 分级管理员可在各自的租户/建筑/分组数据范围内使用设备控制功能。
+    // 具体设备范围仍由 authenticateToken 中的 dataScope 统一校验。
+    const scopedManagerRoles = ['tenant_admin', 'user', 'building_user', 'group_user'];
+    const scopedControlPermissions = ['switch-control', 'lighting', 'thermostat', 'air-conditioner'];
+    if (scopedManagerRoles.includes(req.user.role) && scopedControlPermissions.includes(permission)) {
       return next();
     }
 

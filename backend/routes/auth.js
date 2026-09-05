@@ -174,7 +174,9 @@ router.post('/login', loginLimiter, validateUserLogin, async (req, res) => {
           status: user.status,
           profile: {
             ...user.profile || {},
-            permissions: user.profile?.permissions || []
+            permissions: user.profile?.permissions || [],
+            permissions_configured:
+              user.profile?.permissions_configured === true || Array.isArray(user.profile?.permissions)
           },
           tenant: user.tenant ? {
             id: user.tenant.id,
@@ -428,10 +430,18 @@ router.get('/me', authenticateToken, async (req, res) => {
       });
     }
 
+    const userData = user.toJSON();
+    userData.profile = {
+      ...(userData.profile || {}),
+      permissions: userData.profile?.permissions || [],
+      permissions_configured:
+        userData.profile?.permissions_configured === true || Array.isArray(userData.profile?.permissions)
+    };
+
     res.json({
       success: true,
       data: {
-        user
+        user: userData
       }
     });
   } catch (error) {

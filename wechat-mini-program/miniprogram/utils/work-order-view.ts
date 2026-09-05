@@ -43,6 +43,7 @@ export const actionLabel = (value: WorkOrderAction | string): string => {
     acknowledged: "已确认告警",
     assign: "派单",
     assigned: "已派单",
+    reassigned: "已转派",
     accept: "接单",
     accepted: "已接单",
     reject: "退回",

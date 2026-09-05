@@ -12,7 +12,7 @@ const {
   ProtocolConfig,
   sequelize
 } = require('../models');
-const { authenticateToken, checkPermission, requireDeviceAccess } = require('../middleware/auth');
+const { authenticateToken, checkPermission, requireDeviceAccess, requireRole } = require('../middleware/auth');
 const { validateDevice, validateDeviceUpdate } = require('../middleware/validation');
 const mqttService = require('../services/mqttService');
 const mqttConfigService = require('../services/mqttConfigService');
@@ -25,6 +25,7 @@ const {
 } = require('../services/deviceExcelService');
 
 const router = express.Router();
+const requireDeviceManager = requireRole(['admin', 'tenant_admin']);
 const excelUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024, files: 1 },
@@ -420,7 +421,7 @@ router.get('/export', authenticateToken, async (req, res) => {
  * 批量新增或更新设备
  * POST /api/devices/import
  */
-router.post('/import', authenticateToken, excelUpload.single('file'), async (req, res) => {
+router.post('/import', authenticateToken, requireDeviceManager, excelUpload.single('file'), async (req, res) => {
   try {
     if (!req.file?.buffer) {
       return res.status(400).json({ success: false, message: '请选择要导入的 Excel 文件' });
@@ -959,7 +960,7 @@ router.get('/check-imei/:imei', authenticateToken, async (req, res) => {
  * 创建设备
  * POST /api/devices
  */
-router.post('/', authenticateToken, validateDevice, async (req, res) => {
+router.post('/', authenticateToken, requireDeviceManager, validateDevice, async (req, res) => {
   try {
     const deviceData = {
       ...req.body,
@@ -1404,7 +1405,7 @@ router.post('/', authenticateToken, validateDevice, async (req, res) => {
  * 更新设备
  * PUT /api/devices/:id
  */
-router.put('/:id', authenticateToken, requireDeviceAccess, validateDeviceUpdate, async (req, res) => {
+router.put('/:id', authenticateToken, requireDeviceAccess, requireDeviceManager, validateDeviceUpdate, async (req, res) => {
   try {
     const { id } = req.params;
     const updateData = req.body;
@@ -1570,7 +1571,7 @@ router.put('/:id', authenticateToken, requireDeviceAccess, validateDeviceUpdate,
  * 删除设备
  * DELETE /api/devices/:id
  */
-router.delete('/:id', authenticateToken, requireDeviceAccess, async (req, res) => {
+router.delete('/:id', authenticateToken, requireDeviceAccess, requireDeviceManager, async (req, res) => {
   try {
     const { id } = req.params;
 

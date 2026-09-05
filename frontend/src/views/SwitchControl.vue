@@ -289,7 +289,9 @@
         <el-table :data="strategies" v-loading="strategyLoading" class="strategy-table">
           <el-table-column prop="name" label="策略名称" min-width="150" />
           <el-table-column label="设备" min-width="210">
-            <template #default="{ row }">{{ strategyDeviceText(row) }}</template>
+            <template #default="{ row }">
+              <StrategyDeviceCell :devices="row.devices" :strategy-name="row.name" :fallback="strategyDeviceText(row)" />
+            </template>
           </el-table-column>
           <el-table-column label="动作" width="100">
             <template #default="{ row }">
@@ -532,6 +534,7 @@
 import { computed, onMounted, reactive, ref } from "vue";
 import { DataAnalysis, Plus, Refresh, Search, Setting } from "@element-plus/icons-vue";
 import { ElMessage, ElMessageBox } from "element-plus";
+import StrategyDeviceCell from "@/components/StrategyDeviceCell.vue";
 import {
   projectManagementAPI,
   switchControlAPI,

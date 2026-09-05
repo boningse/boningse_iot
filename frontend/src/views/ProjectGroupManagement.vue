@@ -7,7 +7,7 @@
             v-model="filters.keyword"
             placeholder="分组名称/编码"
             clearable
-            @keyup.enter="loadGroups"
+            @keyup.enter="searchGroups"
             ><template #prefix
               ><el-icon><Search /></el-icon></template></el-input
         ></el-col>
@@ -40,7 +40,7 @@
 
         <el-col :span="9" class="text-right"
           >
-          <el-button type="primary" :icon="Search" @click="loadGroups"
+          <el-button type="primary" :icon="Search" @click="searchGroups"
             >搜索</el-button
           ><el-button :icon="Refresh" @click="resetFilters"
             >重置</el-button
@@ -90,6 +90,17 @@
               @click="removeGroup(row)" /></template
         ></el-table-column>
       </el-table>
+      <div class="pagination-container">
+        <el-pagination
+          v-model:current-page="pagination.page"
+          v-model:page-size="pagination.pageSize"
+          :page-sizes="[10, 20, 50, 100]"
+          :total="pagination.total"
+          layout="total, sizes, prev, pager, next, jumper"
+          @size-change="handlePageSizeChange"
+          @current-change="handlePageChange"
+        />
+      </div>
     </el-card>
 
     <el-dialog
@@ -181,6 +192,7 @@ const dialogVisible = ref(false);
 const editingId = ref("");
 const formRef = ref();
 const filters = reactive({ keyword: "", tenantId: "", buildingId: "" });
+const pagination = reactive({ page: 1, pageSize: 10, total: 0 });
 const form = reactive({
   tenant_id: "",
   building_id: "",
@@ -236,12 +248,32 @@ async function loadBuildings() {
 async function loadGroups() {
   loading.value = true;
   try {
-    groups.value = (await projectManagementAPI.getGroups(filters)).data || [];
+    const result = await projectManagementAPI.getGroups({
+      ...filters,
+      page: pagination.page,
+      pageSize: pagination.pageSize,
+    });
+    groups.value = result.data || [];
+    pagination.total = result.pagination?.total ?? groups.value.length;
   } catch (error) {
     ElMessage.error(error.message || "加载分组列表失败");
   } finally {
     loading.value = false;
   }
+}
+
+function searchGroups() {
+  pagination.page = 1;
+  loadGroups();
+}
+
+function handlePageSizeChange() {
+  pagination.page = 1;
+  loadGroups();
+}
+
+function handlePageChange() {
+  loadGroups();
 }
 
 function handleTenantFilterChange() {
@@ -251,6 +283,7 @@ function resetFilters() {
   Object.assign(filters, { keyword: "", tenantId: "", buildingId: "" });
   if (!isAdmin.value && currentTenant.value?.id)
     filters.tenantId = currentTenant.value.id;
+  pagination.page = 1;
   loadGroups();
 }
 function resetForm() {
@@ -291,6 +324,7 @@ async function saveGroup() {
     if (!result.success) throw new Error(result.message || "保存失败");
     ElMessage.success(result.message || "保存成功");
     dialogVisible.value = false;
+    if (!editingId.value) pagination.page = 1;
     await loadGroups();
   } catch (error) {
     ElMessage.error(error.message || "保存失败");
@@ -305,6 +339,7 @@ async function removeGroup(row) {
   const result = await projectManagementAPI.deleteGroup(row.id);
   if (!result.success) return ElMessage.error(result.message || "删除失败");
   ElMessage.success("删除成功");
+  if (groups.value.length === 1 && pagination.page > 1) pagination.page -= 1;
   await loadGroups();
 }
 
@@ -324,6 +359,11 @@ onMounted(async () => {
 }
 .text-right {
   text-align: right;
+}
+.pagination-container {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 20px;
 }
 
 @media (max-width: 768px) {

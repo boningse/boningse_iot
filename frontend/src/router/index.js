@@ -39,6 +39,7 @@ const routes = [
           title: "项目管理",
           icon: "OfficeBuilding",
           roles: ["admin", "tenant_admin"],
+          deniedRoles: ["building_user", "group_user"],
         },
         children: [
           {
@@ -55,6 +56,7 @@ const routes = [
               title: "建筑管理",
               icon: "House",
               roles: ["admin", "tenant_admin"],
+              deniedRoles: ["building_user", "group_user"],
             },
           },
           {
@@ -65,6 +67,7 @@ const routes = [
               title: "分组管理",
               icon: "Grid",
               roles: ["admin", "tenant_admin"],
+              deniedRoles: ["building_user", "group_user"],
             },
           },
         ],
@@ -96,7 +99,12 @@ const routes = [
         path: "/devices",
         name: "DeviceManagement",
         component: () => import("../views/devicemanagement.vue"),
-        meta: { title: "设备管理", icon: "Monitor", roles },
+        meta: {
+          title: "设备管理",
+          icon: "Monitor",
+          roles,
+          deniedRoles: ["user", "building_user", "group_user"],
+        },
       },
       {
         path: "/lighting-control",
@@ -146,6 +154,7 @@ const routes = [
           title: "用户管理",
           icon: "Setting",
           roles: ["admin", "tenant_admin", "user", "building_user"],
+          deniedRoles: ["user"],
         },
       },
     ],
@@ -242,9 +251,18 @@ router.beforeEach(async (to, from, next) => {
   if (to.path === "/403") return next();
   if (!isLoggedIn || !userInfo) return next("/login");
   const permissions = userInfo.profile?.permissions || [];
+  const permissionsConfigured =
+    userInfo.profile?.permissions_configured === true || permissions.length > 0;
   if (
     to.meta.roles &&
-    !hasRoutePermission(to.meta.roles, userInfo.role, permissions, to.name)
+    !hasRoutePermission(
+      to.meta.roles,
+      userInfo.role,
+      permissions,
+      to.name,
+      to.meta.deniedRoles,
+      permissionsConfigured,
+    )
   )
     return next("/403");
   next();

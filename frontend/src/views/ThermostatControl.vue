@@ -549,7 +549,11 @@
         
         <el-table :data="scheduleList" v-loading="loadingSchedules" class="strategy-table">
           <el-table-column prop="name" label="策略名称" min-width="150" />
-          <el-table-column prop="deviceName" label="设备" min-width="180" />
+          <el-table-column label="设备" min-width="210">
+            <template #default="{ row }">
+              <StrategyDeviceCell :devices="row.devices" :strategy-name="row.name" :fallback="row.deviceName" />
+            </template>
+          </el-table-column>
           <el-table-column label="动作" width="160">
             <template #default="{ row }">
               <div class="schedule-action-tags">
@@ -1104,6 +1108,7 @@ import { Fan, Snowflake, Flame, Droplets, Thermometer } from 'lucide-vue-next'
 import API from '@/api'
 import websocketService from '@/utils/websocket'
 import * as echarts from 'echarts'
+import StrategyDeviceCell from '@/components/StrategyDeviceCell.vue'
 
 export default {
   name: 'ThermostatControl',
@@ -1112,7 +1117,7 @@ export default {
     Switch, Lock, Unlock, Minus, Clock, DataAnalysis, View,
     MagicStick, Sunny, Lightning, Refrigerator, Setting,
     WindPower, Drizzling, Promotion, Thermometer, Aim,
-    Fan, Snowflake, Flame, Droplets
+    Fan, Snowflake, Flame, Droplets, StrategyDeviceCell
   },
   setup() {
     // 响应式数据

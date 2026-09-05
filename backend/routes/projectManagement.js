@@ -1,12 +1,17 @@
 const express = require('express');
 const crypto = require('crypto');
 const { Pool } = require('pg');
-const { authenticateToken, requireTenantAdmin } = require('../middleware/auth');
+const { authenticateToken } = require('../middleware/auth');
 const { getPoolConfig } = require('../config/database');
 const logger = require('../utils/logger');
 
 const router = express.Router();
 const pool = new Pool(getPoolConfig());
+const PROJECT_MANAGER_ROLES = ['admin', 'tenant_admin'];
+const requireProjectManager = (req, res, next) => {
+  if (PROJECT_MANAGER_ROLES.includes(req.user?.role)) return next();
+  return res.status(403).json({ success: false, message: '无权管理项目数据' });
+};
 
 router.use(authenticateToken);
 
@@ -38,6 +43,13 @@ const buildTenantFilter = (tenantId, params, alias = '') => {
 
 const normalizeText = (value) => (value === undefined || value === null ? null : String(value).trim());
 
+const getPagination = (query) => {
+  const requested = query.page !== undefined || query.pageSize !== undefined;
+  const page = Math.max(1, Number.parseInt(query.page, 10) || 1);
+  const pageSize = Math.min(1000, Math.max(1, Number.parseInt(query.pageSize, 10) || 10));
+  return { requested, page, pageSize, offset: (page - 1) * pageSize };
+};
+
 const ensureName = (name, res) => {
   if (!normalizeText(name)) {
     res.status(400).json({ success: false, message: '名称不能为空' });
@@ -49,6 +61,7 @@ const ensureName = (name, res) => {
 router.get('/buildings', async (req, res) => {
   try {
     const { keyword, status } = req.query;
+    const pagination = getPagination(req.query);
     const tenantId = getReadableTenantId(req);
     if (req.user.role !== 'admin' && !requireTenantScope(tenantId, res)) return;
     const params = [];
@@ -70,22 +83,43 @@ router.get('/buildings', async (req, res) => {
       where += ` AND b.status = $${params.length}`;
     }
 
+    const countResult = pagination.requested
+      ? await pool.query(`SELECT COUNT(*)::int AS total FROM project_buildings b ${where}`, params)
+      : null;
+    const listParams = [...params];
+    let paginationSql = '';
+    if (pagination.requested) {
+      listParams.push(pagination.pageSize, pagination.offset);
+      paginationSql = ` LIMIT $${listParams.length - 1} OFFSET $${listParams.length}`;
+    }
+
     const result = await pool.query(`
       SELECT b.*, t.name AS tenant_name
       FROM project_buildings b
       LEFT JOIN tenants t ON b.tenant_id = t.id
       ${where}
       ORDER BY b.created_at DESC
-    `, params);
+      ${paginationSql}
+    `, listParams);
 
-    res.json({ success: true, data: result.rows });
+    const total = countResult ? countResult.rows[0].total : result.rows.length;
+    res.json({
+      success: true,
+      data: result.rows,
+      pagination: {
+        page: pagination.page,
+        pageSize: pagination.requested ? pagination.pageSize : result.rows.length,
+        total,
+        totalPages: pagination.requested ? Math.ceil(total / pagination.pageSize) : (total ? 1 : 0)
+      }
+    });
   } catch (error) {
     logger.error('获取建筑列表失败:', error);
     res.status(500).json({ success: false, message: '获取建筑列表失败', error: error.message });
   }
 });
 
-router.post('/buildings', requireTenantAdmin, async (req, res) => {
+router.post('/buildings', requireProjectManager, async (req, res) => {
   try {
     const { name, code, address, description, status = 'active' } = req.body;
     const tenant_id = getWritableTenantId(req, req.body.tenant_id);
@@ -106,7 +140,7 @@ router.post('/buildings', requireTenantAdmin, async (req, res) => {
   }
 });
 
-router.put('/buildings/:id', requireTenantAdmin, async (req, res) => {
+router.put('/buildings/:id', requireProjectManager, async (req, res) => {
   try {
     const { id } = req.params;
     const { name, code, address, description, status = 'active' } = req.body;
@@ -136,7 +170,7 @@ router.put('/buildings/:id', requireTenantAdmin, async (req, res) => {
   }
 });
 
-router.delete('/buildings/:id', requireTenantAdmin, async (req, res) => {
+router.delete('/buildings/:id', requireProjectManager, async (req, res) => {
   try {
     const params = [req.params.id];
     let where = 'id = $1 AND is_active = true';
@@ -159,6 +193,7 @@ router.delete('/buildings/:id', requireTenantAdmin, async (req, res) => {
 router.get('/groups', async (req, res) => {
   try {
     const { buildingId, groupId, keyword, status } = req.query;
+    const pagination = getPagination(req.query);
     const tenantId = getReadableTenantId(req);
     if (req.user.role !== 'admin' && !requireTenantScope(tenantId, res)) return;
     const params = [];
@@ -186,6 +221,16 @@ router.get('/groups', async (req, res) => {
       where += ` AND g.status = $${params.length}`;
     }
 
+    const countResult = pagination.requested
+      ? await pool.query(`SELECT COUNT(*)::int AS total FROM project_groups g ${where}`, params)
+      : null;
+    const listParams = [...params];
+    let paginationSql = '';
+    if (pagination.requested) {
+      listParams.push(pagination.pageSize, pagination.offset);
+      paginationSql = ` LIMIT $${listParams.length - 1} OFFSET $${listParams.length}`;
+    }
+
     const result = await pool.query(`
       SELECT g.*, t.name AS tenant_name, b.name AS building_name
       FROM project_groups g
@@ -193,16 +238,27 @@ router.get('/groups', async (req, res) => {
       LEFT JOIN project_buildings b ON g.building_id = b.id
       ${where}
       ORDER BY g.code DESC
-    `, params);
+      ${paginationSql}
+    `, listParams);
 
-    res.json({ success: true, data: result.rows });
+    const total = countResult ? countResult.rows[0].total : result.rows.length;
+    res.json({
+      success: true,
+      data: result.rows,
+      pagination: {
+        page: pagination.page,
+        pageSize: pagination.requested ? pagination.pageSize : result.rows.length,
+        total,
+        totalPages: pagination.requested ? Math.ceil(total / pagination.pageSize) : (total ? 1 : 0)
+      }
+    });
   } catch (error) {
     logger.error('获取项目分组失败:', error);
     res.status(500).json({ success: false, message: '获取项目分组失败', error: error.message });
   }
 });
 
-router.post('/groups', requireTenantAdmin, async (req, res) => {
+router.post('/groups', requireProjectManager, async (req, res) => {
   try {
     const { building_id, name, code, description, status = 'active' } = req.body;
     const tenant_id = getWritableTenantId(req, req.body.tenant_id);
@@ -223,7 +279,7 @@ router.post('/groups', requireTenantAdmin, async (req, res) => {
   }
 });
 
-router.put('/groups/:id', requireTenantAdmin, async (req, res) => {
+router.put('/groups/:id', requireProjectManager, async (req, res) => {
   try {
     const { building_id, name, code, description, status = 'active' } = req.body;
     const tenant_id = getWritableTenantId(req, req.body.tenant_id);
@@ -252,7 +308,7 @@ router.put('/groups/:id', requireTenantAdmin, async (req, res) => {
   }
 });
 
-router.delete('/groups/:id', requireTenantAdmin, async (req, res) => {
+router.delete('/groups/:id', requireProjectManager, async (req, res) => {
   try {
     const params = [req.params.id];
     let where = 'id = $1 AND is_active = true';

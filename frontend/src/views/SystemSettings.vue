@@ -431,6 +431,7 @@ import { ref, reactive, onMounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Edit, Delete, Refresh, Search, Monitor, User, Setting, DataBoard, House, Grid, Cpu, Sunny } from '@element-plus/icons-vue'
 import { systemAPI, userAPI, tenantAPI, projectManagementAPI } from '@/api'
+import { getPagePermissionOptionsForRole } from '@/utils/routePermission.js'
 
 /**
  * 当前激活的标签页
@@ -1113,63 +1114,10 @@ const permissionDialogVisible = ref(false)
 const userPermissions = ref([])
 const permissionSaving = ref(false)
 
-// 可用的页面权限列表
-const availablePermissions = [
-  {
-    value: 'dashboard',
-    label: '仪表盘',
-    description: '查看系统概览和统计信息',
-    icon: 'DataBoard'
-  },
-  {
-    value: 'tenants',
-    label: '租户管理',
-    description: '管理系统租户信息',
-    icon: 'House'
-  },
-  {
-    value: 'manufacturers',
-    label: '厂商管理',
-    description: '管理设备厂商信息',
-    icon: 'Grid'
-  },
-  {
-    value: 'device-types',
-    label: '设备类型',
-    description: '管理设备类型配置',
-    icon: 'Monitor'
-  },
-  {
-    value: 'devices',
-    label: '设备管理',
-    description: '管理物联网设备',
-    icon: 'Cpu'
-  },
-  {
-    value: 'protocols',
-    label: '协议配置',
-    description: '管理通信协议配置',
-    icon: 'Setting'
-  },
-  {
-    value: 'lighting',
-    label: '照明控制',
-    description: '控制照明设备',
-    icon: 'Sunny'
-  },
-  {
-    value: 'alarms',
-    label: '告警管理',
-    description: '查看并处理设备告警',
-    icon: 'Warning'
-  },
-  {
-    value: 'system-settings',
-    label: '用户管理',
-    description: '管理系统用户和页面权限',
-    icon: 'Setting'
-  }
-]
+// 只展示被管理用户按照当前路由菜单实际能够使用的页面。
+const availablePermissions = computed(() =>
+  getPagePermissionOptionsForRole(selectedUser.value?.role)
+)
 
 // 权限提示标题计算属性
 const permissionAlertTitle = computed(() => {
@@ -1187,7 +1135,8 @@ const manageUserPermissions = async (user) => {
   try {
     const response = await userAPI.getUserPermissions(user.id)
     if (response.success) {
-      userPermissions.value = response.data.permissions || []
+      const availableValues = new Set(availablePermissions.value.map(permission => permission.value))
+      userPermissions.value = (response.data.permissions || []).filter(permission => availableValues.has(permission))
     } else {
       userPermissions.value = []
       ElMessage.warning('获取用户权限失败，将显示默认权限')

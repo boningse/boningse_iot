@@ -323,7 +323,11 @@
         </div>
         <el-table :data="strategyList" v-loading="loadingStrategies" class="schedule-table">
           <el-table-column prop="name" label="策略名称" min-width="150" show-overflow-tooltip />
-          <el-table-column prop="deviceNames" label="设备" min-width="190" show-overflow-tooltip />
+          <el-table-column label="设备" min-width="210">
+            <template #default="{ row }">
+              <StrategyDeviceCell :devices="row.devices" :strategy-name="row.name" :fallback="row.deviceNames" />
+            </template>
+          </el-table-column>
           <el-table-column label="动作" width="150">
             <template #default="{ row }">
               <el-tag :type="row.action === 'power_off' ? 'danger' : 'success'" size="small">
@@ -491,6 +495,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from "v
 import { Minus, Plus, Refresh, Search, Setting, View } from "@element-plus/icons-vue";
 import { Fan } from "lucide-vue-next";
 import { ElMessage, ElMessageBox } from "element-plus";
+import StrategyDeviceCell from "@/components/StrategyDeviceCell.vue";
 import * as echarts from "echarts";
 import {
   airConditionerControlAPI,

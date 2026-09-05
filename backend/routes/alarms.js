@@ -24,7 +24,7 @@ const MODULE_TYPES = ['switch', 'lighting', 'thermostat', 'air_conditioner'];
 const SEVERITIES = ['critical', 'high', 'medium', 'low'];
 const STATUSES = ['active', 'acknowledged', 'assigned', 'processing', 'resolved', 'closed'];
 const MANAGER_ROLES = ['admin', 'tenant_admin'];
-const DISPATCH_ROLES = ['admin', 'tenant_admin', 'building_user', 'group_user'];
+const ASSIGNEE_ROLES = ['user', 'building_user', 'group_user'];
 const ACTION_CONFIG = {
   acknowledge: {
     action: 'acknowledged',
@@ -33,7 +33,7 @@ const ACTION_CONFIG = {
   },
   assign: {
     action: 'assigned',
-    allowed: ['active', 'acknowledged', 'processing'],
+    allowed: ['active', 'acknowledged', 'assigned', 'processing'],
     toStatus: 'assigned',
     requireAssignee: true
   },
@@ -100,6 +100,7 @@ const broadcastWorkOrderAction = (actionName, alarm) => {
 };
 
 const reject = (res, status, message) => res.status(status).json({ success: false, message });
+const forbidden = (message) => Object.assign(new Error(message), { status: 403 });
 const getClientType = (req, payload = {}) => normalizeClientType(
   req.get('X-Client-Type') || payload.clientType || payload.client_type || 'pc'
 );
@@ -120,21 +121,35 @@ const addScope = (req, params, conditions, deviceAlias = 'd', alarmAlias = 'a') 
     conditions.push(`${alarmAlias}.tenant_id = $${params.length}`);
   }
 
-  if (req.user.role === 'building_user') {
-    const buildingId = profileValue(req.user, 'project_building_id') || profileValue(req.user, 'building_id');
-    if (buildingId) {
-      params.push(buildingId);
+  if (req.dataScope?.level === 'building' || (req.dataScope?.level === 'group' && req.dataScope.buildingId)) {
+    if (req.dataScope.buildingId) {
+      params.push(req.dataScope.buildingId);
       conditions.push(`${deviceAlias}.project_building_id = $${params.length}`);
     }
   }
 
-  if (req.user.role === 'group_user') {
-    const groupId = profileValue(req.user, 'project_group_id') || profileValue(req.user, 'group_id');
-    if (groupId) {
-      params.push(groupId);
+  if (req.dataScope?.level === 'group') {
+    if (req.dataScope.groupId) {
+      params.push(req.dataScope.groupId);
       conditions.push(`${deviceAlias}.project_group_id = $${params.length}`);
     }
   }
+};
+
+const sameId = (left, right) => String(left || '') === String(right || '');
+const isCurrentAssignee = (req, alarm) => sameId(alarm?.assigned_to, req.user?.id);
+const canTransferAlarm = (req, alarm) => MANAGER_ROLES.includes(req.user.role) || isCurrentAssignee(req, alarm);
+
+const assigneeCanAccessAlarm = (assignee, alarm) => {
+  if (!assignee || !alarm || !ASSIGNEE_ROLES.includes(assignee.role)) return false;
+  if (!sameId(assignee.tenant_id, alarm.tenant_id)) return false;
+  if (assignee.role === 'user') return true;
+  if (assignee.role === 'building_user') {
+    const buildingId = profileValue(assignee, 'project_building_id') || profileValue(assignee, 'building_id');
+    return Boolean(buildingId) && sameId(buildingId, alarm.project_building_id);
+  }
+  const groupId = profileValue(assignee, 'project_group_id') || profileValue(assignee, 'group_id');
+  return Boolean(groupId) && sameId(groupId, alarm.project_group_id);
 };
 
 const buildAlarmQuery = (req, { includeFilters = true } = {}) => {
@@ -295,26 +310,52 @@ router.get('/summary', authenticateToken, requireRole(ROLES), async (req, res) =
 
 router.get('/options', authenticateToken, requireRole(ROLES), async (req, res) => {
   try {
+    const alarmId = String(req.query.alarmId || '').trim();
+    const alarm = alarmId ? await getScopedAlarm(req, alarmId) : null;
+    if (alarmId && !alarm) return reject(res, 404, '告警不存在或无权访问');
+
+    if (alarm) {
+      const isInitialDispatch = ['active', 'acknowledged'].includes(alarm.status);
+      const isTransfer = ['assigned', 'processing'].includes(alarm.status);
+      if (isInitialDispatch && !MANAGER_ROLES.includes(req.user.role)) {
+        return reject(res, 403, '当前用户没有首次派单权限');
+      }
+      if (isTransfer && !canTransferAlarm(req, alarm)) {
+        return reject(res, 403, '只有租户管理员或当前处理人可以转派工单');
+      }
+      if (!isInitialDispatch && !isTransfer) {
+        return reject(res, 400, '当前工单状态不能派单或转派');
+      }
+    } else if (!MANAGER_ROLES.includes(req.user.role)) {
+      return reject(res, 403, '当前用户没有首次派单权限');
+    }
+
     const params = [];
     const conditions = [
       `u.status = 'active'`,
-      `(u.role IN ('admin', 'tenant_admin') OR COALESCE(u.profile->'permissions', '[]'::jsonb) ? 'alarms')`
+      `u.role IN ('user', 'building_user', 'group_user')`
     ];
-    if (req.user.role !== 'admin') {
-      params.push(req.user.tenant_id);
-      conditions.push(`u.tenant_id = $${params.length}`);
-    } else if (req.query.tenantId) {
-      params.push(req.query.tenantId);
+    const targetTenantId = alarm?.tenant_id || (req.user.role === 'admin' ? req.query.tenantId : req.user.tenant_id);
+    if (targetTenantId) {
+      params.push(targetTenantId);
       conditions.push(`u.tenant_id = $${params.length}`);
     }
     const users = await pool.query(
-      `SELECT u.id, u.username, u.role, u.tenant_id
+      `SELECT u.id, u.username, u.role, u.tenant_id, u.profile
        FROM users u
        WHERE ${conditions.join(' AND ')}
-       ORDER BY u.username`,
+       ORDER BY CASE u.role WHEN 'user' THEN 1 WHEN 'building_user' THEN 2 ELSE 3 END, u.username`,
       params
     );
-    res.json({ success: true, data: { users: users.rows } });
+    const eligibleUsers = alarm
+      ? users.rows.filter((user) => assigneeCanAccessAlarm(user, alarm))
+      : users.rows;
+    res.json({
+      success: true,
+      data: {
+        users: eligibleUsers.map(({ id, username, role, tenant_id }) => ({ id, username, role, tenant_id }))
+      }
+    });
   } catch (error) {
     logger.error('获取告警处理人选项失败', { error: error.message });
     res.status(500).json({ success: false, message: '获取处理人失败', error: error.message });
@@ -366,12 +407,13 @@ router.get('/', authenticateToken, requireRole(ROLES), async (req, res) => {
   }
 });
 
-const getScopedAlarm = async (req, alarmId, client = pool) => {
+async function getScopedAlarm(req, alarmId, client = pool) {
   const params = [alarmId];
   const conditions = ['a.id = $1'];
   addScope(req, params, conditions);
   const result = await client.query(
     `SELECT a.*, d.name AS device_name, d.imei, d.status AS device_status,
+            d.project_building_id, d.project_group_id,
             dt.name AS device_type_name, t.name AS tenant_name,
             pb.name AS building_name, pg.name AS group_name,
             assignee.username AS assigned_to_name
@@ -380,7 +422,7 @@ const getScopedAlarm = async (req, alarmId, client = pool) => {
     params
   );
   return result.rows[0] || null;
-};
+}
 
 router.get('/notifications/unread-count', authenticateToken, requireRole(ROLES), async (req, res) => {
   try {
@@ -575,6 +617,8 @@ const performAction = async (client, req, alarm, actionName, payload = {}) => {
   const assignedTo = payload.assignedTo || payload.assigned_to || null;
   const clientType = getClientType(req, payload);
   const uploadedPhotoCount = Number(payload._uploadedPhotoCount || 0);
+  const isInitialDispatch = actionName === 'assign' && ['active', 'acknowledged'].includes(alarm.status);
+  const isTransfer = actionName === 'assign' && ['assigned', 'processing'].includes(alarm.status);
   if (config.requireNote && !note) throw new Error('请填写处理说明');
   if (config.requireAssignee && !assignedTo) throw new Error('请选择处理人');
   if (
@@ -584,27 +628,43 @@ const performAction = async (client, req, alarm, actionName, payload = {}) => {
   ) {
     throw new Error('微信小程序处理工单时必须上传至少一张现场照片');
   }
-  if (actionName === 'assign' && !DISPATCH_ROLES.includes(req.user.role)) {
-    throw new Error('当前用户无派单权限');
+  if (isInitialDispatch && !MANAGER_ROLES.includes(req.user.role)) {
+    throw forbidden('只有租户级管理员可以首次派单');
+  }
+  if (isTransfer && !canTransferAlarm(req, alarm)) {
+    throw forbidden('只有租户管理员或当前处理人可以转派工单');
+  }
+  if (actionName === 'acknowledge' && !MANAGER_ROLES.includes(req.user.role)) {
+    throw forbidden('只有租户级管理员可以确认告警');
+  }
+  if (['close', 'reopen'].includes(actionName) && !MANAGER_ROLES.includes(req.user.role)) {
+    throw forbidden('只有租户级管理员可以关闭或重开工单');
+  }
+  if (actionName === 'comment' && !MANAGER_ROLES.includes(req.user.role) && !isCurrentAssignee(req, alarm)) {
+    throw forbidden('只有租户管理员或当前处理人可以添加处理备注');
   }
   if (config.assigneeOnly && String(alarm.assigned_to || '') !== String(req.user.id)) {
     throw new Error('只有当前处理人可以接单或退回');
   }
   if (
     ['process', 'resolve'].includes(actionName)
-    && alarm.assigned_to
-    && String(alarm.assigned_to) !== String(req.user.id)
+    && !isCurrentAssignee(req, alarm)
     && !MANAGER_ROLES.includes(req.user.role)
   ) {
-    throw new Error('该工单已分配给其他处理人');
+    throw forbidden('该工单已分配给其他处理人');
   }
 
   if (assignedTo) {
     const assignee = await client.query(
-      `SELECT id FROM users WHERE id = $1 AND status = 'active' AND ($2::uuid IS NULL OR tenant_id = $2)`,
+      `SELECT id, username, role, tenant_id, profile
+       FROM users
+       WHERE id = $1 AND status = 'active' AND ($2::uuid IS NULL OR tenant_id = $2)`,
       [assignedTo, alarm.tenant_id]
     );
     if (assignee.rowCount === 0) throw new Error('处理人不属于当前租户或已停用');
+    if (!assigneeCanAccessAlarm(assignee.rows[0], alarm)) {
+      throw forbidden('所选处理人无权访问该告警所属的建筑或分组');
+    }
   }
 
   const nextStatus = config.toStatus || alarm.status;
@@ -656,6 +716,7 @@ const performAction = async (client, req, alarm, actionName, payload = {}) => {
     `UPDATE device_alarms SET ${updates.join(', ')} WHERE id = $1 RETURNING *`,
     values
   );
+  const workflowAction = isTransfer ? 'reassigned' : config.action;
   const actionResult = await client.query(
     `INSERT INTO device_alarm_actions (
        alarm_id, tenant_id, action, from_status, to_status,
@@ -665,7 +726,7 @@ const performAction = async (client, req, alarm, actionName, payload = {}) => {
     [
       alarm.id,
       alarm.tenant_id,
-      config.action,
+      workflowAction,
       alarm.status,
       nextStatus,
       req.user.id,
@@ -735,7 +796,7 @@ router.post('/batch-actions', authenticateToken, requireRole(ROLES), async (req,
   } catch (error) {
     await client.query('ROLLBACK');
     logger.error('批量处理告警失败', { error: error.message });
-    res.status(400).json({ success: false, message: error.message });
+    res.status(error.status || 400).json({ success: false, message: error.message });
   } finally {
     client.release();
   }
@@ -795,7 +856,7 @@ router.post(
         logger.error('回滚工单照片文件失败', { error: cleanupError.message });
       }
       logger.error('带照片处理告警失败', { alarmId: req.params.id, error: error.message });
-      res.status(error.message.includes('不存在') ? 404 : 400).json({
+      res.status(error.status || (error.message.includes('不存在') ? 404 : 400)).json({
         success: false,
         message: error.message
       });
@@ -824,7 +885,7 @@ router.post('/:id/actions', authenticateToken, requireRole(ROLES), async (req, r
   } catch (error) {
     await client.query('ROLLBACK');
     logger.error('处理告警失败', { alarmId: req.params.id, error: error.message });
-    res.status(400).json({ success: false, message: error.message });
+    res.status(error.status || 400).json({ success: false, message: error.message });
   } finally {
     client.release();
   }

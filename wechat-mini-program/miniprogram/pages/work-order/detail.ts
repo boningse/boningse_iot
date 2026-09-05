@@ -101,30 +101,30 @@ Page({
     const user = session.getUser();
     if (!user) return [];
     const isManager = ["admin", "tenant_admin"].includes(user.role);
-    const canDispatch = ["admin", "tenant_admin", "building_user", "group_user"].includes(user.role);
     const isAssignee = String(alarm.assigned_to || "") === String(user.id);
+    const canTransfer = isManager || isAssignee;
     const buttons: ActionButton[] = [];
 
-    if (alarm.status === "active" && canDispatch) {
+    if (alarm.status === "active" && isManager) {
       buttons.push({ key: "assign", label: "派单", tone: "primary", immediate: false });
       buttons.push({ key: "acknowledge", label: "仅确认告警", tone: "secondary", immediate: true });
     }
-    if (alarm.status === "acknowledged" && canDispatch) {
+    if (alarm.status === "acknowledged" && isManager) {
       buttons.push({ key: "assign", label: "派单", tone: "primary", immediate: false });
     }
     if (alarm.status === "assigned" && isAssignee) {
       buttons.push({ key: "accept", label: "接单并开始处理", tone: "primary", immediate: true });
       buttons.push({ key: "reject", label: "退回工单", tone: "danger", immediate: false });
     }
-    if (alarm.status === "assigned" && canDispatch) {
-      buttons.push({ key: "assign", label: "改派", tone: "secondary", immediate: false });
+    if (alarm.status === "assigned" && canTransfer) {
+      buttons.push({ key: "assign", label: "转派", tone: "secondary", immediate: false });
     }
     if (alarm.status === "processing" && (isAssignee || isManager)) {
       buttons.push({ key: "resolve", label: "完成处理", tone: "primary", immediate: false });
       buttons.push({ key: "process", label: "记录处理进展", tone: "secondary", immediate: false });
     }
-    if (alarm.status === "processing" && canDispatch) {
-      buttons.push({ key: "assign", label: "改派", tone: "secondary", immediate: false });
+    if (alarm.status === "processing" && canTransfer) {
+      buttons.push({ key: "assign", label: "转派", tone: "secondary", immediate: false });
     }
     if (alarm.status === "resolved" && isManager) {
       buttons.push({ key: "reopen", label: "重新打开", tone: "secondary", immediate: false });
@@ -133,7 +133,9 @@ Page({
     if (alarm.status === "closed" && isManager) {
       buttons.push({ key: "reopen", label: "重新打开", tone: "secondary", immediate: false });
     }
-    buttons.push({ key: "comment", label: "添加备注", tone: "secondary", immediate: false });
+    if (isManager || isAssignee) {
+      buttons.push({ key: "comment", label: "添加备注", tone: "secondary", immediate: false });
+    }
     return buttons;
   },
 

@@ -507,7 +507,9 @@
         <el-table :data="lightingStrategies" v-loading="strategyLoading" class="strategy-table">
           <el-table-column prop="name" label="策略名称" min-width="150" />
           <el-table-column label="设备" min-width="210">
-            <template #default="{ row }">{{ lightingStrategyDeviceText(row) }}</template>
+            <template #default="{ row }">
+              <StrategyDeviceCell :devices="row.devices" :strategy-name="row.name" :fallback="lightingStrategyDeviceText(row)" />
+            </template>
           </el-table-column>
           <el-table-column label="动作" width="100">
             <template #default="{ row }">
@@ -924,6 +926,7 @@ import { Plus, VideoPlay, VideoPause, RefreshRight, View, Delete, Search, Refres
 import * as echarts from 'echarts'
 import { lightingControlAPI, projectManagementAPI, tenantAPI, deviceAPI, lightingScenesAPI, lightingDataAPI } from '@/api/index.js'
 import websocketService from '@/utils/websocket'
+import StrategyDeviceCell from '@/components/StrategyDeviceCell.vue'
 
 // 响应式数据
 const lightingDevices = ref([])

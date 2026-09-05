@@ -24,6 +24,20 @@ const roleLabel = {
   group_user: '分组级用户'
 };
 
+// 与 PC 端当前侧边栏一致的可分配页面权限。管理员专用菜单不出现在业务用户的
+// 权限列表中；每个权限同时限定可使用该菜单的用户角色。
+const PAGE_PERMISSION_ROLES = Object.freeze({
+  dashboard: ['tenant_admin', 'user', 'building_user', 'group_user'],
+  projects: ['tenant_admin'],
+  devices: ['tenant_admin'],
+  lighting: ['tenant_admin', 'user', 'building_user', 'group_user'],
+  'switch-control': ['tenant_admin', 'user', 'building_user', 'group_user'],
+  thermostat: ['tenant_admin', 'user', 'building_user', 'group_user'],
+  'air-conditioner': ['tenant_admin', 'user', 'building_user', 'group_user'],
+  alarms: ['tenant_admin', 'user', 'building_user', 'group_user'],
+  'system-settings': ['tenant_admin', 'building_user']
+});
+
 const getProfile = (user) => user?.profile || {};
 const getBuildingId = (user) => getProfile(user).project_building_id || getProfile(user).building_id || '';
 const getGroupId = (user) => getProfile(user).project_group_id || getProfile(user).group_id || '';
@@ -36,7 +50,7 @@ const canManageUser = (actor, target) => {
   if (actor.role === 'building_user') {
     return target.role === 'group_user' && getBuildingId(actor) && getBuildingId(actor) === getBuildingId(target);
   }
-  return ['tenant_admin', 'user'].includes(actor.role);
+  return actor.role === 'tenant_admin';
 };
 
 const buildManagedUserWhere = (actor, baseWhere = {}) => {
@@ -46,8 +60,6 @@ const buildManagedUserWhere = (actor, baseWhere = {}) => {
   where.tenant_id = actor.tenant_id;
   if (actor.role === 'tenant_admin') {
     where.role = { [Op.in]: ['user', 'building_user', 'group_user'] };
-  } else if (actor.role === 'user') {
-    where.role = { [Op.in]: ['building_user', 'group_user'] };
   } else if (actor.role === 'building_user') {
     where.role = 'group_user';
     const requestedScope = where.profile?.[Op.contains] || {};
@@ -116,7 +128,7 @@ const reject = (res, status, message) => res.status(status).json({ success: fals
  * 获取用户列表
  * GET /api/users
  */
-router.get('/', authenticateToken, requireRole(['admin', 'tenant_admin', 'user', 'building_user']), async (req, res) => {
+router.get('/', authenticateToken, requireRole(['admin', 'tenant_admin', 'building_user']), async (req, res) => {
   try {
     const {
       page = 1,
@@ -202,7 +214,7 @@ router.get('/', authenticateToken, requireRole(['admin', 'tenant_admin', 'user',
  * 获取用户详情
  * GET /api/users/:id
  */
-router.get('/:id', authenticateToken, requireRole(['admin', 'tenant_admin', 'user', 'building_user']), async (req, res) => {
+router.get('/:id', authenticateToken, requireRole(['admin', 'tenant_admin', 'building_user']), async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -246,7 +258,7 @@ router.get('/:id', authenticateToken, requireRole(['admin', 'tenant_admin', 'use
  * 创建用户
  * POST /api/users
  */
-router.post('/', authenticateToken, requireRole(['admin', 'tenant_admin', 'user', 'building_user']), async (req, res) => {
+router.post('/', authenticateToken, requireRole(['admin', 'tenant_admin', 'building_user']), async (req, res) => {
   try {
     const { username, email, password, role = 'user', tenant_id, profile = {} } = req.body;
 
@@ -339,7 +351,7 @@ router.post('/', authenticateToken, requireRole(['admin', 'tenant_admin', 'user'
  * 更新用户
  * PUT /api/users/:id
  */
-router.put('/:id', authenticateToken, requireRole(['admin', 'tenant_admin', 'user', 'building_user']), validateAdminUserUpdate, async (req, res) => {
+router.put('/:id', authenticateToken, requireRole(['admin', 'tenant_admin', 'building_user']), validateAdminUserUpdate, async (req, res) => {
   try {
     const { id } = req.params;
     const { username, email, role, tenant_id, profile, status } = req.body;
@@ -447,7 +459,7 @@ router.put('/:id', authenticateToken, requireRole(['admin', 'tenant_admin', 'use
  * 切换用户状态
  * PUT /api/users/:id/status
  */
-router.put('/:id/status', authenticateToken, requireRole(['admin', 'tenant_admin', 'user', 'building_user']), async (req, res) => {
+router.put('/:id/status', authenticateToken, requireRole(['admin', 'tenant_admin', 'building_user']), async (req, res) => {
   try {
     const { id } = req.params;
     const { status } = req.body;
@@ -502,7 +514,7 @@ router.put('/:id/status', authenticateToken, requireRole(['admin', 'tenant_admin
  * 管理员修改用户密码
  * PUT /api/users/:id/password
  */
-router.put('/:id/password', authenticateToken, requireRole(['admin', 'tenant_admin', 'user', 'building_user']), async (req, res) => {
+router.put('/:id/password', authenticateToken, requireRole(['admin', 'tenant_admin', 'building_user']), async (req, res) => {
   try {
     const { id } = req.params;
     const { newPassword } = req.body;
@@ -565,7 +577,7 @@ router.put('/:id/password', authenticateToken, requireRole(['admin', 'tenant_adm
  * 获取用户权限
  * GET /api/users/:id/permissions
  */
-router.get('/:id/permissions', authenticateToken, requireRole(['admin', 'tenant_admin', 'user', 'building_user']), async (req, res) => {
+router.get('/:id/permissions', authenticateToken, requireRole(['admin', 'tenant_admin', 'building_user']), async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -608,7 +620,7 @@ router.get('/:id/permissions', authenticateToken, requireRole(['admin', 'tenant_
  * 更新用户权限
  * PUT /api/users/:id/permissions
  */
-router.put('/:id/permissions', authenticateToken, requireRole(['admin', 'tenant_admin', 'user', 'building_user']), async (req, res) => {
+router.put('/:id/permissions', authenticateToken, requireRole(['admin', 'tenant_admin', 'building_user']), async (req, res) => {
   try {
     const { id } = req.params;
     const { permissions } = req.body;
@@ -639,43 +651,9 @@ router.put('/:id/permissions', authenticateToken, requireRole(['admin', 'tenant_
       });
     }
 
-    // 定义可用的页面权限
-    const availablePermissions = [
-      'dashboard',
-      'tenants',
-      'manufacturers', 
-      'device-types',
-      'devices',
-      'protocols',
-      'lighting',
-      'switch-control',
-      'thermostat',
-      'air-conditioner',
-      'alarms',
-      'multi-unit-ac',
-      'system-settings'
-    ];
-
-    // 定义租户管理员不能修改的权限（仅管理员可以修改）
-    const adminOnlyPermissions = [
-      'manufacturers',
-      'device-types'
-    ];
-
-    // 如果是租户管理员，过滤掉管理员专用权限
-    let validPermissions = availablePermissions;
-    if (user.role === 'tenant_admin') {
-      validPermissions = availablePermissions.filter(p => !adminOnlyPermissions.includes(p));
-      
-      // 检查是否包含管理员专用权限
-      const hasAdminOnlyPermissions = permissions.some(p => adminOnlyPermissions.includes(p));
-      if (hasAdminOnlyPermissions) {
-        return res.status(403).json({
-          success: false,
-          message: '租户管理员无法修改厂商、设备类型等管理员专用权限'
-        });
-      }
-    }
+    const validPermissions = Object.entries(PAGE_PERMISSION_ROLES)
+      .filter(([, roles]) => roles.includes(user.role))
+      .map(([permission]) => permission);
 
     // 验证权限是否有效
     const invalidPermissions = permissions.filter(p => !validPermissions.includes(p));
@@ -690,7 +668,8 @@ router.put('/:id/permissions', authenticateToken, requireRole(['admin', 'tenant_
     const currentProfile = user.profile || {};
     const updatedProfile = {
       ...currentProfile,
-      permissions
+      permissions,
+      permissions_configured: true
     };
 
     await user.update({ profile: updatedProfile });
@@ -723,7 +702,7 @@ router.put('/:id/permissions', authenticateToken, requireRole(['admin', 'tenant_
  * 删除用户
  * DELETE /api/users/:id
  */
-router.delete('/:id', authenticateToken, requireRole(['admin', 'tenant_admin', 'user', 'building_user']), async (req, res) => {
+router.delete('/:id', authenticateToken, requireRole(['admin', 'tenant_admin', 'building_user']), async (req, res) => {
   try {
     const { id } = req.params;
 

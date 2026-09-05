@@ -233,7 +233,7 @@ let notificationTimer = null;
 const canUseAlarmNotifications = computed(() => {
   const role = userInfo.value.role;
   const permissions = userInfo.value.profile?.permissions || [];
-  return ["admin", "tenant_admin"].includes(role) || permissions.includes("alarms");
+  return ["admin", "tenant_admin", "user", "building_user", "group_user"].includes(role) || permissions.includes("alarms");
 });
 
 const loadUnreadAlarmCount = async () => {
@@ -430,13 +430,22 @@ const routes = computed(() => {
 
   const userRole = userInfo.value.role;
   const userPermissions = userInfo.value.profile?.permissions || [];
+  const permissionsConfigured =
+    userInfo.value.profile?.permissions_configured === true || userPermissions.length > 0;
 
   const filterRoute = (route) => {
     const hasAccess =
       route.meta &&
       route.meta.title &&
       !route.meta.hideInMenu &&
-      hasRoutePermission(route.meta.roles, userRole, userPermissions, route.name);
+      hasRoutePermission(
+        route.meta.roles,
+        userRole,
+        userPermissions,
+        route.name,
+        route.meta.deniedRoles,
+        permissionsConfigured,
+      );
 
     if (!hasAccess) return null;
     if (route.children?.length) {

@@ -25,10 +25,10 @@ export const alarmApi = {
     return request<WorkOrderDetail>(`/alarms/${id}`);
   },
 
-  getOptions(tenantId?: string) {
+  getOptions(alarmId?: string, tenantId?: string) {
     return request<{ users: Array<{ id: string; username: string; role: string }> }>(
       "/alarms/options",
-      { query: { tenantId } }
+      { query: { alarmId, tenantId } }
     );
   },
 

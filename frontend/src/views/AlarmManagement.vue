@@ -96,7 +96,7 @@
       </div>
     </section>
 
-    <div v-if="selectedIds.length" class="batch-bar">
+    <div v-if="canInitialDispatch && selectedIds.length" class="batch-bar">
       <span>已选择 {{ selectedIds.length }} 条告警</span>
       <div>
         <el-button size="small" :icon="CheckCheck" :disabled="!selectedActiveIds.length" @click="batchAcknowledge">批量确认</el-button>
@@ -113,7 +113,7 @@
         @selection-change="selectionChanged"
         @row-dblclick="openDetail"
       >
-        <el-table-column type="selection" width="46" :selectable="isSelectable" />
+        <el-table-column v-if="canInitialDispatch" type="selection" width="46" :selectable="isSelectable" />
         <el-table-column label="等级" width="82">
           <template #default="{ row }">
             <span class="severity-pill" :class="row.severity">{{ severityLabel(row.severity) }}</span>
@@ -163,7 +163,7 @@
           <template #default="{ row }">
             <el-button :icon="Eye" circle title="查看详情" @click.stop="openDetail(row)" />
             <el-button
-              v-if="row.status === 'active'"
+              v-if="canInitialDispatch && row.status === 'active'"
               type="primary"
               :icon="Check"
               circle
@@ -265,15 +265,16 @@
           </section>
 
           <footer class="detail-actions">
-            <el-button v-if="currentAlarm.status === 'active'" type="primary" :icon="Check" @click="quickAcknowledge(currentAlarm)">确认</el-button>
-            <el-button v-if="canDispatch && ['active', 'acknowledged', 'processing'].includes(currentAlarm.status)" :icon="UserRoundCheck" @click="openAction(currentAlarm, 'assign')">派单</el-button>
+            <el-button v-if="canInitialDispatch && currentAlarm.status === 'active'" type="primary" :icon="Check" @click="quickAcknowledge(currentAlarm)">确认</el-button>
+            <el-button v-if="canInitialDispatch && ['active', 'acknowledged'].includes(currentAlarm.status)" :icon="UserRoundCheck" @click="openAction(currentAlarm, 'assign')">派单</el-button>
+            <el-button v-if="['assigned', 'processing'].includes(currentAlarm.status) && canTransfer(currentAlarm)" :icon="UserRoundCheck" @click="openAction(currentAlarm, 'assign')">转派</el-button>
             <el-button v-if="currentAlarm.status === 'assigned' && isCurrentAssignee(currentAlarm)" type="primary" :icon="ClipboardCheck" @click="openAction(currentAlarm, 'accept')">接单</el-button>
             <el-button v-if="currentAlarm.status === 'assigned' && isCurrentAssignee(currentAlarm)" :icon="Undo2" @click="openAction(currentAlarm, 'reject')">退回</el-button>
             <el-button v-if="currentAlarm.status === 'processing' && canHandle(currentAlarm)" :icon="Wrench" @click="openAction(currentAlarm, 'process')">记录处理</el-button>
             <el-button v-if="currentAlarm.status === 'processing' && canHandle(currentAlarm)" type="success" :icon="ShieldCheck" @click="openAction(currentAlarm, 'resolve')">解决</el-button>
-            <el-button v-if="currentAlarm.status === 'resolved'" :icon="Archive" @click="openAction(currentAlarm, 'close')">关闭</el-button>
-            <el-button v-if="['resolved', 'closed'].includes(currentAlarm.status)" :icon="RotateCcw" @click="openAction(currentAlarm, 'reopen')">重开</el-button>
-            <el-button :icon="MessageSquareText" @click="openAction(currentAlarm, 'comment')">备注</el-button>
+            <el-button v-if="canInitialDispatch && currentAlarm.status === 'resolved'" :icon="Archive" @click="openAction(currentAlarm, 'close')">关闭</el-button>
+            <el-button v-if="canInitialDispatch && ['resolved', 'closed'].includes(currentAlarm.status)" :icon="RotateCcw" @click="openAction(currentAlarm, 'reopen')">重开</el-button>
+            <el-button v-if="canComment(currentAlarm)" :icon="MessageSquareText" @click="openAction(currentAlarm, 'comment')">备注</el-button>
           </footer>
         </template>
       </div>
@@ -381,6 +382,7 @@ const actionLabels = {
   created: "告警产生",
   acknowledged: "确认告警",
   assigned: "分配处理人",
+  reassigned: "转派处理人",
   accepted: "处理人接单",
   rejected: "处理人退回",
   processing: "记录处理",
@@ -394,7 +396,7 @@ const actionLabels = {
 const userInfo = JSON.parse(localStorage.getItem("userInfo") || "{}");
 const route = useRoute();
 const isAdmin = computed(() => userInfo.role === "admin");
-const canDispatch = computed(() => ["admin", "tenant_admin", "building_user", "group_user"].includes(userInfo.role));
+const canInitialDispatch = computed(() => ["admin", "tenant_admin"].includes(userInfo.role));
 const loading = ref(false);
 const detailLoading = ref(false);
 const detailVisible = ref(false);
@@ -432,6 +434,7 @@ const actionForm = reactive({
   action: "",
   alarmId: "",
   alarmIds: [],
+  assignMode: "dispatch",
   assignedTo: "",
   note: "",
 });
@@ -466,7 +469,7 @@ const actionNeedsNote = computed(() => ["assign", "reject", "process", "resolve"
 const actionSupportsPhotos = computed(() => ["accept", "process", "resolve", "comment"].includes(actionForm.action));
 const alarmPhotoPreviewUrls = computed(() => alarmPhotos.value.map((photo) => photo.preview_url).filter(Boolean));
 const actionDialogTitle = computed(() => ({
-  assign: "分配处理人",
+  assign: actionForm.assignMode === "transfer" ? "转派工单" : "分配处理人",
   accept: "确认接单",
   reject: "退回工单",
   process: "记录处理进展",
@@ -552,14 +555,18 @@ const loadOptions = async () => {
   const tasks = [
     projectManagementAPI.getBuildings({ tenantId, pageSize: 1000 }),
     projectManagementAPI.getGroups({ tenantId, pageSize: 1000 }),
-    alarmAPI.getOptions({ tenantId }),
   ];
   if (isAdmin.value) tasks.push(tenantAPI.getTenants({ pageSize: 1000 }));
-  const [buildingResult, groupResult, assigneeResult, tenantResult] = await Promise.all(tasks);
+  const [buildingResult, groupResult, tenantResult] = await Promise.all(tasks);
   buildings.value = normalizeList(buildingResult, ["buildings"]);
   groups.value = normalizeList(groupResult, ["groups"]);
-  assignees.value = assigneeResult?.data?.users || [];
   if (tenantResult) tenants.value = normalizeList(tenantResult, ["tenants"]);
+};
+
+const loadAssignees = async (alarmId) => {
+  const tenantId = filters.tenantId || userInfo.tenant_id || "";
+  const result = await alarmAPI.getOptions({ tenantId, alarmId });
+  assignees.value = result?.data?.users || [];
 };
 
 const applyFilters = () => {
@@ -614,7 +621,7 @@ const pageSizeChanged = () => {
 const selectionChanged = (rows) => {
   selectedIds.value = rows.map((item) => item.id);
 };
-const isSelectable = (row) => isOpenStatus(row.status);
+const isSelectable = (row) => canInitialDispatch.value && isOpenStatus(row.status);
 
 const openDetail = async (row) => {
   detailVisible.value = true;
@@ -674,15 +681,27 @@ const batchAcknowledge = async () => {
   }
 };
 
-const openAction = (alarm, action) => {
-  Object.assign(actionForm, { action, alarmId: alarm.id, alarmIds: [], assignedTo: alarm.assigned_to || "", note: "" });
-  actionPhotoFiles.value = [];
-  actionVisible.value = true;
+const openAction = async (alarm, action) => {
+  const assignMode = action === "assign" && ["assigned", "processing"].includes(alarm.status) ? "transfer" : "dispatch";
+  Object.assign(actionForm, { action, alarmId: alarm.id, alarmIds: [], assignMode, assignedTo: "", note: "" });
+  try {
+    if (action === "assign") await loadAssignees(alarm.id);
+    actionPhotoFiles.value = [];
+    actionVisible.value = true;
+  } catch (error) {
+    ElMessage.error(error.message || "获取可选处理人失败");
+  }
 };
-const openBatchAssign = () => {
-  Object.assign(actionForm, { action: "assign", alarmId: "", alarmIds: [...selectedIds.value], assignedTo: "", note: "" });
-  actionPhotoFiles.value = [];
-  actionVisible.value = true;
+const openBatchAssign = async () => {
+  const firstAlarmId = selectedIds.value[0] || "";
+  Object.assign(actionForm, { action: "assign", alarmId: "", alarmIds: [...selectedIds.value], assignMode: "dispatch", assignedTo: "", note: "" });
+  try {
+    await loadAssignees(firstAlarmId);
+    actionPhotoFiles.value = [];
+    actionVisible.value = true;
+  } catch (error) {
+    ElMessage.error(error.message || "获取可选处理人失败");
+  }
 };
 
 const previewLocalPhoto = (file) => {
@@ -746,7 +765,9 @@ const actionLabel = (value) => actionLabels[value] || value;
 const roleLabel = (value) => ({ admin: "管理员", tenant_admin: "租户管理员", user: "普通用户", building_user: "建筑用户", group_user: "分组用户" }[value] || value);
 const isOpenStatus = (value) => ["active", "acknowledged", "assigned", "processing"].includes(value);
 const isCurrentAssignee = (alarm) => String(alarm?.assigned_to || "") === String(userInfo.id || "");
-const canHandle = (alarm) => isCurrentAssignee(alarm) || ["admin", "tenant_admin"].includes(userInfo.role);
+const canHandle = (alarm) => isCurrentAssignee(alarm) || canInitialDispatch.value;
+const canTransfer = (alarm) => isCurrentAssignee(alarm) || canInitialDispatch.value;
+const canComment = (alarm) => isCurrentAssignee(alarm) || canInitialDispatch.value;
 const photoPreviewIndex = (photoId) => Math.max(alarmPhotos.value.findIndex((photo) => photo.id === photoId), 0);
 const timelineType = (action) => ({ created: "danger", accepted: "success", rejected: "warning", resolved: "success", auto_resolved: "success", closed: "info", reopened: "warning" }[action] || "primary");
 const metricDisplay = (alarm) => `${alarm.metric_key}: ${alarm.metric_value ?? "--"}${alarm.threshold_value !== null ? `（阈值 ${alarm.threshold_value}）` : ""}`;

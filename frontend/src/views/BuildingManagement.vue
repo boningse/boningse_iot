@@ -7,7 +7,7 @@
             v-model="filters.keyword"
             placeholder="建筑名称/编码/地址"
             clearable
-            @keyup.enter="loadBuildings"
+            @keyup.enter="searchBuildings"
             ><template #prefix
               ><el-icon><Search /></el-icon></template></el-input
         ></el-col>
@@ -32,7 +32,7 @@
         ></el-col>
         <el-col :span="10" class="text-right"
           >
-          <el-button type="primary" :icon="Search" @click="loadBuildings"
+          <el-button type="primary" :icon="Search" @click="searchBuildings"
             >搜索</el-button
           ><el-button :icon="Refresh" @click="resetFilters"
             >重置</el-button
@@ -83,6 +83,17 @@
               @click="removeBuilding(row)" /></template
         ></el-table-column>
       </el-table>
+      <div class="pagination-container">
+        <el-pagination
+          v-model:current-page="pagination.page"
+          v-model:page-size="pagination.pageSize"
+          :page-sizes="[10, 20, 50, 100]"
+          :total="pagination.total"
+          layout="total, sizes, prev, pager, next, jumper"
+          @size-change="handlePageSizeChange"
+          @current-change="handlePageChange"
+        />
+      </div>
     </el-card>
 
     <el-dialog
@@ -162,6 +173,7 @@ const dialogVisible = ref(false);
 const editingId = ref("");
 const formRef = ref();
 const filters = reactive({ keyword: "", tenantId: "", status: "" });
+const pagination = reactive({ page: 1, pageSize: 10, total: 0 });
 const form = reactive({
   tenant_id: "",
   name: "",
@@ -201,8 +213,13 @@ async function loadTenants() {
 async function loadBuildings() {
   loading.value = true;
   try {
-    buildings.value =
-      (await projectManagementAPI.getBuildings(filters)).data || [];
+    const result = await projectManagementAPI.getBuildings({
+      ...filters,
+      page: pagination.page,
+      pageSize: pagination.pageSize,
+    });
+    buildings.value = result.data || [];
+    pagination.total = result.pagination?.total ?? buildings.value.length;
   } catch (error) {
     ElMessage.error(error.message || "加载建筑列表失败");
   } finally {
@@ -210,10 +227,25 @@ async function loadBuildings() {
   }
 }
 
+function searchBuildings() {
+  pagination.page = 1;
+  loadBuildings();
+}
+
+function handlePageSizeChange() {
+  pagination.page = 1;
+  loadBuildings();
+}
+
+function handlePageChange() {
+  loadBuildings();
+}
+
 function resetFilters() {
   Object.assign(filters, { keyword: "", tenantId: "", status: "" });
   if (!isAdmin.value && currentTenant.value?.id)
     filters.tenantId = currentTenant.value.id;
+  pagination.page = 1;
   loadBuildings();
 }
 
@@ -257,6 +289,7 @@ async function saveBuilding() {
     if (!result.success) throw new Error(result.message || "保存失败");
     ElMessage.success(result.message || "保存成功");
     dialogVisible.value = false;
+    if (!editingId.value) pagination.page = 1;
     await loadBuildings();
   } catch (error) {
     ElMessage.error(error.message || "保存失败");
@@ -272,6 +305,7 @@ async function removeBuilding(row) {
   const result = await projectManagementAPI.deleteBuilding(row.id);
   if (!result.success) return ElMessage.error(result.message || "删除失败");
   ElMessage.success("删除成功");
+  if (buildings.value.length === 1 && pagination.page > 1) pagination.page -= 1;
   await loadBuildings();
 }
 
@@ -291,6 +325,11 @@ onMounted(async () => {
 }
 .text-right {
   text-align: right;
+}
+.pagination-container {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 20px;
 }
 
 @media (max-width: 768px) {

@@ -1,1306 +1,199 @@
 <template>
-  <div class="data-monitor-container">
-    <!-- 页面标题 -->
-    <div class="page-header">
-      <h2>数据监控</h2>
-      <div class="refresh-info">
-        <el-tag type="success" size="small">实时更新</el-tag>
-        <span class="last-update">最后更新: {{ lastUpdateTime }}</span>
+  <div class="dashboard-page">
+    <section class="hero">
+      <div>
+        <div class="eyebrow">SYSTEM OVERVIEW</div>
+        <h1>数据监控</h1>
+        <p>设备、项目、数据与告警运行情况统一监控</p>
+        <div class="scope"><el-icon><Location /></el-icon>{{ scopeText }}<i></i><span>数据范围按当前账号权限自动统计</span></div>
       </div>
-    </div>
+      <div class="hero-actions">
+        <div class="live"><b></b><div><strong>自动更新中</strong><small>最后更新 {{ lastUpdateTime || '--' }}</small></div></div>
+        <el-button class="refresh" :loading="refreshing" @click="refreshAll(true)"><el-icon><Refresh /></el-icon>刷新数据</el-button>
+      </div>
+    </section>
 
-    <!-- 实时数据卡片区域 -->
-    <div class="monitor-header">
-      <el-row :gutter="20">
-        <!-- 数据卡片 -->
-        <el-col :xs="12" :sm="12" :md="6" :lg="6" :xl="6" v-for="(card, index) in dataCards" :key="index">
-          <el-card class="data-card" shadow="hover">
-            <div class="card-content">
-              <el-icon class="card-icon" :class="card.iconClass">
-                <component :is="card.icon"></component>
-              </el-icon>
-              <div class="card-info">
-                <div class="card-title">{{ card.title }}</div>
-                <div class="card-value">{{ card.value }}</div>
-                <div class="card-trend" :class="card.trendClass">{{ card.trend }}</div>
-              </div>
-            </div>
-          </el-card>
-        </el-col>
-      </el-row>
-    </div>
+    <section class="metrics">
+      <article v-for="item in metrics" :key="item.key" class="metric" :class="`tone-${item.tone}`">
+        <div class="metric-head"><span class="metric-icon"><el-icon><component :is="item.icon" /></el-icon></span><small>{{ item.note }}</small></div>
+        <div class="metric-value">{{ item.value }}</div><div class="metric-label">{{ item.label }}</div>
+        <div v-if="item.progress !== null" class="progress"><i :style="{ width: `${item.progress}%` }"></i></div>
+      </article>
+    </section>
 
-    <!-- 数据监控图表区域 -->
-    <div class="monitor-charts">
-      <!-- 实时数据趋势 -->
-      <el-row :gutter="20" class="chart-row">
-        <el-col :xs="24" :sm="24" :md="16" :lg="16" :xl="16">
-          <el-card shadow="hover" class="chart-card">
-            <template #header>
-              <div class="chart-header">
-                <span>实时数据趋势</span>
-                <div class="chart-controls">
-                  <el-select v-model="timeRange" size="small" style="width: 120px">
-                    <el-option label="最近1小时" value="1h"></el-option>
-                    <el-option label="最近6小时" value="6h"></el-option>
-                    <el-option label="最近24小时" value="24h"></el-option>
-                    <el-option label="最近7天" value="7d"></el-option>
-                  </el-select>
-                  <el-button size="small" @click="refreshData" :loading="isRefreshing">
-                    <el-icon><Refresh /></el-icon>
-                  </el-button>
-                </div>
-              </div>
-            </template>
-            <div class="chart-container" ref="lineChartRef"></div>
-          </el-card>
-        </el-col>
-        <el-col :xs="24" :sm="24" :md="8" :lg="8" :xl="8">
-          <el-card shadow="hover" class="chart-card">
-            <template #header>
-              <div class="chart-header">
-                <span>设备状态分布</span>
-              </div>
-            </template>
-            <div class="chart-container" ref="pieChartRef"></div>
-          </el-card>
-        </el-col>
-      </el-row>
+    <section class="grid grid-main">
+      <el-card class="panel" shadow="never">
+        <template #header><div class="panel-head"><div><h3>设备数据趋势</h3><p>真实接收、处理与存储数据量</p></div><el-segmented v-model="timeRange" :options="timeOptions" size="small" @change="loadFlowData" /></div></template>
+        <div v-if="hasFlowData" ref="flowChartRef" class="chart chart-flow"></div>
+        <el-empty v-else description="当前时间范围暂无设备数据" :image-size="92" />
+      </el-card>
+      <el-card class="panel" shadow="never">
+        <template #header><div class="panel-head"><div><h3>设备在线情况</h3><p>当前权限范围内设备状态</p></div></div></template>
+        <div ref="statusChartRef" class="chart chart-status"></div>
+        <div class="status-list">
+          <div><i class="online"></i><span>在线</span><strong>{{ overview.onlineDevices }}</strong></div>
+          <div><i class="offline"></i><span>离线</span><strong>{{ overview.offlineDevices }}</strong></div>
+          <div><i class="error"></i><span>异常</span><strong>{{ overview.errorDevices }}</strong></div>
+        </div>
+      </el-card>
+    </section>
 
-      <!-- 数据监控详情 -->
-      <el-row :gutter="20" class="chart-row">
-        <el-col :xs="24" :sm="24" :md="12" :lg="12" :xl="12">
-          <el-card shadow="hover" class="chart-card">
-            <template #header>
-              <div class="chart-header">
-                <span>数据传输监控</span>
-              </div>
-            </template>
-            <div class="chart-container" ref="radarChartRef"></div>
-          </el-card>
-        </el-col>
-        <el-col :xs="24" :sm="24" :md="12" :lg="12" :xl="12">
-          <el-card shadow="hover" class="chart-card">
-            <template #header>
-              <div class="chart-header">
-                <span>数据量统计</span>
-              </div>
-            </template>
-            <div class="chart-container" ref="barChartRef"></div>
-          </el-card>
-        </el-col>
-      </el-row>
+    <section class="grid grid-half">
+      <el-card class="panel" shadow="never">
+        <template #header><div class="panel-head"><div><h3>设备类型分布</h3><p>各类型设备接入数量</p></div><small>共 {{ overview.totalDevices }} 台</small></div></template>
+        <div v-if="deviceTypeRows.length" ref="typeChartRef" class="chart chart-types"></div>
+        <el-empty v-else description="暂无设备类型数据" :image-size="80" />
+      </el-card>
+      <el-card class="panel" shadow="never">
+        <template #header><div class="panel-head"><div><h3>告警与工单</h3><p>需要关注的未闭环事件</p></div><el-tag :type="openAlarmCount ? 'danger' : 'success'" effect="light" round>{{ openAlarmCount ? `${openAlarmCount} 条待处理` : '运行正常' }}</el-tag></div></template>
+        <div class="alarm-stats"><div><strong>{{ alarms.critical }}</strong><span>紧急</span></div><div><strong>{{ alarms.high }}</strong><span>高优先级</span></div><div><strong>{{ alarms.processing }}</strong><span>处理中</span></div><div><strong>{{ alarms.resolved }}</strong><span>已解决</span></div></div>
+        <div v-if="recentAlarms.length" class="alarm-list">
+          <div v-for="alarm in recentAlarms" :key="alarm.id" class="alarm-row">
+            <i class="severity" :class="alarm.severity"></i><div><strong>{{ alarm.device_name || alarm.title || '设备告警' }}</strong><span>{{ alarm.title || alarm.message || '设备状态异常' }}</span></div>
+            <aside><el-tag :type="alarmTagType(alarm.status)" size="small" effect="plain">{{ alarmStatusText(alarm.status) }}</el-tag><span>{{ relativeTime(alarm.last_occurred_at || alarm.updated_at) }}</span></aside>
+          </div>
+        </div>
+        <el-empty v-else description="当前没有告警与待处理工单" :image-size="70" />
+      </el-card>
+    </section>
 
-
-    </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, computed } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import * as echarts from 'echarts'
 import { ElMessage } from 'element-plus'
-import { deviceAPI, systemAPI } from '@/api'
+import { DataLine, Grid, Location, Monitor, OfficeBuilding, Refresh, Warning } from '@element-plus/icons-vue'
+import { alarmAPI, deviceAPI, projectManagementAPI, systemAPI } from '@/api'
 
-/**
- * 页面状态
- */
-const lastUpdateTime = ref('')
-const timeRange = ref('24h')
-const isRefreshing = ref(false)
+const refreshing = ref(false), lastUpdateTime = ref(''), timeRange = ref('24h')
+const timeOptions = [{ label: '1小时', value: '1h' }, { label: '6小时', value: '6h' }, { label: '24小时', value: '24h' }, { label: '7天', value: '7d' }]
+const overview = ref({ totalDevices: 0, onlineDevices: 0, offlineDevices: 0, errorDevices: 0 })
+const recent24h = ref({ dataPoints: 0, newDevices: 0 })
+const coverage = ref({ buildings: 0, groups: 0 }), alarms = ref({ active: 0, acknowledged: 0, assigned: 0, processing: 0, resolved: 0, critical: 0, high: 0 })
+const recentAlarms = ref([]), deviceTypes = ref({})
+const flowData = ref({ timeLabels: [], received: [], processed: [], stored: [] })
+const flowChartRef = ref(null), statusChartRef = ref(null), typeChartRef = ref(null)
+let flowChart, statusChart, typeChart, refreshTimer
+let disposed = false
+let userInfo = {}; try { userInfo = JSON.parse(localStorage.getItem('userInfo') || '{}') } catch {}
 
-/**
- * 数据卡片信息
- */
-const dataCards = ref([
-  {
-    title: '在线设备',
-    value: '0',
-    icon: 'Monitor',
-    iconClass: 'icon-online',
-    trend: '+0',
-    trendClass: 'trend-up'
-  },
-  {
-    title: '离线设备',
-    value: '0',
-    icon: 'DocumentDelete',
-    iconClass: 'icon-offline',
-    trend: '+0',
-    trendClass: 'trend-down'
-  },
-  {
-    title: '数据传输量',
-    value: '0',
-    icon: 'DataLine',
-    iconClass: 'icon-data',
-    trend: '+0',
-    trendClass: 'trend-up'
-  },
-  {
-    title: '异常设备',
-    value: '0',
-    icon: 'Warning',
-    iconClass: 'icon-alarm',
-    trend: '+0',
-    trendClass: 'trend-down'
-  }
+const scopeText = computed(() => userInfo.role === 'admin' ? '全平台数据' : userInfo.role === 'building_user' ? '所属建筑' : userInfo.role === 'group_user' ? '所属分组' : userInfo.tenant?.name || '所属租户')
+const onlineRate = computed(() => overview.value.totalDevices ? Math.round(overview.value.onlineDevices / overview.value.totalDevices * 1000) / 10 : 0)
+const openAlarmCount = computed(() => ['active', 'acknowledged', 'assigned', 'processing'].reduce((sum, key) => sum + Number(alarms.value[key] || 0), 0))
+const metrics = computed(() => [
+  { key: 'total', label: '设备总数', value: number(overview.value.totalDevices), note: '当前可见', icon: Monitor, tone: 'primary', progress: null },
+  { key: 'online', label: '设备在线率', value: `${onlineRate.value}%`, note: `${overview.value.onlineDevices} 台在线`, icon: Monitor, tone: 'success', progress: onlineRate.value },
+  { key: 'data', label: '近24小时数据', value: compact(recent24h.value.dataPoints), note: '真实上报记录', icon: DataLine, tone: 'blue', progress: null },
+  { key: 'alarm', label: '待处理告警', value: number(openAlarmCount.value), note: alarms.value.critical ? `${alarms.value.critical} 条紧急` : '无紧急告警', icon: Warning, tone: openAlarmCount.value ? 'danger' : 'success', progress: null },
+  { key: 'building', label: '建筑数量', value: number(coverage.value.buildings), note: '当前范围', icon: OfficeBuilding, tone: 'purple', progress: null },
+  { key: 'group', label: '分组数量', value: number(coverage.value.groups), note: '管理单元', icon: Grid, tone: 'orange', progress: null }
 ])
+const deviceTypeRows = computed(() => Object.entries(deviceTypes.value || {}).map(([name, count]) => ({ name: name || '未分类', count: Number(count) || 0 })).sort((a, b) => b.count - a.count).slice(0, 10))
+const hasFlowData = computed(() => (flowData.value.timeLabels || []).length > 0)
 
+function number(v) { return Number(v || 0).toLocaleString('zh-CN') }
+function compact(v) { const n = Number(v || 0); return n >= 1e8 ? `${(n / 1e8).toFixed(1)}亿` : n >= 1e4 ? `${(n / 1e4).toFixed(1)}万` : number(n) }
+function relativeTime(v) { if (!v) return '--'; const m = Math.max(0, Math.floor((Date.now() - new Date(v).getTime()) / 60000)); return m < 1 ? '刚刚' : m < 60 ? `${m}分钟前` : m < 1440 ? `${Math.floor(m / 60)}小时前` : `${Math.floor(m / 1440)}天前` }
+function alarmStatusText(v) { return ({ active: '待确认', acknowledged: '已确认', assigned: '已派单', processing: '处理中', resolved: '已解决', closed: '已关闭' })[v] || '未知' }
+function alarmTagType(v) { return v === 'active' ? 'danger' : ['acknowledged', 'assigned'].includes(v) ? 'warning' : v === 'processing' ? 'primary' : 'success' }
 
-
-/**
- * 图表实例引用
- */
-const lineChartRef = ref(null)
-const pieChartRef = ref(null)
-const radarChartRef = ref(null)
-const barChartRef = ref(null)
-
-/**
- * 图表实例
- */
-let lineChart = null
-let pieChart = null
-let radarChart = null
-let barChart = null
-
-/**
- * 初始化实时数据趋势图
- */
-const initLineChart = async () => {
-  lineChart = echarts.init(lineChartRef.value)
-  
-  try {
-    const response = await systemAPI.getStats()
-    let timeLabels = generateTimeLabels()
-    let receivedData = generateRandomData(24, 100, 500) // 默认值
-    let processedData = generateRandomData(24, 80, 450) // 默认值
-    let abnormalData = generateRandomData(24, 0, 50) // 默认值
-    
-    if (response.success && response.data) {
-      const statsData = response.data
-      const totalDataPoints = statsData.recent24h?.dataPoints || 0
-      
-      // 基于真实数据生成24个时间段的数据分布
-      const baseValue = Math.floor(totalDataPoints / 24)
-      receivedData = timeLabels.map(() => baseValue + Math.floor(Math.random() * baseValue * 0.6))
-      processedData = receivedData.map(val => Math.floor(val * (0.85 + Math.random() * 0.1)))
-      abnormalData = receivedData.map(val => Math.floor(val * (0.02 + Math.random() * 0.03)))
-    }
-    
-    const option = {
-      tooltip: {
-        trigger: 'axis',
-        formatter: function(params) {
-          let result = params[0].name + '<br/>'
-          params.forEach(param => {
-            result += param.marker + param.seriesName + ': ' + param.value + ' 条<br/>'
-          })
-          return result
-        }
-      },
-      legend: {
-        data: ['数据接收量', '数据处理量', '异常数据量']
-      },
-      grid: {
-        left: '3%',
-        right: '4%',
-        bottom: '3%',
-        containLabel: true
-      },
-      xAxis: {
-        type: 'category',
-        boundaryGap: false,
-        data: timeLabels
-      },
-      yAxis: {
-        type: 'value',
-        name: '数据量',
-        axisLabel: {
-          formatter: '{value} 条'
-        }
-      },
-      series: [
-        {
-          name: '数据接收量',
-          type: 'line',
-          smooth: true,
-          lineStyle: {
-            color: '#67c23a',
-            width: 2
-          },
-          areaStyle: {
-            color: 'rgba(103, 194, 58, 0.1)'
-          },
-          data: receivedData
-        },
-        {
-          name: '数据处理量',
-          type: 'line',
-          smooth: true,
-          lineStyle: {
-            color: '#409eff',
-            width: 2
-          },
-          areaStyle: {
-            color: 'rgba(64, 158, 255, 0.1)'
-          },
-          data: processedData
-        },
-        {
-          name: '异常数据量',
-          type: 'line',
-          smooth: true,
-          lineStyle: {
-            color: '#f56c6c',
-            width: 2
-          },
-          areaStyle: {
-            color: 'rgba(245, 108, 108, 0.1)'
-          },
-          data: abnormalData
-        }
-      ]
-    }
-    
-    lineChart.setOption(option)
-  } catch (error) {
-    console.error('获取统计数据失败:', error)
-    // 使用默认数据
-    const option = {
-      tooltip: {
-        trigger: 'axis',
-        formatter: function(params) {
-          let result = params[0].name + '<br/>'
-          params.forEach(param => {
-            result += param.marker + param.seriesName + ': ' + param.value + ' 条<br/>'
-          })
-          return result
-        }
-      },
-      legend: {
-        data: ['数据接收量', '数据处理量', '异常数据量']
-      },
-      grid: {
-        left: '3%',
-        right: '4%',
-        bottom: '3%',
-        containLabel: true
-      },
-      xAxis: {
-        type: 'category',
-        boundaryGap: false,
-        data: generateTimeLabels()
-      },
-      yAxis: {
-        type: 'value',
-        name: '数据量',
-        axisLabel: {
-          formatter: '{value} 条'
-        }
-      },
-      series: [
-        {
-          name: '数据接收量',
-          type: 'line',
-          smooth: true,
-          lineStyle: {
-            color: '#67c23a',
-            width: 2
-          },
-          areaStyle: {
-            color: 'rgba(103, 194, 58, 0.1)'
-          },
-          data: generateRandomData(24, 100, 500)
-        },
-        {
-          name: '数据处理量',
-          type: 'line',
-          smooth: true,
-          lineStyle: {
-            color: '#409eff',
-            width: 2
-          },
-          areaStyle: {
-            color: 'rgba(64, 158, 255, 0.1)'
-          },
-          data: generateRandomData(24, 80, 450)
-        },
-        {
-          name: '异常数据量',
-          type: 'line',
-          smooth: true,
-          lineStyle: {
-            color: '#f56c6c',
-            width: 2
-          },
-          areaStyle: {
-            color: 'rgba(245, 108, 108, 0.1)'
-          },
-          data: generateRandomData(24, 0, 50)
-        }
-      ]
-    }
-    
-    lineChart.setOption(option)
-  }
+async function loadFlowData() {
+  try { const r = await withTimeout(systemAPI.getMessageFlowStats(timeRange.value)); if (r?.success) flowData.value = r.data || {}; await nextTick(); renderFlow() }
+  catch (e) { console.error('加载数据趋势失败:', e); flowData.value = { timeLabels: [], received: [], processed: [], stored: [] } }
 }
 
-/**
- * 初始化设备状态分布饼图
- */
-const initPieChart = () => {
-  pieChart = echarts.init(pieChartRef.value)
-  
-  const option = {
-    tooltip: {
-      trigger: 'item',
-      formatter: '{a} <br/>{b}: {c} 台 ({d}%)'
-    },
-    legend: {
-      orient: 'vertical',
-      right: 10,
-      top: 'center',
-      data: ['在线', '离线', '故障', '维护中']
-    },
-    series: [
-      {
-        name: '设备状态',
-        type: 'pie',
-        radius: ['50%', '70%'],
-        avoidLabelOverlap: false,
-        itemStyle: {
-          borderRadius: 10,
-          borderColor: '#fff',
-          borderWidth: 2
-        },
-        label: {
-          show: false,
-          position: 'center'
-        },
-        emphasis: {
-          label: {
-            show: true,
-            fontSize: '14',
-            fontWeight: 'bold'
-          }
-        },
-        labelLine: {
-          show: false
-        },
-        data: [
-          { value: 0, name: '在线', itemStyle: { color: '#67c23a' } },
-          { value: 0, name: '离线', itemStyle: { color: '#909399' } },
-          { value: 0, name: '故障', itemStyle: { color: '#f56c6c' } },
-          { value: 0, name: '维护中', itemStyle: { color: '#e6a23c' } }
-        ]
-      }
-    ]
-  }
-  
-  pieChart.setOption(option)
+function withTimeout(promise, timeout = 12000) {
+  let timer
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => { timer = window.setTimeout(() => reject(new Error('请求超时')), timeout) })
+  ]).finally(() => window.clearTimeout(timer))
 }
 
-/**
- * 初始化数据传输监控雷达图
- */
-const initRadarChart = async () => {
-  radarChart = echarts.init(radarChartRef.value)
-  
-  try {
-    const response = await systemAPI.getPerformance('24h')
-    let currentLevel = [75, 85, 80, 82, 25, 78] // 默认值
-    let averageLevel = [70, 80, 75, 78, 30, 73] // 默认值
-    
-    if (response.success && response.data) {
-      const perfData = response.data
-      // 基于真实性能数据计算指标
-      const totalDataPoints = perfData.dataWrite?.total || 0
-      const errorCount = perfData.errors?.total || 0
-      const deviceStats = perfData.deviceConnection || {}
-      const totalDevices = (deviceStats.online || 0) + (deviceStats.offline || 0) + (deviceStats.error || 0)
-      
-      // 计算各项指标（0-100分）
-      // 传输速度：基于24小时内数据传输量，每1000条数据得10分，最高100分
-      const transmissionSpeed = Math.min(100, Math.max(20, (totalDataPoints / 1000) * 10))
-      
-      // 数据完整性：基于错误率，错误率越低完整性越高
-      const errorRate = totalDataPoints > 0 ? (errorCount / totalDataPoints) * 100 : 0
-      const dataIntegrity = Math.max(60, 100 - errorRate * 10)
-      
-      // 连接稳定性：基于在线设备比例
-      const connectionStability = totalDevices > 0 ? 
-        Math.max(50, ((deviceStats.online || 0) / totalDevices) * 100) : 75
-      
-      // 响应时间：基于系统负载和内存使用率计算
-      const memoryUsage = perfData.resources?.memory ? 
-        (perfData.resources.memory.heapUsed / perfData.resources.memory.heapTotal) * 100 : 50
-      const responseTime = Math.max(60, 100 - memoryUsage * 0.8)
-      
-      // 错误率：直接基于错误统计，错误率越低分数越高
-      const errorScore = Math.max(10, 100 - errorRate * 5)
-      
-      // 吞吐量：基于数据处理能力
-      const throughput = Math.min(100, Math.max(40, (totalDataPoints / 500) * 10))
-      
-      currentLevel = [
-        Math.round(transmissionSpeed),
-        Math.round(dataIntegrity), 
-        Math.round(connectionStability),
-        Math.round(responseTime),
-        Math.round(errorScore),
-        Math.round(throughput)
-      ]
-      
-      // 平均水平为当前值的85%-95%
-      averageLevel = currentLevel.map(val => Math.round(val * (0.85 + Math.random() * 0.1)))
-    }
-    
-    const option = {
-      tooltip: {
-        trigger: 'item',
-        formatter: function(params) {
-          const indicators = ['传输速度', '数据完整性', '连接稳定性', '响应时间', '错误率', '吞吐量']
-          let result = params.name + '<br/>'
-          params.value.forEach((value, index) => {
-            result += indicators[index] + ': ' + value + '<br/>'
-          })
-          return result
-        }
-      },
-      legend: {
-        data: ['当前状态', '平均水平'],
-        top: 'top',
-        right: 'right'
-      },
-      radar: {
-        indicator: [
-          { name: '传输速度', max: 100 },
-          { name: '数据完整性', max: 100 },
-          { name: '连接稳定性', max: 100 },
-          { name: '响应时间', max: 100 },
-          { name: '错误率', max: 100 },
-          { name: '吞吐量', max: 100 }
-        ]
-      },
-      series: [
-        {
-          type: 'radar',
-          data: [
-            {
-              value: currentLevel,
-              name: '当前状态',
-              areaStyle: {
-                color: 'rgba(64, 158, 255, 0.2)'
-              },
-              lineStyle: {
-                color: '#409eff'
-              }
-            },
-            {
-              value: averageLevel,
-              name: '平均水平',
-              areaStyle: {
-                color: 'rgba(103, 194, 58, 0.2)'
-              },
-              lineStyle: {
-                color: '#67c23a'
-              }
-            }
-          ]
-        }
-      ]
-    }
-    
-    radarChart.setOption(option)
-  } catch (error) {
-    console.error('获取性能数据失败:', error)
-    // 使用默认数据
-    const option = {
-      tooltip: {
-        trigger: 'item',
-        formatter: function(params) {
-          const indicators = ['传输速度', '数据完整性', '连接稳定性', '响应时间', '错误率', '吞吐量']
-          let result = params.name + '<br/>'
-          params.value.forEach((value, index) => {
-            result += indicators[index] + ': ' + value + '<br/>'
-          })
-          return result
-        }
-      },
-      legend: {
-        data: ['当前状态', '平均水平']
-      },
-      radar: {
-        indicator: [
-          { name: '传输速度', max: 100 },
-          { name: '数据完整性', max: 100 },
-          { name: '连接稳定性', max: 100 },
-          { name: '响应时间', max: 100 },
-          { name: '错误率', max: 100 },
-          { name: '吞吐量', max: 100 }
-        ]
-      },
-      series: [
-        {
-          type: 'radar',
-          data: [
-            {
-              value: [75, 85, 80, 82, 25, 78],
-              name: '当前状态',
-              areaStyle: {
-                color: 'rgba(64, 158, 255, 0.2)'
-              },
-              lineStyle: {
-                color: '#409eff'
-              }
-            },
-            {
-              value: [70, 80, 75, 78, 30, 73],
-              name: '平均水平',
-              areaStyle: {
-                color: 'rgba(103, 194, 58, 0.2)'
-              },
-              lineStyle: {
-                color: '#67c23a'
-              }
-            }
-          ]
-        }
-      ]
-    }
-    
-    radarChart.setOption(option)
-  }
-}
-
-/**
- * 初始化数据量统计柱状图
- */
-const initBarChart = async () => {
-  barChart = echarts.init(barChartRef.value)
-  
-  try {
-    const response = await systemAPI.getMessageFlowStats('24h')
-    let timeLabels = ['00:00', '04:00', '08:00', '12:00', '16:00', '20:00', '24:00']
-    let receivedData = [1200, 1320, 1010, 1340, 900, 2300, 2100] // 默认值
-    let processedData = [1150, 1280, 980, 1300, 870, 2250, 2050] // 默认值
-    let storedData = [1100, 1250, 950, 1280, 850, 2200, 2000] // 默认值
-    
-    if (response.success && response.data) {
-      const messageFlowData = response.data
-      
-      // 使用真实的消息流统计数据
-      timeLabels = messageFlowData.timeLabels || timeLabels
-      receivedData = messageFlowData.received || receivedData
-      processedData = messageFlowData.processed || processedData
-      storedData = messageFlowData.stored || storedData
-    }
-    
-    const option = {
-      tooltip: {
-        trigger: 'axis',
-        axisPointer: {
-          type: 'shadow'
-        },
-        formatter: function(params) {
-          let result = params[0].name + '<br/>'
-          params.forEach(param => {
-            result += param.marker + param.seriesName + ': ' + param.value + ' 条<br/>'
-          })
-          return result
-        }
-      },
-      legend: {
-        data: ['接收数据', '处理数据', '存储数据']
-      },
-      grid: {
-        left: '3%',
-        right: '4%',
-        bottom: '3%',
-        containLabel: true
-      },
-      xAxis: [
-        {
-          type: 'category',
-          data: timeLabels
-        }
-      ],
-      yAxis: [
-        {
-          type: 'value',
-          name: '数据量',
-          axisLabel: {
-            formatter: '{value} 条'
-          }
-        }
-      ],
-      series: [
-        {
-          name: '接收数据',
-          type: 'bar',
-          emphasis: {
-            focus: 'series'
-          },
-          itemStyle: { color: '#67c23a' },
-          data: receivedData
-        },
-        {
-          name: '处理数据',
-          type: 'bar',
-          emphasis: {
-            focus: 'series'
-          },
-          itemStyle: { color: '#409eff' },
-          data: processedData
-        },
-        {
-          name: '存储数据',
-          type: 'bar',
-          emphasis: {
-            focus: 'series'
-          },
-          itemStyle: { color: '#e6a23c' },
-          data: storedData
-        }
-      ]
-    }
-    
-    barChart.setOption(option)
-  } catch (error) {
-    console.error('获取统计数据失败:', error)
-    // 使用默认数据
-    const option = {
-      tooltip: {
-        trigger: 'axis',
-        axisPointer: {
-          type: 'shadow'
-        },
-        formatter: function(params) {
-          let result = params[0].name + '<br/>'
-          params.forEach(param => {
-            result += param.marker + param.seriesName + ': ' + param.value + ' 条<br/>'
-          })
-          return result
-        }
-      },
-      legend: {
-        data: ['接收数据', '处理数据', '存储数据']
-      },
-      grid: {
-        left: '3%',
-        right: '4%',
-        bottom: '3%',
-        containLabel: true
-      },
-      xAxis: [
-        {
-          type: 'category',
-          data: ['00:00', '04:00', '08:00', '12:00', '16:00', '20:00', '24:00']
-        }
-      ],
-      yAxis: [
-        {
-          type: 'value',
-          name: '数据量',
-          axisLabel: {
-            formatter: '{value} 条'
-          }
-        }
-      ],
-      series: [
-        {
-          name: '接收数据',
-          type: 'bar',
-          emphasis: {
-            focus: 'series'
-          },
-          itemStyle: { color: '#67c23a' },
-          data: [1200, 1320, 1010, 1340, 900, 2300, 2100]
-        },
-        {
-          name: '处理数据',
-          type: 'bar',
-          emphasis: {
-            focus: 'series'
-          },
-          itemStyle: { color: '#409eff' },
-          data: [1150, 1280, 980, 1300, 870, 2250, 2050]
-        },
-        {
-          name: '存储数据',
-          type: 'bar',
-          emphasis: {
-            focus: 'series'
-          },
-          itemStyle: { color: '#e6a23c' },
-          data: [1100, 1250, 950, 1280, 850, 2200, 2000]
-        }
-      ]
-    }
-    
-    barChart.setOption(option)
-  }
-}
-
-/**
- * 辅助函数
- */
-// 生成时间标签
-const generateTimeLabels = () => {
-  const labels = []
-  const now = new Date()
-  for (let i = 23; i >= 0; i--) {
-    const time = new Date(now.getTime() - i * 60 * 60 * 1000)
-    labels.push(time.getHours().toString().padStart(2, '0') + ':00')
-  }
-  return labels
-}
-
-// 生成随机数据
-const generateRandomData = (count, min, max) => {
-  const data = []
-  for (let i = 0; i < count; i++) {
-    data.push(Math.floor(Math.random() * (max - min + 1)) + min)
-  }
-  return data
-}
-
-// 获取状态类型
-const getStatusType = (status) => {
-  switch (status) {
-    case 'online': return 'success'
-    case 'offline': return 'info'
-    case 'fault': case 'error': return 'danger'
-    case 'maintenance': return 'warning'
-    default: return 'info'
-  }
-}
-
-// 获取状态文本
-const getStatusText = (status) => {
-  switch (status) {
-    case 'online': return '在线'
-    case 'offline': return '离线'
-    case 'fault': case 'error': return '故障'
-    case 'maintenance': return '维护中'
-    default: return '未知'
-  }
-}
-
-
-
-// 刷新数据
-const refreshData = async () => {
-  isRefreshing.value = true
-  try {
-    await getDeviceStats()
-    ElMessage.success('数据刷新成功')
-  } catch (error) {
-    ElMessage.error('数据刷新失败')
-  } finally {
-    isRefreshing.value = false
-  }
-}
-
-/**
- * 获取设备状态统计数据
- */
-const getDeviceStats = async () => {
-  try {
-    const [devicesResponse, systemStatsResponse] = await Promise.all([
-      deviceAPI.getDevicesStats(),
-      systemAPI.getStats()
-    ])
-    
-    if (devicesResponse.success && systemStatsResponse.success) {
-      const deviceStats = devicesResponse.data
-      const systemStats = systemStatsResponse.data
-      
-      // 更新数据卡片
-      dataCards.value = [
-        {
-          title: '在线设备',
-          value: (deviceStats.online || 0).toString(),
-          icon: 'Monitor',
-          iconClass: 'icon-online',
-          trend: '+' + Math.floor(Math.random() * 5),
-          trendClass: 'trend-up'
-        },
-        {
-          title: '离线设备',
-          value: (deviceStats.offline || 0).toString(),
-          icon: 'DocumentDelete',
-          iconClass: 'icon-offline',
-          trend: '-' + Math.floor(Math.random() * 3),
-          trendClass: 'trend-down'
-        },
-        {
-          title: '数据传输量',
-          value: ((systemStats.recent24h?.dataPoints || 0) / 1000).toFixed(1) + 'K',
-          icon: 'DataLine',
-          iconClass: 'icon-data',
-          trend: '+' + Math.floor(Math.random() * 10) + '%',
-          trendClass: 'trend-up'
-        },
-        {
-          title: '异常设备',
-          value: ((deviceStats.error || 0) + (deviceStats.fault || 0)).toString(),
-          icon: 'Warning',
-          iconClass: 'icon-alarm',
-          trend: (deviceStats.error || 0) > 0 ? '+' + (deviceStats.error || 0) : '0',
-          trendClass: (deviceStats.error || 0) > 0 ? 'trend-up' : 'trend-stable'
-        }
-      ]
-      
-      // 更新饼图数据
-      const stats = {
-        online: deviceStats.online || 0,
-        offline: deviceStats.offline || 0,
-        fault: deviceStats.error || 0,
-        maintenance: 0 // 暂时设为0，如果后端有维护状态可以更新
-      }
-      updatePieChartData(stats.online, stats.offline, stats.fault, stats.maintenance)
-      
-      // 更新实时数据趋势图
-      await updateRealTimeChart()
-      
-      // 更新最后更新时间
-      lastUpdateTime.value = new Date().toLocaleString()
-      
-      console.log('设备状态统计更新:', {
-        在线: stats.online,
-        离线: stats.offline,
-        故障: stats.fault,
-        维护中: stats.maintenance
-      })
-    } else {
-      console.warn('获取设备统计失败:', devicesResponse, systemStatsResponse)
-      ElMessage.warning('获取设备状态统计失败')
-    }
-  } catch (error) {
-    console.error('获取设备状态统计失败:', error)
-    ElMessage.error('获取设备状态统计失败: ' + (error.message || '未知错误'))
-  }
-}
-
-/**
- * 更新饼图数据
- */
-const updatePieChartData = (online, offline, fault, maintenance) => {
-  if (pieChart) {
-    const option = {
-      series: [{
-        data: [
-          { value: online, name: '在线', itemStyle: { color: '#67c23a' } },
-          { value: offline, name: '离线', itemStyle: { color: '#909399' } },
-          { value: fault, name: '故障', itemStyle: { color: '#f56c6c' } },
-          { value: maintenance, name: '维护中', itemStyle: { color: '#e6a23c' } }
-        ]
-      }]
-    }
-    pieChart.setOption(option)
-  }
-}
-
-/**
- * 更新实时数据趋势图
- */
-const updateRealTimeChart = async () => {
-  if (lineChart) {
+async function refreshAll(showMessage = false) {
+  if (refreshing.value) return
+  refreshing.value = true
+  let failed = 0
+  const update = async (request, apply) => {
     try {
-      const response = await systemAPI.getMessageFlowStats('1h')
-      let timeLabels = []
-      let dataReceived = []
-      let dataProcessed = []
-      let dataAbnormal = []
-      
-      if (response.success && response.data) {
-        const messageFlowData = response.data
-        timeLabels = messageFlowData.timeLabels || []
-        dataReceived = messageFlowData.received || []
-        dataProcessed = messageFlowData.processed || []
-        dataAbnormal = messageFlowData.abnormal || []
-      }
-      
-      // 如果没有真实数据，生成默认数据
-      if (timeLabels.length === 0) {
-        const now = new Date()
-        for (let i = 11; i >= 0; i--) {
-          const time = new Date(now.getTime() - i * 10 * 60 * 1000) // 每10分钟一个点
-          timeLabels.push(time.getHours().toString().padStart(2, '0') + ':' + time.getMinutes().toString().padStart(2, '0'))
-          dataReceived.push(Math.floor(Math.random() * 100) + 50)
-          dataProcessed.push(Math.floor(dataReceived[dataReceived.length - 1] * 0.9))
-          dataAbnormal.push(Math.floor(Math.random() * 5))
-        }
-      }
-      
-      const option = {
-        xAxis: {
-          data: timeLabels
-        },
-        series: [
-          {
-            name: '数据接收量',
-            data: dataReceived
-          },
-          {
-            name: '数据处理量',
-            data: dataProcessed
-          },
-          {
-            name: '异常数据量',
-            data: dataAbnormal
-          }
-        ]
-      }
-      lineChart.setOption(option)
+      const response = await withTimeout(request())
+      if (!response?.success) throw new Error(response?.message || '统计加载失败')
+      if (disposed) return
+      apply(response)
+      lastUpdateTime.value = new Date().toLocaleTimeString('zh-CN', { hour12: false })
+      await nextTick()
+      if (!disposed) renderCharts()
     } catch (error) {
-      console.error('获取实时数据趋势失败:', error)
+      failed++
+      console.warn('监控模块加载失败:', error)
     }
   }
-}
-
-
-
-
-
-/**
- * 窗口大小变化时重新调整图表大小
- */
-const handleResize = () => {
-  // 添加延时以确保DOM已更新
-  setTimeout(() => {
-    lineChart && lineChart.resize()
-    pieChart && pieChart.resize()
-    radarChart && radarChart.resize()
-    barChart && barChart.resize()
-  }, 200);
-}
-
-/**
- * 定时更新数据
- */
-let updateTimer = null
-
-const startDataUpdate = () => {
-  updateTimer = setInterval(async () => {
-    // 只有在页面可见时才更新数据
-    if (!document.hidden) {
-      await getDeviceStats()
-      // 更新数据传输监控和数据量统计图表
-      await initRadarChart()
-      await initBarChart()
+  try {
+    await Promise.all([
+      update(() => deviceAPI.getDevicesStats(), response => {
+        const d = response.data || {}
+        overview.value = {
+          totalDevices: Number(d.total || 0),
+          onlineDevices: Number(d.online || 0),
+          offlineDevices: Number(d.offline || 0),
+          errorDevices: Number(d.error || 0)
+        }
+        deviceTypes.value = d.byType || {}
+      }),
+      update(() => systemAPI.getDashboardStats(), response => {
+        recent24h.value = { ...recent24h.value, ...(response.data?.recent24h || {}) }
+      }),
+      update(() => alarmAPI.getSummary(), response => {
+        alarms.value = { ...alarms.value, ...(response.data?.totals || {}) }
+      }),
+      update(() => alarmAPI.getList({ page: 1, pageSize: 5, status: 'open' }), response => {
+        recentAlarms.value = response.data?.list || []
+      }),
+      update(() => projectManagementAPI.getBuildings({ page: 1, pageSize: 1 }), response => {
+        coverage.value.buildings = Number(response.pagination?.total ?? response.data?.length ?? 0)
+      }),
+      update(() => projectManagementAPI.getGroups({ page: 1, pageSize: 1 }), response => {
+        coverage.value.groups = Number(response.pagination?.total ?? response.data?.length ?? 0)
+      }),
+      update(() => systemAPI.getMessageFlowStats(timeRange.value), response => {
+        flowData.value = response.data || {}
+      })
+    ])
+    if (showMessage && !disposed) {
+      failed ? ElMessage.warning(`已更新可用数据，${failed} 项暂时不可用`) : ElMessage.success('监控数据已更新')
     }
-  }, 60000) // 改为每60秒更新一次，减少服务器压力
-}
-
-const stopDataUpdate = () => {
-  if (updateTimer) {
-    clearInterval(updateTimer)
-    updateTimer = null
+  } finally {
+    refreshing.value = false
   }
 }
 
-/**
- * 页面可见性变化处理
- */
-const handleVisibilityChange = async () => {
-  if (document.hidden) {
-    // 页面不可见时暂停更新
-    stopDataUpdate()
-  } else {
-    // 页面可见时恢复更新并立即刷新一次
-    await getDeviceStats()
-    await initRadarChart()
-    await initBarChart()
-    startDataUpdate()
-  }
+function renderFlow() {
+  if (!flowChartRef.value || !hasFlowData.value) return
+  flowChart ||= echarts.init(flowChartRef.value)
+  flowChart.setOption({ color: ['#15978c', '#4b9cf5', '#e8a23a'], tooltip: { trigger: 'axis' }, legend: { top: 0, right: 0, data: ['接收数据', '处理数据', '存储数据'] }, grid: { left: 12, right: 18, top: 46, bottom: 8, containLabel: true }, xAxis: { type: 'category', boundaryGap: false, data: flowData.value.timeLabels || [], axisLine: { lineStyle: { color: '#dce3e8' } }, axisLabel: { color: '#68727f', hideOverlap: true } }, yAxis: { type: 'value', splitLine: { lineStyle: { color: '#edf1f3' } }, axisLabel: { color: '#68727f', formatter: compact } }, series: [{ name: '接收数据', type: 'line', smooth: true, symbol: 'none', lineStyle: { width: 2.5 }, areaStyle: { opacity: .09 }, data: flowData.value.received || [] }, { name: '处理数据', type: 'line', smooth: true, symbol: 'none', data: flowData.value.processed || [] }, { name: '存储数据', type: 'line', smooth: true, symbol: 'none', data: flowData.value.stored || [] }] }, true)
 }
+function renderStatus() {
+  if (!statusChartRef.value) return; statusChart ||= echarts.init(statusChartRef.value)
+  statusChart.setOption({ tooltip: { trigger: 'item', formatter: '{b}：{c} 台（{d}%）' }, title: { text: `${onlineRate.value}%`, subtext: '在线率', left: 'center', top: '37%', textStyle: { fontSize: 28, color: '#263238' }, subtextStyle: { fontSize: 13, color: '#87919c', lineHeight: 24 } }, series: [{ type: 'pie', radius: ['67%', '84%'], center: ['50%', '51%'], itemStyle: { borderColor: '#fff', borderWidth: 4, borderRadius: 8 }, label: { show: false }, data: [{ name: '在线', value: overview.value.onlineDevices, itemStyle: { color: '#43b77b' } }, { name: '离线', value: overview.value.offlineDevices, itemStyle: { color: '#aab4bd' } }, { name: '异常', value: overview.value.errorDevices, itemStyle: { color: '#e65d68' } }] }] }, true)
+}
+function renderTypes() {
+  if (!typeChartRef.value || !deviceTypeRows.value.length) return; typeChart ||= echarts.init(typeChartRef.value); const rows = [...deviceTypeRows.value].reverse()
+  typeChart.setOption({ tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, formatter: p => `${p[0].name}：${p[0].value} 台` }, grid: { left: 8, right: 22, top: 4, bottom: 4, containLabel: true }, xAxis: { type: 'value', splitLine: { lineStyle: { color: '#edf1f3' } }, axisLabel: { color: '#68727f', formatter: compact } }, yAxis: { type: 'category', data: rows.map(x => x.name), axisTick: { show: false }, axisLine: { show: false }, axisLabel: { color: '#4f5964', width: 112, overflow: 'truncate' } }, series: [{ type: 'bar', barWidth: 12, data: rows.map(x => x.count), itemStyle: { color: '#16998e', borderRadius: [0, 7, 7, 0] }, label: { show: true, position: 'right', color: '#66717c' } }] }, true)
+}
+function renderCharts() { renderFlow(); renderStatus(); renderTypes() }
+function resizeCharts() { flowChart?.resize(); statusChart?.resize(); typeChart?.resize() }
 
-/**
- * 组件挂载时初始化图表
- */
-onMounted(async () => {
-  // 初始化所有图表
-  await initLineChart()
-  initPieChart()
-  await initRadarChart()
-  await initBarChart()
-  
-  // 获取初始设备状态数据
-  await getDeviceStats()
-  
-  // 开始定时更新
-  startDataUpdate()
-  
-  // 监听窗口大小变化
-  window.addEventListener('resize', handleResize)
-  
-  // 监听页面可见性变化
-  document.addEventListener('visibilitychange', handleVisibilityChange)
-})
-
-/**
- * 组件卸载时销毁图表实例
- */
-onUnmounted(() => {
-  // 停止定时更新
-  stopDataUpdate()
-  
-  // 移除事件监听
-  window.removeEventListener('resize', handleResize)
-  
-  // 销毁图表实例
-  lineChart && lineChart.dispose()
-  pieChart && pieChart.dispose()
-  radarChart && radarChart.dispose()
-  barChart && barChart.dispose()
-})
+onMounted(async () => { await refreshAll(); if (disposed) return; refreshTimer = window.setInterval(() => { if (!document.hidden) refreshAll() }, 60000); window.addEventListener('resize', resizeCharts) })
+onUnmounted(() => { disposed = true; window.clearInterval(refreshTimer); window.removeEventListener('resize', resizeCharts); flowChart?.dispose(); statusChart?.dispose(); typeChart?.dispose() })
 </script>
 
 <style lang="scss" scoped>
-.data-monitor-container {
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-  
-  .page-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    min-height: 42px;
-    margin-bottom: 2px;
-    
-    h2 {
-      margin: 0;
-      color: var(--text-primary);
-      font-size: 20px;
-      font-weight: 650;
-    }
-    
-    .refresh-info {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      
-      .last-update {
-        font-size: 12px;
-        color: var(--text-secondary);
-      }
-    }
-  }
-  
-  .monitor-header {
-    margin-bottom: 10px;
-  }
-  
-  .monitor-charts {
-    display: flex;
-    flex-direction: column;
-    gap: 20px;
-  }
-  
-  .data-card {
-    margin-bottom: 20px;
-    border-top: 2px solid var(--border-light);
-    transition: border-color 0.2s ease, box-shadow 0.2s ease;
-    
-    &:hover {
-      border-top-color: var(--primary-color);
-      box-shadow: var(--shadow-md);
-    }
-    
-    .card-content {
-      display: flex;
-      align-items: center;
-      
-      .card-icon {
-        width: 42px;
-        height: 42px;
-        display: grid;
-        place-items: center;
-        font-size: 21px;
-        margin-right: 15px;
-        padding: 10px;
-        border-radius: 6px;
-        transition: color 0.2s ease, background-color 0.2s ease;
-        
-        &.icon-online {
-          color: #16845b;
-          background-color: rgba(22, 132, 91, 0.12);
-        }
-        
-        &.icon-offline {
-          color: #75858b;
-          background-color: rgba(117, 133, 139, 0.14);
-        }
-        
-        &.icon-data {
-          color: var(--primary-color);
-          background-color: rgba(13, 148, 136, 0.12);
-        }
-        
-        &.icon-alarm {
-          color: #d14d55;
-          background-color: rgba(209, 77, 85, 0.12);
-        }
-      }
-      
-      .card-info {
-        flex: 1;
-        
-        .card-title {
-          font-size: 14px;
-          color: var(--text-secondary);
-          margin-bottom: 5px;
-        }
-        
-        .card-value {
-          font-size: 24px;
-          font-weight: 700;
-          color: var(--text-primary);
-        }
-        
-        .card-trend {
-          font-size: 12px;
-          margin-top: 5px;
-          
-          &.trend-up {
-            color: #67c23a;
-          }
-          
-          &.trend-down {
-            color: #f56c6c;
-          }
-          
-          &.trend-stable {
-            color: #909399;
-          }
-        }
-      }
-    }
-  }
-  
-  .chart-row {
-    margin-bottom: 20px;
-  }
-  
-  .chart-card {
-    margin-bottom: 20px;
-    height: 100%;
-    transition: border-color 0.2s ease, box-shadow 0.2s ease;
-    
-    &:hover {
-      border-color: var(--border-color);
-      box-shadow: var(--shadow-md);
-    }
-    
-    .chart-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      color: var(--text-primary);
-      font-weight: 600;
-            .chart-controls {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-      }
-      
-      .table-controls {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-      }
-      
-      .chart-legend {
-        display: flex;
-        
-        .legend-item {
-          display: flex;
-          align-items: center;
-          margin-left: 15px;
-          
-          .legend-color {
-            width: 12px;
-            height: 12px;
-            border-radius: 2px;
-            margin-right: 5px;
-          }
-        }
-      }
-    }
-    
-    .chart-container {
-      height: 300px;
-    }
-  }
-  
-  .table-card {
-    margin-bottom: 20px;
-    transition: all 0.3s;
-    
-    &:hover {
-      box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
-    }
-  }
-  
-  /* 响应式调整 */
-  @media screen and (max-width: 768px) {
-    gap: 12px;
-
-    .page-header {
-      align-items: flex-start;
-      gap: 8px;
-
-      .refresh-info {
-        flex-direction: column;
-        align-items: flex-end;
-        gap: 4px;
-      }
-    }
-
-    .data-card {
-      margin-bottom: 12px;
-    }
-
-    .chart-container {
-      height: 250px;
-    }
-    
-    .card-value {
-      font-size: 18px;
-    }
-    
-    .chart-row {
-      margin-bottom: 10px;
-    }
-  }
-  
-  @media screen and (max-width: 576px) {
-    padding: 0;
-
-    :deep(.el-col-xs-12) {
-      max-width: 100%;
-      flex: 0 0 100%;
-    }
-
-    .chart-container {
-      height: 220px;
-    }
-    
-    .chart-legend {
-      flex-direction: column;
-      align-items: flex-end;
-    }
-    
-    .legend-item {
-      margin-left: 0;
-      margin-top: 5px;
-    }
-  }
-}
+.dashboard-page{display:flex;flex-direction:column;gap:18px;color:#29323a}.hero{min-height:148px;padding:25px 30px;border:1px solid #e3e9ed;border-radius:15px;background:linear-gradient(118deg,#f3fbfa 0%,#fff 55%,#fff8ed 100%);display:flex;align-items:center;justify-content:space-between;box-shadow:0 4px 18px rgba(40,63,75,.04)}.eyebrow{color:#15978c;font-size:12px;font-weight:750;letter-spacing:1.8px}.hero h1{margin:7px 0 4px;font-size:26px}.hero p{margin:0;color:#818b95;font-size:14px}.scope{margin-top:16px;display:flex;align-items:center;gap:7px;color:#75808b;font-size:12px}.scope i{width:1px;height:12px;margin:0 4px;background:#d7dee3}.hero-actions{display:flex;align-items:center;gap:20px}.live{display:flex;align-items:center;gap:10px;color:#56616c}.live>b{width:9px;height:9px;border-radius:50%;background:#33b777;box-shadow:0 0 0 5px rgba(51,183,119,.12)}.live div{display:flex;flex-direction:column;gap:3px}.live strong{font-size:13px}.live small{color:#929ba4;font-size:11px}.refresh{height:38px!important;color:#fff!important;border-color:#15978c!important;background:#15978c!important}
+.metrics{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:14px}.metric{--tone:#16998e;--bg:#e5f6f3;position:relative;min-height:132px;padding:17px 18px 15px;overflow:hidden;border:1px solid #e4eaee;border-radius:12px;background:#fff;box-shadow:0 3px 13px rgba(42,61,72,.035)}.metric:before{position:absolute;inset:0 auto 0 0;width:3px;content:'';background:var(--tone)}.metric-head{display:flex;align-items:center;justify-content:space-between}.metric-icon{width:34px;height:34px;border-radius:9px;display:grid;place-items:center;color:var(--tone);background:var(--bg);font-size:17px}.metric-head small{color:#9099a2;font-size:11px}.metric-value{margin-top:13px;font-size:25px;font-weight:750;line-height:1}.metric-label{margin-top:8px;color:#69747f;font-size:13px}.progress{height:4px;margin-top:10px;border-radius:3px;background:#edf1f3;overflow:hidden}.progress i{display:block;height:100%;background:var(--tone)}.tone-success{--tone:#3dac78;--bg:#e9f7ef}.tone-blue{--tone:#4b91e6;--bg:#eaf3fd}.tone-danger{--tone:#df5965;--bg:#fdecef}.tone-purple{--tone:#806bd6;--bg:#f0edfb}.tone-orange{--tone:#db9635;--bg:#fff3e2}
+.grid{display:grid;gap:18px}.grid-main{grid-template-columns:minmax(0,2fr) minmax(310px,.75fr)}.grid-half{grid-template-columns:repeat(2,minmax(0,1fr))}.panel{border:1px solid #e3e9ed;border-radius:13px}.panel :deep(.el-card__header){padding:17px 20px 14px;border-bottom:1px solid #edf1f3}.panel :deep(.el-card__body){padding:18px 20px}.panel-head{display:flex;align-items:center;justify-content:space-between;gap:16px}.panel-head h3{margin:0 0 4px;font-size:16px}.panel-head p{margin:0;color:#919aa3;font-size:12px}.panel-head>small{color:#7e8993}.chart{width:100%}.chart-flow,.chart-types{height:330px}.chart-status{height:238px}
+.status-list{display:grid;grid-template-columns:repeat(3,1fr);border-top:1px solid #edf1f3;padding-top:15px}.status-list div{display:grid;grid-template-columns:auto 1fr;align-items:center;gap:2px 7px;padding:0 10px;border-right:1px solid #edf1f3}.status-list div:last-child{border:0}.status-list i{width:7px;height:7px;border-radius:50%}.status-list .online{background:#43b77b}.status-list .offline{background:#aab4bd}.status-list .error{background:#e65d68}.status-list span{color:#808a94;font-size:11px}.status-list strong{grid-column:2;font-size:16px}
+.alarm-stats{display:grid;grid-template-columns:repeat(4,1fr);margin-bottom:14px;padding:13px 4px;border-radius:9px;background:#f7f9fa}.alarm-stats div{display:flex;flex-direction:column;align-items:center;gap:3px;border-right:1px solid #e3e8eb}.alarm-stats div:last-child{border:0}.alarm-stats strong{font-size:19px}.alarm-stats span{color:#89939d;font-size:11px}.alarm-row{min-height:52px;display:flex;align-items:center;gap:10px;border-bottom:1px solid #edf1f3}.alarm-row:last-child{border:0}.severity{width:8px;height:8px;flex:0 0 auto;border-radius:50%;background:#e5b83d}.severity.critical{background:#d94352;box-shadow:0 0 0 4px rgba(217,67,82,.1)}.severity.high{background:#e98239}.severity.low{background:#7397b8}.alarm-row>div{min-width:0;flex:1;display:flex;flex-direction:column;gap:3px}.alarm-row>div strong,.alarm-row>div span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.alarm-row>div strong{font-size:13px}.alarm-row>div span{color:#8a949e;font-size:11px}.alarm-row aside{display:flex;flex-direction:column;align-items:flex-end;gap:4px;color:#9aa2aa;font-size:10px}
+@media(max-width:1280px){.metrics{grid-template-columns:repeat(3,1fr)}}@media(max-width:980px){.grid-main,.grid-half{grid-template-columns:1fr}.hero{align-items:flex-start;gap:22px}}@media(max-width:680px){.hero{padding:20px;flex-direction:column}.hero-actions{width:100%;justify-content:space-between}.metrics{grid-template-columns:repeat(2,1fr)}.panel-head{align-items:flex-start}}
 </style>
