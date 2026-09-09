@@ -531,10 +531,11 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
 import { DataAnalysis, Plus, Refresh, Search, Setting } from "@element-plus/icons-vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import StrategyDeviceCell from "@/components/StrategyDeviceCell.vue";
+import websocketService from "@/utils/websocket";
 import {
   projectManagementAPI,
   switchControlAPI,
@@ -874,9 +875,7 @@ function mapDevice(x) {
     loading: false,
   };
 }
-async function loadDevices() {
-  loading.value = true;
-  try {
+function deviceListParams() {
     const params = {
       device_type: DEVICE_TYPE,
       page: pagination.page,
@@ -887,7 +886,92 @@ async function loadDevices() {
     if (filters.buildingId) params.buildingId = filters.buildingId;
     if (filters.projectGroupId) params.projectGroupId = filters.projectGroupId;
     if (filters.status) params.status = filters.status;
+    return params;
+}
+
+// 上报只触发读取已入库状态，不在浏览器重复解析协议或下发 statistic 指令。
+const switchRealtimeTopics = [
+  "device_data", "device_response", "device_event", "device_status_update",
+  "device_offline", "device_heartbeat", "lighting_switch_status", "lighting_electrical_data",
+];
+let disposed = false;
+let syncTimer = null;
+let syncInterval = null;
+let syncController = null;
+let syncPending = false;
+let statusRevision = 0;
+const controlRefreshTimers = new Set();
+
+function queueStatusSync() {
+  if (disposed || document.hidden) return;
+  if (syncController) {
+    syncPending = true;
+    return;
+  }
+  // 合并连续上报，但不因不断到来的消息无限延后刷新。
+  if (syncTimer === null) syncTimer = setTimeout(syncDeviceStatuses, 250);
+}
+
+async function syncDeviceStatuses() {
+  syncTimer = null;
+  if (disposed || document.hidden || loading.value) return;
+  if (syncController) { syncPending = true; return; }
+  const params = deviceListParams();
+  const scopeKey = JSON.stringify(params);
+  const revision = statusRevision;
+  const controller = new AbortController();
+  syncController = controller;
+  const timeout = setTimeout(() => controller.abort(), 8000);
+  try {
+    const response = await switchControlAPI.getSwitchDevices(params, { signal: controller.signal });
+    if (disposed || controller.signal.aborted || loading.value || revision !== statusRevision ||
+        scopeKey !== JSON.stringify(deviceListParams()) || !response.success) return;
+    const rows = new Map((response.data?.devices || []).map((row) => [String(row.device_id), row]));
+    statusRevision++;
+    for (const device of devices.value) {
+      const row = rows.get(String(device.rawDeviceId));
+      if (!row) continue;
+      if (row.power_status != null) device.powerOn = [true, 1, "1", "true", "on"].includes(row.power_status);
+      device.status = row.device_status || device.status;
+    }
+  } catch (error) {
+    // 网络异常保留最后一次真实状态，下一轮自动补齐，不反复弹窗。
+    if (!disposed && error.name !== "AbortError") console.warn("开关状态同步失败", error.message);
+  } finally {
+    clearTimeout(timeout);
+    syncController = null;
+    if (syncPending) { syncPending = false; queueStatusSync(); }
+  }
+}
+
+function handleSwitchReport(message) {
+  if (!message || message.direction === "outgoing") return;
+  const identifiers = [message.device_id, message.deviceId, message.device_id_value, message.imei]
+    .filter((value) => value != null && value !== "").map(String);
+  // id 是控制模块绑定记录ID，rawDeviceId 才是设备UUID，不能混用。
+  if (devices.value.some((device) =>
+    [device.rawDeviceId, device.deviceId].some((id) => id != null && identifiers.includes(String(id))),
+  )) queueStatusSync();
+}
+
+function onRealtimeConnected() {
+  websocketService.subscribe(switchRealtimeTopics);
+  queueStatusSync();
+}
+
+function resumeStatusSync() {
+  if (disposed || document.hidden) return;
+  websocketService.connect();
+  queueStatusSync();
+}
+
+async function loadDevices() {
+  statusRevision++;
+  loading.value = true;
+  try {
+    const params = deviceListParams();
     const r = await switchControlAPI.getSwitchDevices(params);
+    if (disposed) return;
     const list = r.data?.devices || [];
     const p = r.data?.pagination || {};
     devices.value = list.map(mapDevice);
@@ -899,6 +983,7 @@ async function loadDevices() {
     ElMessage.error(e.message || "加载开关设备失败");
   } finally {
     loading.value = false;
+    queueStatusSync();
   }
 }
 async function send(device, payload) {
@@ -913,13 +998,15 @@ async function refreshDevice(device) {
   try {
     await send(device, { statistic: 1 });
   } catch {}
+  const revision = statusRevision;
   const [s, e] = await Promise.allSettled([
     switchControlAPI.getLatestStatus(device.deviceId),
     loadLatestElectrical(device),
   ]);
   const status = s.status === "fulfilled" ? s.value.data || {} : {};
   const electrical = e.status === "fulfilled" ? e.value : null;
-  if (status.power_status != null)
+  if (disposed) return;
+  if (revision === statusRevision && status.power_status != null)
     device.powerOn = [true, 1, "1", "true", "on"].includes(status.power_status);
   Object.assign(device, electrical || status);
 }
@@ -930,7 +1017,11 @@ async function controlPower(device, on) {
   try {
     await send(device, { power_status: Boolean(on) });
     ElMessage.success(on ? "已发送开启指令" : "已发送关闭指令");
-    setTimeout(() => refreshDevice(device), 2000);
+    const timer = setTimeout(() => {
+      controlRefreshTimers.delete(timer);
+      if (!disposed) refreshDevice(device);
+    }, 2000);
+    controlRefreshTimers.add(timer);
   } catch (e) {
     device.powerOn = old;
     ElMessage.error(e.message);
@@ -1347,8 +1438,27 @@ async function openDetail(device) {
   }
 }
 onMounted(async () => {
+  switchRealtimeTopics.forEach((topic) => websocketService.on(topic, handleSwitchReport));
+  websocketService.on("connected", onRealtimeConnected);
+  websocketService.connect();
+  onRealtimeConnected();
+  document.addEventListener("visibilitychange", resumeStatusSync);
+  // 仅可见页面每15秒读取一次当前页，补偿断线、漏报；不向现场发送控制。
+  syncInterval = setInterval(resumeStatusSync, 15000);
   await Promise.all([loadTenants(), loadProject()]);
+  if (disposed) return;
   await loadDevices();
+});
+onUnmounted(() => {
+  disposed = true;
+  clearTimeout(syncTimer);
+  clearInterval(syncInterval);
+  syncController?.abort();
+  controlRefreshTimers.forEach(clearTimeout);
+  document.removeEventListener("visibilitychange", resumeStatusSync);
+  switchRealtimeTopics.forEach((topic) => websocketService.off(topic, handleSwitchReport));
+  websocketService.off("connected", onRealtimeConnected);
+  // 共享连接由其它模块继续使用，只移除本页监听。
 });
 </script>
 

@@ -755,7 +755,7 @@ const lightingControlAPI = {
 
 // 开关控制API
 const switchControlAPI = {
-  getSwitchDevices: (params = {}) => get("/switch-control", params),
+  getSwitchDevices: (params = {}, options = {}) => get("/switch-control", params, options),
   addSwitchDevice: (data) => post("/switch-control", data),
   updateSwitchDevice: (id, data) => put(`/switch-control/${id}`, data),
   deleteSwitchDevice: (id) => del(`/switch-control/${id}`),
