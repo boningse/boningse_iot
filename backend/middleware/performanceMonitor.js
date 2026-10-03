@@ -1,6 +1,7 @@
 
 const os = require('os');
 const process = require('process');
+const v8 = require('v8');
 const logger = require('../utils/logger');
 
 // 性能指标收集器
@@ -11,7 +12,10 @@ class PerformanceCollector {
       errors: 0,
       responseTimes: [],
       activeConnections: 0,
-      startTime: Date.now()
+      startTime: Date.now(),
+      lastAlertCheckAt: 0,
+      lastAlertFingerprint: '',
+      lastAlertLogAt: 0
     };
     
     this.thresholds = {
@@ -21,10 +25,6 @@ class PerformanceCollector {
       "errorRate": 0.02
 };
     
-    // 定期清理指标
-    setInterval(() => {
-      this.cleanupMetrics();
-    }, 30000);
   }
   
   // 记录请求
@@ -128,7 +128,10 @@ class PerformanceCollector {
     }
     
     // 内存告警
-    const memoryUsage = (systemMetrics.memory.heapUsed / systemMetrics.memory.heapTotal) * 100;
+    // heapTotal 是 V8 当前已申请的堆容量，会随 GC 动态伸缩；用它做分母会把
+    // 正常的 60~80MB 误判成 80% 以上。告警应以 Node 可用的实际堆上限为准。
+    const heapLimit = v8.getHeapStatistics().heap_size_limit || systemMetrics.memory.heapTotal;
+    const memoryUsage = (systemMetrics.memory.heapUsed / heapLimit) * 100;
     if (memoryUsage > this.thresholds.memory) {
       alerts.push({
         type: 'MEMORY_HIGH',
@@ -161,16 +164,25 @@ class PerformanceCollector {
     return alerts;
   }
   
-  // 清理指标
-  cleanupMetrics() {
-    // 重置计数器（保留历史趋势）
-    const errorRate = this.metrics.requests > 0 ? this.metrics.errors / this.metrics.requests : 0;
-    
-    // 如果错误率正常，重置计数器
-    if (errorRate < this.thresholds.errorRate) {
-      this.metrics.requests = Math.floor(this.metrics.requests * 0.1);
-      this.metrics.errors = Math.floor(this.metrics.errors * 0.1);
+  // 每分钟检查一次；相同告警最多每五分钟写一次，避免监控本身制造大量日志。
+  takeAlertLogDecision(now = Date.now()) {
+    if (now - this.metrics.lastAlertCheckAt < 60000) return null;
+    this.metrics.lastAlertCheckAt = now;
+    const alerts = this.checkAlerts();
+    const fingerprint = alerts.map((alert) => alert.type).sort().join(',');
+
+    if (!fingerprint) {
+      const recovered = this.metrics.lastAlertFingerprint;
+      this.metrics.lastAlertFingerprint = '';
+      return recovered ? { level: 'info', message: '性能告警已恢复', alerts: [] } : null;
     }
+
+    const changed = fingerprint !== this.metrics.lastAlertFingerprint;
+    const dueForRepeat = now - this.metrics.lastAlertLogAt >= 5 * 60 * 1000;
+    this.metrics.lastAlertFingerprint = fingerprint;
+    if (!changed && !dueForRepeat) return null;
+    this.metrics.lastAlertLogAt = now;
+    return { level: 'warn', message: '性能告警', alerts };
   }
 }
 
@@ -195,13 +207,8 @@ const performanceMonitor = (req, res, next) => {
     // 减少活跃连接数
     performanceCollector.metrics.activeConnections--;
     
-    // 检查告警
-    if (true) {
-      const alerts = performanceCollector.checkAlerts();
-      if (alerts.length > 0) {
-        logger.warn('性能告警', { alerts });
-      }
-    }
+    const alertLog = performanceCollector.takeAlertLogDecision();
+    if (alertLog) logger[alertLog.level](alertLog.message, { alerts: alertLog.alerts });
   });
   
   next();

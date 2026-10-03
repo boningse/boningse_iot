@@ -1,4 +1,5 @@
 const express = require('express');
+const { randomUUID } = require('crypto');
 const { Pool } = require('pg');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { getPoolConfig } = require('../config/database');
@@ -20,8 +21,10 @@ const pool = new Pool({
 });
 
 const ROLES = ['admin', 'tenant_admin', 'user', 'building_user', 'group_user'];
-const MODULE_TYPES = ['switch', 'lighting', 'thermostat', 'air_conditioner'];
+const MODULE_TYPES = ['switch', 'lighting', 'thermostat', 'air_conditioner', 'manual'];
 const SEVERITIES = ['critical', 'high', 'medium', 'low'];
+const MANUAL_TYPES = ['maintenance', 'inspection', 'repair', 'temporary', 'other'];
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const STATUSES = ['active', 'acknowledged', 'assigned', 'processing', 'resolved', 'closed'];
 const MANAGER_ROLES = ['admin', 'tenant_admin'];
 const ASSIGNEE_ROLES = ['user', 'building_user', 'group_user'];
@@ -124,20 +127,29 @@ const addScope = (req, params, conditions, deviceAlias = 'd', alarmAlias = 'a') 
   if (req.dataScope?.level === 'building' || (req.dataScope?.level === 'group' && req.dataScope.buildingId)) {
     if (req.dataScope.buildingId) {
       params.push(req.dataScope.buildingId);
-      conditions.push(`${deviceAlias}.project_building_id = $${params.length}`);
+      conditions.push(`COALESCE(${alarmAlias}.project_building_id, ${deviceAlias}.project_building_id) = $${params.length}`);
     }
   }
 
   if (req.dataScope?.level === 'group') {
     if (req.dataScope.groupId) {
       params.push(req.dataScope.groupId);
-      conditions.push(`${deviceAlias}.project_group_id = $${params.length}`);
+      conditions.push(`COALESCE(${alarmAlias}.project_group_id, ${deviceAlias}.project_group_id) = $${params.length}`);
     }
   }
 };
 
 const sameId = (left, right) => String(left || '') === String(right || '');
-const isCurrentAssignee = (req, alarm) => sameId(alarm?.assigned_to, req.user?.id);
+const isCurrentAssignee = (req, alarm) => sameId(alarm?.assigned_to, req.user?.id)
+  || (Array.isArray(alarm?.assignee_ids) && alarm.assignee_ids.some((id) => sameId(id, req.user?.id)));
+const canCreateManualOrder = (user) => user?.role === 'admin'
+  || (user?.role === 'tenant_admin' && user.profile?.manual_work_order_create_enabled !== false);
+const uniqueIds = (value) => Array.isArray(value) ? [...new Set(value.map(String))] : [];
+const requiredText = (value, max, label) => {
+  const text = String(value || '').trim();
+  if (!text || text.length > max) throw new Error(`${label}不能为空且不能超过 ${max} 字`);
+  return text;
+};
 const canTransferAlarm = (req, alarm) => MANAGER_ROLES.includes(req.user.role) || isCurrentAssignee(req, alarm);
 
 const assigneeCanAccessAlarm = (assignee, alarm) => {
@@ -160,6 +172,7 @@ const buildAlarmQuery = (req, { includeFilters = true } = {}) => {
   if (includeFilters) {
     const {
       keyword,
+      sourceType,
       moduleType,
       severity,
       status,
@@ -173,8 +186,8 @@ const buildAlarmQuery = (req, { includeFilters = true } = {}) => {
     if (keyword) {
       params.push(`%${keyword}%`);
       conditions.push(`(
-        d.name ILIKE $${params.length}
-        OR d.imei ILIKE $${params.length}
+        COALESCE(d.name, '') ILIKE $${params.length}
+        OR COALESCE(d.imei, '') ILIKE $${params.length}
         OR a.title ILIKE $${params.length}
         OR COALESCE(a.message, '') ILIKE $${params.length}
         OR COALESCE(a.alarm_code, '') ILIKE $${params.length}
@@ -184,6 +197,8 @@ const buildAlarmQuery = (req, { includeFilters = true } = {}) => {
       params.push(moduleType);
       conditions.push(`a.module_type = $${params.length}`);
     }
+    if (sourceType === 'manual') conditions.push(`a.source = 'manual'`);
+    if (sourceType === 'alarm') conditions.push(`a.source <> 'manual'`);
     if (severity && SEVERITIES.includes(severity)) {
       params.push(severity);
       conditions.push(`a.severity = $${params.length}`);
@@ -200,11 +215,11 @@ const buildAlarmQuery = (req, { includeFilters = true } = {}) => {
     }
     if (buildingId) {
       params.push(buildingId);
-      conditions.push(`d.project_building_id = $${params.length}`);
+      conditions.push(`COALESCE(a.project_building_id, d.project_building_id) = $${params.length}`);
     }
     if (groupId) {
       params.push(groupId);
-      conditions.push(`d.project_group_id = $${params.length}`);
+      conditions.push(`COALESCE(a.project_group_id, d.project_group_id) = $${params.length}`);
     }
     if (startAt) {
       params.push(startAt);
@@ -216,7 +231,8 @@ const buildAlarmQuery = (req, { includeFilters = true } = {}) => {
     }
     if (req.query.mine === 'true') {
       params.push(req.user.id);
-      conditions.push(`a.assigned_to = $${params.length}`);
+      conditions.push(`(a.assigned_to = $${params.length} OR EXISTS
+        (SELECT 1 FROM work_order_assignees wa WHERE wa.alarm_id=a.id AND wa.user_id=$${params.length}))`);
     }
   }
 
@@ -228,11 +244,11 @@ const buildAlarmQuery = (req, { includeFilters = true } = {}) => {
 
 const joins = `
   FROM device_alarms a
-  JOIN devices d ON d.id = a.device_id
+  LEFT JOIN devices d ON d.id = a.device_id
   LEFT JOIN device_types dt ON dt.id = d.device_type_id
   LEFT JOIN tenants t ON t.id = a.tenant_id
-  LEFT JOIN project_buildings pb ON pb.id = d.project_building_id
-  LEFT JOIN project_groups pg ON pg.id = d.project_group_id
+  LEFT JOIN project_buildings pb ON pb.id = COALESCE(a.project_building_id, d.project_building_id)
+  LEFT JOIN project_groups pg ON pg.id = COALESCE(a.project_group_id, d.project_group_id)
   LEFT JOIN users assignee ON assignee.id = a.assigned_to
 `;
 
@@ -362,6 +378,167 @@ router.get('/options', authenticateToken, requireRole(ROLES), async (req, res) =
   }
 });
 
+// 创建选项始终由服务端按租户限制，前端传入的租户不能提升普通用户的权限。
+router.get('/manual/capability', authenticateToken, requireRole(ROLES), (req, res) => {
+  res.json({ success: true, data: { canCreate: canCreateManualOrder(req.user) } });
+});
+
+router.get('/manual/options', authenticateToken, requireRole(ROLES), async (req, res) => {
+  if (!canCreateManualOrder(req.user)) return reject(res, 403, '没有手动创建工单权限');
+  try {
+    const tenantId = req.user.role === 'admin' ? String(req.query.tenantId || '') : req.user.tenant_id;
+    if (!tenantId || !UUID.test(tenantId)) return reject(res, 400, '请先选择所属租户');
+    const [users, devices] = await Promise.all([
+      pool.query(`SELECT id, username, role,
+                    COALESCE(profile->>'project_building_id',profile->>'building_id') AS building_id,
+                    COALESCE(profile->>'project_group_id',profile->>'group_id') AS group_id,
+                    COALESCE(profile->>'department_name',profile->>'department') AS department
+                  FROM users
+                  WHERE tenant_id=$1 AND status='active' ORDER BY username`, [tenantId]),
+      pool.query(`SELECT id, name, imei, project_building_id, project_group_id
+                  FROM devices WHERE tenant_id=$1 ORDER BY name LIMIT 2000`, [tenantId])
+    ]);
+    const departments = [...new Set(users.rows.map((user) => user.department).filter(Boolean))];
+    res.json({ success: true, data: { users: users.rows, devices: devices.rows, departments } });
+  } catch (error) {
+    logger.error('获取手动工单选项失败', { error: error.message });
+    res.status(500).json({ success: false, message: '获取创建选项失败' });
+  }
+});
+
+router.post('/manual', authenticateToken, requireRole(ROLES), async (req, res) => {
+  if (!canCreateManualOrder(req.user)) return reject(res, 403, '没有手动创建工单权限');
+  let client;
+  try {
+    const body = req.body || {};
+    const tenantId = req.user.role === 'admin' ? body.tenantId : req.user.tenant_id;
+    if (!tenantId || !UUID.test(tenantId)) return reject(res, 400, '请选择有效租户');
+    const type = String(body.workOrderType || 'other');
+    if (!MANUAL_TYPES.includes(type)) return reject(res, 400, '工单类型无效');
+    const title = requiredText(body.title, 160, '工单标题');
+    const message = requiredText(body.description, 5000, '工作内容');
+    const severity = String(body.priority || 'medium');
+    if (!SEVERITIES.includes(severity)) return reject(res, 400, '优先级无效');
+    const assigneeIds = uniqueIds(body.assigneeIds);
+    const watcherIds = uniqueIds(body.watcherIds).filter((id) => !assigneeIds.includes(id));
+    if (!assigneeIds.length || assigneeIds.length > 20 || watcherIds.length > 30
+      || [...assigneeIds, ...watcherIds].some((id) => !UUID.test(id))) {
+      return reject(res, 400, '请选择 1-20 位处理人，知会人员不超过 30 位');
+    }
+    const expectedAt = body.expectedAt ? new Date(body.expectedAt) : null;
+    if (expectedAt && (Number.isNaN(expectedAt.getTime()) || expectedAt.getTime() <= Date.now())) {
+      return reject(res, 400, '期望完成时间必须晚于当前时间');
+    }
+    const location = String(body.location || '').trim();
+    const department = String(body.department || '').trim();
+    if (location.length > 300 || department.length > 100) return reject(res, 400, '地点或部门内容过长');
+    const deviceId = body.deviceId || null;
+    const buildingId = body.buildingId || null;
+    const groupId = body.groupId || null;
+    if ([deviceId, buildingId, groupId].filter(Boolean).some((id) => !UUID.test(id))) {
+      return reject(res, 400, '设备、建筑或分组无效');
+    }
+    if (!deviceId && !buildingId && !groupId && !location) return reject(res, 400, '请填写处理地点或关联设备');
+
+    client = await pool.connect();
+    await client.query('BEGIN');
+    const tenant = await client.query('SELECT id FROM tenants WHERE id=$1', [tenantId]);
+    if (!tenant.rowCount) throw new Error('租户不存在');
+    let device = null;
+    if (deviceId) {
+      const found = await client.query(
+        `SELECT id, project_building_id, project_group_id FROM devices WHERE id=$1 AND tenant_id=$2`,
+        [deviceId, tenantId]
+      );
+      if (!found.rowCount) throw new Error('关联设备不属于所选租户');
+      device = found.rows[0];
+    }
+    let resolvedBuildingId = buildingId || device?.project_building_id || null;
+    const resolvedGroupId = groupId || device?.project_group_id || null;
+    if (device && ((buildingId && !sameId(buildingId, device.project_building_id))
+      || (groupId && !sameId(groupId, device.project_group_id)))) throw new Error('设备与所选建筑或分组不匹配');
+    if (resolvedGroupId) {
+      const group = await client.query('SELECT id, building_id FROM project_groups WHERE id=$1 AND tenant_id=$2', [resolvedGroupId, tenantId]);
+      if (!group.rowCount || (resolvedBuildingId && group.rows[0].building_id
+        && !sameId(resolvedBuildingId, group.rows[0].building_id))) throw new Error('分组与所选建筑不匹配');
+      resolvedBuildingId = resolvedBuildingId || group.rows[0].building_id || null;
+    }
+    if (resolvedBuildingId) {
+      const building = await client.query('SELECT id FROM project_buildings WHERE id=$1 AND tenant_id=$2', [resolvedBuildingId, tenantId]);
+      if (!building.rowCount) throw new Error('建筑不属于所选租户');
+    }
+    const personIds = [...new Set([...assigneeIds, ...watcherIds])];
+    const people = await client.query(
+      `SELECT id, username, role, tenant_id, profile FROM users
+       WHERE id=ANY($1::uuid[]) AND tenant_id=$2 AND status='active'`,
+      [personIds, tenantId]
+    );
+    if (people.rowCount !== personIds.length) throw new Error('处理人或知会人员已停用或不属于当前租户');
+    const scope = { tenant_id: tenantId, project_building_id: resolvedBuildingId, project_group_id: resolvedGroupId };
+    for (const person of people.rows) {
+      if (assigneeIds.includes(person.id) && !assigneeCanAccessAlarm(person, scope)) {
+        throw new Error(`处理人 ${person.username} 无权访问该工单位置`);
+      }
+      if (watcherIds.includes(person.id) && ['building_user', 'group_user'].includes(person.role)
+        && !assigneeCanAccessAlarm({ ...person, role: person.role }, scope)) {
+        throw new Error(`知会人员 ${person.username} 无权访问该工单位置`);
+      }
+    }
+    const primaryId = assigneeIds[0];
+    const inserted = await client.query(
+      `INSERT INTO device_alarms (
+        id, tenant_id, device_id, module_type, alarm_type, severity, title, message,
+        source, dedup_key, status, assigned_to, assigned_at, work_order_type,
+        expected_at, location_text, department_name, project_building_id,
+        project_group_id, created_by, metadata
+      ) VALUES ($1,$2,$3,'manual',$4,$5,$6,$7,'manual',$8,'assigned',$9,now(),
+                $10,$11,$12,$13,$14,$15,$16,'{}'::jsonb) RETURNING *`,
+      [randomUUID(), tenantId, deviceId, `manual_${type}`, severity, title, message,
+        `manual:${randomUUID()}`, primaryId, type, expectedAt, location || null,
+        department || null, resolvedBuildingId, resolvedGroupId, req.user.id]
+    );
+    const alarm = inserted.rows[0];
+    await client.query(
+      `INSERT INTO device_alarm_actions
+       (alarm_id,tenant_id,action,from_status,to_status,operator_id,operator_name,assigned_to,note,metadata)
+       VALUES ($1,$2,'created',NULL,'assigned',$3,$4,$5,$6,$7::jsonb)`,
+      [alarm.id, tenantId, req.user.id, req.user.username, primaryId, message,
+        JSON.stringify({ assignee_ids: assigneeIds, watcher_ids: watcherIds })]
+    );
+    for (const id of assigneeIds) {
+      await client.query(`INSERT INTO work_order_assignees(alarm_id,user_id,tenant_id,is_primary)
+                          VALUES ($1,$2,$3,$4)`, [alarm.id, id, tenantId, id === primaryId]);
+    }
+    for (const id of watcherIds) {
+      await client.query(`INSERT INTO work_order_watchers(alarm_id,user_id,tenant_id)
+                          VALUES ($1,$2,$3)`, [alarm.id, id, tenantId]);
+    }
+    for (const id of personIds) {
+      const isHandler = assigneeIds.includes(id);
+      await client.query(
+        `INSERT INTO user_alarm_notifications
+         (tenant_id,user_id,alarm_id,notification_type,title,message,link)
+         VALUES ($1,$2,$3,'assignment',$4,$5,$6)`,
+        [tenantId, id, alarm.id, `${isHandler ? '待接单' : '知会工单'}：${title}`.slice(0, 160),
+          message.slice(0, 500), `/alarms?alarmId=${alarm.id}${isHandler ? '&mine=true' : ''}`]
+      );
+    }
+    await client.query('COMMIT');
+    broadcastWorkOrderAction('created', alarm);
+    for (const id of personIds) {
+      websocketService.broadcastToClients('work_order_assigned', { alarm_id: alarm.id, tenant_id: tenantId },
+        (socket) => sameId(socket.user?.id, id));
+    }
+    res.status(201).json({ success: true, message: '工单创建并派发成功', data: alarm });
+  } catch (error) {
+    if (client) await client.query('ROLLBACK');
+    logger.error('创建手动工单失败', { error: error.message });
+    res.status(400).json({ success: false, message: error.message });
+  } finally {
+    client?.release();
+  }
+});
+
 router.get('/', authenticateToken, requireRole(ROLES), async (req, res) => {
   try {
     const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
@@ -373,12 +550,17 @@ router.get('/', authenticateToken, requireRole(ROLES), async (req, res) => {
     const rows = await pool.query(
       `SELECT a.*,
               d.name AS device_name, d.imei, d.status AS device_status,
-              d.project_building_id, d.project_group_id,
+              COALESCE(a.project_building_id,d.project_building_id) AS project_building_id,
+              COALESCE(a.project_group_id,d.project_group_id) AS project_group_id,
               dt.name AS device_type_name,
               t.name AS tenant_name,
               pb.name AS building_name,
               pg.name AS group_name,
               assignee.username AS assigned_to_name
+              ,(SELECT string_agg(u.username, '、' ORDER BY u.username)
+                FROM work_order_assignees wa JOIN users u ON u.id=wa.user_id
+                WHERE wa.alarm_id=a.id) AS assignee_names
+              ,ARRAY(SELECT wa.user_id FROM work_order_assignees wa WHERE wa.alarm_id=a.id) AS assignee_ids
        ${joins}
        ${where}
        ORDER BY
@@ -413,7 +595,15 @@ async function getScopedAlarm(req, alarmId, client = pool) {
   addScope(req, params, conditions);
   const result = await client.query(
     `SELECT a.*, d.name AS device_name, d.imei, d.status AS device_status,
-            d.project_building_id, d.project_group_id,
+            COALESCE(a.project_building_id,d.project_building_id) AS project_building_id,
+            COALESCE(a.project_group_id,d.project_group_id) AS project_group_id,
+            ARRAY(SELECT wa.user_id FROM work_order_assignees wa WHERE wa.alarm_id=a.id) AS assignee_ids,
+            (SELECT string_agg(u.username, '、' ORDER BY u.username)
+             FROM work_order_assignees wa JOIN users u ON u.id=wa.user_id
+             WHERE wa.alarm_id=a.id) AS assignee_names,
+            (SELECT string_agg(u.username, '、' ORDER BY u.username)
+             FROM work_order_watchers ww JOIN users u ON u.id=ww.user_id
+             WHERE ww.alarm_id=a.id) AS watcher_names,
             dt.name AS device_type_name, t.name AS tenant_name,
             pb.name AS building_name, pg.name AS group_name,
             assignee.username AS assigned_to_name
@@ -444,10 +634,11 @@ router.get('/notifications', authenticateToken, requireRole(ROLES), async (req, 
     const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 100);
     const unreadCondition = req.query.unreadOnly === 'true' ? 'AND n.is_read = false' : '';
     const result = await pool.query(
-      `SELECT n.*, a.severity, a.status AS alarm_status, d.name AS device_name
+      `SELECT n.*, a.severity, a.status AS alarm_status,
+              COALESCE(d.name, a.location_text, a.title) AS device_name
        FROM user_alarm_notifications n
        JOIN device_alarms a ON a.id = n.alarm_id
-       JOIN devices d ON d.id = a.device_id
+       LEFT JOIN devices d ON d.id = a.device_id
        WHERE n.user_id = $1 ${unreadCondition}
        ORDER BY n.created_at DESC
        LIMIT $2`,
@@ -643,7 +834,7 @@ const performAction = async (client, req, alarm, actionName, payload = {}) => {
   if (actionName === 'comment' && !MANAGER_ROLES.includes(req.user.role) && !isCurrentAssignee(req, alarm)) {
     throw forbidden('只有租户管理员或当前处理人可以添加处理备注');
   }
-  if (config.assigneeOnly && String(alarm.assigned_to || '') !== String(req.user.id)) {
+  if (config.assigneeOnly && !isCurrentAssignee(req, alarm)) {
     throw new Error('只有当前处理人可以接单或退回');
   }
   if (
@@ -667,7 +858,9 @@ const performAction = async (client, req, alarm, actionName, payload = {}) => {
     }
   }
 
-  const nextStatus = config.toStatus || alarm.status;
+  const otherAssignees = actionName === 'reject' && alarm.source === 'manual'
+    ? (alarm.assignee_ids || []).filter((id) => !sameId(id, req.user.id)) : [];
+  const nextStatus = actionName === 'reject' && otherAssignees.length ? 'assigned' : (config.toStatus || alarm.status);
   const updates = ['status = $2', 'updated_at = now()'];
   const values = [alarm.id, nextStatus];
   const set = (sql, value) => {
@@ -683,16 +876,32 @@ const performAction = async (client, req, alarm, actionName, payload = {}) => {
     set('assigned_to', assignedTo);
     updates.push('assigned_at = now()', 'accepted_by = NULL', 'accepted_at = NULL');
     if (note) set('processing_note', note);
+    if (alarm.source === 'manual') {
+      await client.query('DELETE FROM work_order_assignees WHERE alarm_id=$1', [alarm.id]);
+      await client.query(`INSERT INTO work_order_assignees(alarm_id,user_id,tenant_id,is_primary)
+                          VALUES ($1,$2,$3,true)`, [alarm.id, assignedTo, alarm.tenant_id]);
+    }
   }
   if (actionName === 'accept') {
     set('accepted_by', req.user.id);
     updates.push('accepted_at = now()');
   }
   if (actionName === 'reject') {
-    updates.push(
-      'assigned_to = NULL', 'assigned_at = NULL',
-      'accepted_by = NULL', 'accepted_at = NULL'
-    );
+    if (alarm.source === 'manual') {
+      await client.query('DELETE FROM work_order_assignees WHERE alarm_id=$1 AND user_id=$2', [alarm.id, req.user.id]);
+      if (otherAssignees.length) {
+        if (sameId(alarm.assigned_to, req.user.id)) {
+          await client.query('UPDATE work_order_assignees SET is_primary=true WHERE alarm_id=$1 AND user_id=$2',
+            [alarm.id, otherAssignees[0]]);
+          set('assigned_to', otherAssignees[0]);
+        }
+      } else {
+        updates.push('assigned_to = NULL', 'assigned_at = NULL');
+      }
+    } else {
+      updates.push('assigned_to = NULL', 'assigned_at = NULL');
+    }
+    updates.push('accepted_by = NULL', 'accepted_at = NULL');
     set('processing_note', note);
   }
   if (actionName === 'process' && note) set('processing_note', note);
@@ -753,7 +962,7 @@ const performAction = async (client, req, alarm, actionName, payload = {}) => {
         assignedTo,
         alarm.id,
         notificationType,
-        `${alarm.severity === 'critical' ? '紧急' : '告警'}工单待接单：${alarm.device_name}`,
+        `${alarm.severity === 'critical' ? '紧急' : alarm.source === 'manual' ? '手动' : '告警'}工单待接单：${alarm.device_name || alarm.title}`,
         note || alarm.message || alarm.title,
         `/alarms?alarmId=${alarm.id}&mine=true`
       ]
@@ -765,6 +974,21 @@ const performAction = async (client, req, alarm, actionName, payload = {}) => {
        SET is_read = true, read_at = COALESCE(read_at, now())
        WHERE alarm_id = $1 AND user_id = $2 AND is_read = false`,
       [alarm.id, req.user.id]
+    );
+  }
+  if (alarm.source === 'manual' && ['accept', 'reject', 'process', 'resolve', 'close', 'reopen'].includes(actionName)) {
+    await client.query(
+      `INSERT INTO user_alarm_notifications
+       (tenant_id,user_id,alarm_id,notification_type,title,message,link)
+       SELECT $2, recipients.user_id, $1, 'status_update', $3, $4, $5
+       FROM (
+         SELECT user_id FROM work_order_watchers WHERE alarm_id=$1
+         UNION SELECT created_by AS user_id FROM device_alarms WHERE id=$1
+       ) recipients
+       JOIN users u ON u.id=recipients.user_id AND u.status='active'
+       WHERE recipients.user_id IS NOT NULL AND recipients.user_id<>$6`,
+      [alarm.id, alarm.tenant_id, `工单进度：${alarm.title}`.slice(0, 160),
+        note || `工单状态更新为 ${nextStatus}`, `/alarms?alarmId=${alarm.id}`, req.user.id]
     );
   }
 

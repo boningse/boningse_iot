@@ -113,6 +113,10 @@ class ThermostatController {
         });
       }
 
+      device.runtime_last7_days = await thermostatService.getSevenDayRuntimeIncrease(
+        device.id, device.runtime_counters?.last_received_at
+      );
+      res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
       res.json({
         success: true,
         data: device

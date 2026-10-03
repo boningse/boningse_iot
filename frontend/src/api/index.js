@@ -1075,6 +1075,9 @@ const alarmAPI = {
   getList: (params = {}) => get("/alarms", params),
   getDetail: (id) => get(`/alarms/${id}`),
   getOptions: (params = {}) => get("/alarms/options", params),
+  getManualCapability: () => get("/alarms/manual/capability"),
+  getManualOptions: (params = {}) => get("/alarms/manual/options", params),
+  createManual: (data) => post("/alarms/manual", data),
   performAction: (id, data) => post(`/alarms/${id}/actions`, data),
   performActionWithPhotos: (id, formData) =>
     request(`/alarms/${id}/actions-with-photos`, {

@@ -905,7 +905,7 @@
                 <el-option label="送风模式" value="fan" />
                 <el-option label="制冷模式" value="cool" />
                 <el-option label="制热模式" value="heat" />
-                <el-option label="除湿模式" value="dehumidify" />
+                <el-option label="除湿模式（协议无独立计时）" value="dehumidify" disabled />
               </el-select>
             </el-col>
             <el-col :span="4">
@@ -917,6 +917,14 @@
           </el-row>
         </div>
         
+        <el-alert
+          v-if="selectedModeForStats === 'dehumidify'"
+          title="当前协议只提供送风、制热、制冷三种模式的累计计时，没有除湿模式的独立计时项。"
+          type="info"
+          :closable="false"
+          show-icon
+        />
+
         <!-- 统计概览 -->
         <div class="stats-summary" style="margin: 20px 0;">
           <el-row :gutter="20">
@@ -928,19 +936,19 @@
             </el-col>
             <el-col :span="6">
               <div class="stats-card">
-                <div class="stats-title">1档总时间</div>
+                <div class="stats-title">{{ statsSummaryLabels[0] }}</div>
                 <div class="stats-value">{{ formatRuntime(totalSpeed1Runtime) }}</div>
               </div>
             </el-col>
             <el-col :span="6">
               <div class="stats-card">
-                <div class="stats-title">2档总时间</div>
+                <div class="stats-title">{{ statsSummaryLabels[1] }}</div>
                 <div class="stats-value">{{ formatRuntime(totalSpeed2Runtime) }}</div>
               </div>
             </el-col>
             <el-col :span="6">
               <div class="stats-card">
-                <div class="stats-title">3档总时间</div>
+                <div class="stats-title">{{ statsSummaryLabels[2] }}</div>
                 <div class="stats-value">{{ formatRuntime(totalSpeed3Runtime) }}</div>
               </div>
             </el-col>
@@ -969,19 +977,16 @@
             </el-table-column>
             <el-table-column prop="group" label="分组" width="130" sortable />
             <el-table-column prop="location" label="位置" width="130" sortable />
-            <el-table-column prop="runtime_speed1" label="1档运行时间" width="145" sortable>
+            <el-table-column
+              v-for="column in runtimeColumns"
+              :key="column.prop"
+              :prop="column.prop"
+              :label="column.label"
+              width="155"
+              sortable
+            >
               <template #default="{ row }">
-                <span class="runtime-text">{{ formatRuntime(row.runtime_speed1 || 0) }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column prop="runtime_speed2" label="2档运行时间" width="145" sortable>
-              <template #default="{ row }">
-                <span class="runtime-text">{{ formatRuntime(row.runtime_speed2 || 0) }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column prop="runtime_speed3" label="3档运行时间" width="145" sortable>
-              <template #default="{ row }">
-                <span class="runtime-text">{{ formatRuntime(row.runtime_speed3 || 0) }}</span>
+                <span class="runtime-text">{{ formatRuntime(row[column.prop] || 0) }}</span>
               </template>
             </el-table-column>
             <el-table-column prop="stat_date" label="统计日期" width="140" sortable />
@@ -1039,9 +1044,34 @@
           <el-descriptions-item label="最后更新">{{ selectedDevice.lastUpdate || '--' }}</el-descriptions-item>
         </el-descriptions>
         
-        <!-- 运行时间统计 -->
         <div class="running-stats-detail">
-          <h4>运行时间统计</h4>
+          <h4>设备累计运行时间</h4>
+          <p v-if="selectedDevice.runtime_counters?.last_received_at">
+            最后读取：{{ new Date(selectedDevice.runtime_counters.last_received_at).toLocaleString('zh-CN') }}
+          </p>
+          <el-table :data="deviceRuntimeCounters" border>
+            <el-table-column prop="mode" label="模式" width="90" />
+            <el-table-column v-for="speed in ['low', 'middle', 'high']" :key="speed"
+              :label="{ low: '低档', middle: '中档', high: '高档' }[speed]">
+              <template #default="{ row }">
+                {{ row[speed] == null ? '暂未读取' : formatRuntime(row[speed]) }}
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
+
+        <!-- 运行时间统计 -->
+        <div v-loading="deviceRuntimeLoading" class="running-stats-detail">
+          <h4>最近7天新增运行时间</h4>
+          <p class="runtime-period-note">最新累计运行时间 − 7天前累计运行时间（各模式合计）</p>
+          <p v-if="selectedDevice.runtime_last7_days?.baseline_at" class="runtime-period-note">
+            基准：{{ new Date(selectedDevice.runtime_last7_days.baseline_at).toLocaleString('zh-CN') }}
+            · 最新：{{ new Date(selectedDevice.runtime_last7_days.latest_at).toLocaleString('zh-CN') }}
+          </p>
+          <p v-else-if="!deviceRuntimeLoading" class="runtime-period-note">暂无7天前累计数据，历史记录积累后自动计算</p>
+          <p v-if="selectedDevice.runtime_last7_days?.status === 'counter_reset'" class="runtime-period-note">
+            部分计时器在区间内清零，相关档位暂不能按累计差值计算
+          </p>
           <el-row :gutter="20">
             <el-col :span="8">
               <el-card>
@@ -1049,7 +1079,7 @@
                   <div class="stat-icon low-speed">1</div>
                   <div class="stat-content">
                     <div class="stat-label">1档运行</div>
-                    <div class="stat-value">{{ formatRuntime(selectedDevice.runtime?.speed1 || 0) }}</div>
+                    <div class="stat-value">{{ formatSevenDayRuntime(selectedDevice.runtime_last7_days?.speed1) }}</div>
                   </div>
                 </div>
               </el-card>
@@ -1060,7 +1090,7 @@
                   <div class="stat-icon medium-speed">2</div>
                   <div class="stat-content">
                     <div class="stat-label">2档运行</div>
-                    <div class="stat-value">{{ formatRuntime(selectedDevice.runtime?.speed2 || 0) }}</div>
+                    <div class="stat-value">{{ formatSevenDayRuntime(selectedDevice.runtime_last7_days?.speed2) }}</div>
                   </div>
                 </div>
               </el-card>
@@ -1071,7 +1101,7 @@
                   <div class="stat-icon high-speed">3</div>
                   <div class="stat-content">
                     <div class="stat-label">3档运行</div>
-                    <div class="stat-value">{{ formatRuntime(selectedDevice.runtime?.speed3 || 0) }}</div>
+                    <div class="stat-value">{{ formatSevenDayRuntime(selectedDevice.runtime_last7_days?.speed3) }}</div>
                   </div>
                 </div>
               </el-card>
@@ -1079,16 +1109,6 @@
           </el-row>
         </div>
         
-        <!-- 运行时间历史图表 -->
-        <div class="runtime-chart-section">
-          <h4>运行时间趋势分析（最近30天）</h4>
-          <div v-loading="deviceRuntimeLoading" class="chart-container">
-            <div v-if="!deviceRuntimeLoading && deviceRuntimeHistory.length === 0" class="no-data">
-              <el-empty description="暂无运行时间数据" />
-            </div>
-            <div v-else ref="runtimeChart" class="runtime-chart"></div>
-          </div>
-        </div>
       </div>
     </el-dialog>
 
@@ -1096,7 +1116,7 @@
 </template>
 
 <script>
-import { ref, reactive, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Search, Plus, Refresh, Close, Loading, VideoPlay, VideoPause,
@@ -1107,7 +1127,6 @@ import {
 import { Fan, Snowflake, Flame, Droplets, Thermometer } from 'lucide-vue-next'
 import API from '@/api'
 import websocketService from '@/utils/websocket'
-import * as echarts from 'echarts'
 import StrategyDeviceCell from '@/components/StrategyDeviceCell.vue'
 
 export default {
@@ -1214,8 +1233,7 @@ export default {
     const statsCurrentPage = ref(1)
     const statsPageSize = ref(20)
     
-    // 设备详情运行时间历史数据
-    const deviceRuntimeHistory = ref([])
+    // 设备详情累计差值加载状态
     const deviceRuntimeLoading = ref(false)
     
     // 计算属性
@@ -1361,6 +1379,37 @@ export default {
     
     const totalSpeed3Runtime = computed(() => {
       return statsTableData.value.reduce((total, item) => total + (item.runtime_speed3 || 0), 0)
+    })
+
+    const statsModeNames = { fan: '送风', heat: '制热', cool: '制冷' }
+    const deviceRuntimeCounters = computed(() => {
+      const snapshot = selectedDevice.value?.runtime_counters
+      return Object.entries(statsModeNames).map(([key, mode]) => ({
+        mode,
+        low: snapshot?.last_received_at ? snapshot[`${key}_low_runtime`] : null,
+        middle: snapshot?.last_received_at ? snapshot[`${key}_middle_runtime`] : null,
+        high: snapshot?.last_received_at ? snapshot[`${key}_high_runtime`] : null
+      }))
+    })
+    const statsSpeedNames = [
+      { suffix: 'low', label: '低档' },
+      { suffix: 'middle', label: '中档' },
+      { suffix: 'high', label: '高档' }
+    ]
+    const runtimeColumns = computed(() => {
+      const selectedMode = selectedModeForStats.value
+      const modes = selectedMode && statsModeNames[selectedMode]
+        ? [selectedMode]
+        : Object.keys(statsModeNames)
+      return modes.flatMap(mode => statsSpeedNames.map(speed => ({
+        prop: `${mode}_${speed.suffix}_runtime`,
+        label: `${statsModeNames[mode]}${speed.label}运行时间`
+      })))
+    })
+    const statsSummaryLabels = computed(() => {
+      const modeName = statsModeNames[selectedModeForStats.value]
+      const prefix = modeName ? `${modeName}` : '全部模式'
+      return statsSpeedNames.map(speed => `${prefix}${speed.label}总时间`)
     })
     
     // 方法
@@ -2053,209 +2102,30 @@ export default {
       // 加载该设备的计划
     }
     
-    const loadDeviceRuntimeHistory = async (deviceId) => {
-      try {
-        if (!deviceRuntimeHistory.value) {
-          console.warn('deviceRuntimeHistory 未定义，正在初始化')
-          // 如果deviceRuntimeHistory未定义，则初始化它
-          deviceRuntimeHistory.value = []
-        }
-        
-        deviceRuntimeLoading.value = true
-        // 获取最近30天的运行时间数据
-        const endDate = new Date()
-        const startDate = new Date()
-        startDate.setDate(startDate.getDate() - 30)
-        
-        const response = await API.thermostatAPI.getRunningStats({
-          deviceId: deviceId,
-          startDate: startDate.toISOString().split('T')[0],
-          endDate: endDate.toISOString().split('T')[0]
-        })
-        
-        if (response && response.success) {
-          deviceRuntimeHistory.value = (response.data || []).map(item => ({
-            ...item,
-            date: item.date || item.stat_date || '',
-            gear1Runtime: Number(item.gear1Runtime ?? item.runtime_speed1 ?? 0),
-            gear2Runtime: Number(item.gear2Runtime ?? item.runtime_speed2 ?? 0),
-            gear3Runtime: Number(item.gear3Runtime ?? item.runtime_speed3 ?? 0)
-          }))
-
-          const runtime = deviceRuntimeHistory.value.reduce((total, item) => ({
-            speed1: total.speed1 + item.gear1Runtime,
-            speed2: total.speed2 + item.gear2Runtime,
-            speed3: total.speed3 + item.gear3Runtime
-          }), { speed1: 0, speed2: 0, speed3: 0 })
-
-          if (selectedDevice.value?.id === deviceId) {
-            selectedDevice.value.runtime = runtime
-          }
-          // 数据加载完成后初始化图表
-          await nextTick()
-          window.requestAnimationFrame(() => initRuntimeChart())
-        } else {
-          console.error('获取设备运行时间历史数据失败:', response?.message || '未知错误')
-          deviceRuntimeHistory.value = []
-        }
-      } catch (error) {
-        console.error('获取设备运行时间历史数据异常:', error)
-        deviceRuntimeHistory.value = []
-      } finally {
-        deviceRuntimeLoading.value = false
-      }
-    }
-
     const showDeviceDetail = async (device) => {
-      selectedDevice.value = device
+      const deviceId = device.id
+      selectedDevice.value = { ...device, runtime_last7_days: null }
       showDetailDialog.value = true
+      deviceRuntimeLoading.value = true
       try {
-        const response = await API.thermostatAPI.getThermostat(device.id)
+        const response = await API.thermostatAPI.getThermostat(deviceId)
+        if (selectedDevice.value?.id !== deviceId) return
         if (response?.success && response.data) {
           selectedDevice.value = { ...selectedDevice.value, ...response.data }
+        } else {
+          ElMessage.error(response?.message || '读取温控器详情失败')
         }
       } catch (error) {
         console.error('读取温控器详情失败:', error)
+        if (selectedDevice.value?.id === deviceId) ElMessage.error('读取温控器详情失败')
+      } finally {
+        if (selectedDevice.value?.id === deviceId) deviceRuntimeLoading.value = false
       }
-      // 加载该设备的运行时间历史数据
-      await loadDeviceRuntimeHistory(device.id)
     }
 
-    // 定义运行时间图表引用
-    const runtimeChart = ref(null)
-    let runtimeChartInstance = null
-    const resizeRuntimeChart = () => runtimeChartInstance?.resize()
-    
-    // 初始化运行时间图表
-    const initRuntimeChart = () => {
-      // 防御性检查
-      if (!runtimeChart || !runtimeChart.value) {
-        console.warn('图表DOM元素未找到')
-        return
-      }
-      
-      if (!deviceRuntimeHistory || !deviceRuntimeHistory.value || deviceRuntimeHistory.value.length === 0) {
-        console.warn('没有可用的运行时间历史数据')
-        return
-      }
-
-      try {
-        // 销毁已存在的图表实例
-        if (runtimeChart.value) {
-          echarts.dispose(runtimeChart.value)
-        }
-        
-        const chart = echarts.init(runtimeChart.value)
-        runtimeChartInstance = chart
-        
-        // 准备图表数据
-        const historyData = deviceRuntimeHistory.value || []
-        const dates = historyData.map(item => item?.date || '')
-        const gear1Data = historyData.map(item => item?.gear1Runtime || 0)
-        const gear2Data = historyData.map(item => item?.gear2Runtime || 0)
-        const gear3Data = historyData.map(item => item?.gear3Runtime || 0)
-      
-      const option = {
-        title: {
-          text: '设备运行时间趋势',
-          left: 'center',
-          textStyle: {
-            fontSize: 16,
-            color: '#333'
-          }
-        },
-        tooltip: {
-          trigger: 'axis',
-          formatter: function(params) {
-            let result = params[0].axisValue + '<br/>'
-            params.forEach(param => {
-              const hours = Math.floor(param.value / 3600)
-              const minutes = Math.floor((param.value % 3600) / 60)
-              result += param.marker + param.seriesName + ': ' + hours + '小时' + minutes + '分钟<br/>'
-            })
-            return result
-          }
-        },
-        legend: {
-          data: ['1档运行时间', '2档运行时间', '3档运行时间'],
-          top: 30
-        },
-        grid: {
-          left: '3%',
-          right: '4%',
-          bottom: '3%',
-          top: '15%',
-          containLabel: true
-        },
-        xAxis: {
-          type: 'category',
-          boundaryGap: false,
-          data: dates,
-          axisLabel: {
-            formatter: function(value) {
-              return value.substring(5) // 显示月-日
-            }
-          }
-        },
-        yAxis: {
-          type: 'value',
-          name: '运行时间',
-          axisLabel: {
-            formatter: function(value) {
-              const hours = Math.floor(value / 3600)
-              const minutes = Math.floor((value % 3600) / 60)
-              return hours > 0 ? hours + 'h' + (minutes > 0 ? minutes + 'm' : '') : minutes + 'm'
-            }
-          }
-        },
-        series: [
-          {
-            name: '1档运行时间',
-            type: 'line',
-            stack: 'Total',
-            data: gear1Data,
-            smooth: true,
-            itemStyle: {
-              color: '#67C23A'
-            },
-            areaStyle: {
-              color: 'rgba(103, 194, 58, 0.3)'
-            }
-          },
-          {
-            name: '2档运行时间',
-            type: 'line',
-            stack: 'Total',
-            data: gear2Data,
-            smooth: true,
-            itemStyle: {
-              color: '#E6A23C'
-            },
-            areaStyle: {
-              color: 'rgba(230, 162, 60, 0.3)'
-            }
-          },
-          {
-            name: '3档运行时间',
-            type: 'line',
-            stack: 'Total',
-            data: gear3Data,
-            smooth: true,
-            itemStyle: {
-              color: '#F56C6C'
-            },
-            areaStyle: {
-              color: 'rgba(245, 108, 108, 0.3)'
-            }
-          }
-        ]
-      }
-      
-      chart.setOption(option)
-      
-      } catch (error) {
-        console.error('初始化运行时间图表失败:', error)
-      }
+    const formatSevenDayRuntime = (seconds) => {
+      if (seconds === null || seconds === undefined) return '--'
+      return formatRuntime(seconds)
     }
     
     const loadDevicesByTenant = () => {
@@ -2562,7 +2432,7 @@ export default {
     const formatRuntime = (seconds) => {
       const hours = Math.floor(seconds / 3600)
       const minutes = Math.floor((seconds % 3600) / 60)
-      return `${hours}小时${minutes}分钟`
+      return `${hours}小时${minutes}分钟${Math.floor(seconds % 60)}秒`
     }
     
     // 统计相关方法
@@ -2576,9 +2446,10 @@ export default {
           '分组': item.group,
           '位置': item.location,
           '统计日期': item.stat_date,
-          '1档运行时间': formatRuntime(item.runtime_speed1 || 0),
-          '2档运行时间': formatRuntime(item.runtime_speed2 || 0),
-          '3档运行时间': formatRuntime(item.runtime_speed3 || 0)
+          ...Object.fromEntries(runtimeColumns.value.map(column => [
+            column.label,
+            formatRuntime(item[column.prop] || 0)
+          ]))
         }))
         
         // 这里需要实现导出功能
@@ -3186,7 +3057,6 @@ export default {
     // 生命周期
     onMounted(async () => {
       console.log('温控器页面开始初始化')
-      window.addEventListener('resize', resizeRuntimeChart)
       
       await Promise.all([
         loadTenantList(),
@@ -3218,9 +3088,6 @@ export default {
 
     // 组件卸载时清理资源
     onUnmounted(() => {
-      window.removeEventListener('resize', resizeRuntimeChart)
-      runtimeChartInstance?.dispose()
-      runtimeChartInstance = null
       // 移除WebSocket监听器
       websocketService.off('device_status_update', handleDeviceStatusUpdate)
       websocketService.off('device_data', handleDeviceData)
@@ -3274,9 +3141,7 @@ export default {
       statsCurrentPage,
       statsPageSize,
       totalStats,
-      deviceRuntimeHistory,
       deviceRuntimeLoading,
-      runtimeChart,
       
       // 计算属性
       filteredDevices,
@@ -3292,6 +3157,8 @@ export default {
       totalSpeed1Runtime,
       totalSpeed2Runtime,
       totalSpeed3Runtime,
+      runtimeColumns,
+      statsSummaryLabels,
       
       // 方法
       refreshAllDevicesData,
@@ -3335,6 +3202,8 @@ export default {
       getStatusTag,
       getStatusText,
       formatRuntime,
+      formatSevenDayRuntime,
+      deviceRuntimeCounters,
       exportStatsData,
       handleStatsPageChange,
       handleStatsPageSizeChange,
@@ -4442,41 +4311,11 @@ export default {
   font-size: 16px;
 }
 
-.runtime-chart-section {
-  margin-top: 28px;
-}
-
-.runtime-chart-section h4 {
-  margin-bottom: 16px;
-  color: #303133;
-  font-size: 16px;
-}
-
-.chart-container,
-.runtime-chart {
-  width: 100%;
-  height: 320px;
-  min-height: 320px;
-}
-
-.chart-container {
-  position: relative;
-}
-
-.no-data {
-  height: 320px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-@media (max-width: 768px) {
-  .chart-container,
-  .runtime-chart,
-  .no-data {
-    height: 260px;
-    min-height: 260px;
-  }
+.runtime-period-note {
+  margin: 0 0 12px;
+  color: #909399;
+  font-size: 13px;
+  line-height: 1.6;
 }
 
 .stat-item-detail {

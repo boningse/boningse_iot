@@ -53,10 +53,12 @@ const config = {
     dialect: 'postgres',
     logging: false,
     pool: {
-      max: parseInt(process.env.DB_POOL_MAX, 10) || 30,
-      min: parseInt(process.env.DB_POOL_MIN, 10) || 2,
-      acquire: parseInt(process.env.DB_CONNECTION_TIMEOUT, 10) || 60000,
-      idle: parseInt(process.env.DB_IDLE_TIMEOUT, 10) || 30000,
+      // 本进程中存在多个按模块创建的 pg Pool；不能让每个池都默认占用 30 个连接，
+      // 否则 PostgreSQL max_connections=100 会被分钟调度或高峰请求耗尽。
+      max: parseInt(process.env.DB_POOL_MAX, 10) || 5,
+      min: parseInt(process.env.DB_POOL_MIN, 10) || 0,
+      acquire: parseInt(process.env.DB_CONNECTION_TIMEOUT, 10) || 10000,
+      idle: parseInt(process.env.DB_IDLE_TIMEOUT, 10) || 10000,
       evict: parseInt(process.env.DB_POOL_EVICT, 10) || 5000
     },
     dialectOptions: {

@@ -31,6 +31,7 @@ Page({
     total: 0,
     totalPages: 1,
     loading: false,
+    canCreateManual: false,
     summary: {
       active: 0,
       assigned: 0,
@@ -40,7 +41,7 @@ Page({
   },
 
   onShow() {
-    void Promise.all([this.loadList(true), this.loadSummary()]);
+    void Promise.all([this.loadList(true), this.loadSummary(), this.loadCreateCapability()]);
     void getApp<IAppOption>().refreshUnreadCount?.();
   },
 
@@ -71,6 +72,19 @@ Page({
   onScopeChange(event: WechatMiniprogram.CustomEvent) {
     this.setData({ filters: event.detail });
     void Promise.all([this.loadList(true), this.loadSummary()]);
+  },
+
+  async loadCreateCapability() {
+    try {
+      const result = await alarmApi.getManualCapability();
+      this.setData({ canCreateManual: Boolean(result.canCreate) });
+    } catch (_) {
+      this.setData({ canCreateManual: false });
+    }
+  },
+
+  openCreate() {
+    if (this.data.canCreateManual) wx.navigateTo({ url: "/pages/work-order/create" });
   },
 
   async loadSummary() {
@@ -127,7 +141,8 @@ Page({
   },
 
   nextActionText(item: WorkOrder, userId?: string) {
-    const isAssignee = String(item.assigned_to || "") === String(userId || "");
+    const isAssignee = String(item.assigned_to || "") === String(userId || "")
+      || (item.assignee_ids || []).some((id) => String(id) === String(userId || ""));
     if (item.status === "assigned" && isAssignee) return "去接单";
     if (item.status === "processing" && isAssignee) return "继续处理";
     if (item.status === "resolved") return "查看处理结果";

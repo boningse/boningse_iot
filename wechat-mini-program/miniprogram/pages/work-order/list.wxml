@@ -6,6 +6,11 @@
     <view class="summary-item summary-item--alert"><text class="summary-item__value numeric">{{summary.critical}}</text><text class="summary-item__label">紧急</text></view>
   </view>
 
+  <view wx:if="{{canCreateManual}}" class="create-band">
+    <view><text class="create-band__title">主动派单</text><text class="create-band__hint">巡检、保养、报修和临时任务</text></view>
+    <button class="create-band__button" bindtap="openCreate">＋ 创建工单</button>
+  </view>
+
   <scroll-view class="order-tabs" scroll-x enhanced show-scrollbar="{{false}}">
     <view class="order-tabs__inner">
       <button wx:for="{{tabs}}" wx:key="key" class="order-tab {{activeTab === index ? 'order-tab--active' : ''}}" data-index="{{index}}" bindtap="selectTab">{{item.label}}</button>
@@ -15,7 +20,7 @@
   <view class="list-toolbar">
     <view class="list-search-box">
       <image src="/assets/icons/search.png" mode="aspectFit" class="search-icon"></image>
-      <input class="search-input" value="{{keyword}}" placeholder="设备、告警内容" confirm-type="search" bindinput="onKeywordInput" bindconfirm="search"></input>
+      <input class="search-input" value="{{keyword}}" placeholder="设备、工单标题或内容" confirm-type="search" bindinput="onKeywordInput" bindconfirm="search"></input>
     </view>
     <button class="list-icon-button" bindtap="search" aria-label="刷新">
       <image src="/assets/icons/refresh.png" class="search-icon" mode="aspectFit"></image>
@@ -27,18 +32,18 @@
     <view wx:for="{{list}}" wx:key="id" class="order-card" data-id="{{item.id}}" bindtap="openDetail">
       <view class="order-card__head">
         <view class="order-card__severity order-card__severity--{{item.severity}}">{{item.severityText}}</view>
-        <text class="order-card__module">{{item.moduleText}}</text>
+        <text class="order-card__module">{{item.source === "manual" ? "手动派单" : item.moduleText}}</text>
         <status-badge status="{{item.status}}"></status-badge>
       </view>
       <text class="order-card__title">{{item.title}}</text>
       <text class="order-card__message">{{item.message || "暂无补充说明"}}</text>
       <view class="order-card__device">
         <image src="/assets/icons/building.png" mode="aspectFit"></image>
-        <text>{{item.device_name}}</text>
-        <text class="order-card__location">{{item.building_name || "未分配建筑"}}</text>
+        <text>{{item.device_name || item.location_text || "非设备工单"}}</text>
+        <text class="order-card__location">{{item.building_name || item.location_text || "未指定建筑"}}</text>
       </view>
       <view class="order-card__footer">
-        <text>{{item.assigned_to_name ? "处理人：" + item.assigned_to_name : "暂未派单"}}</text>
+        <text>{{item.assignee_names ? "处理人：" + item.assignee_names : item.assigned_to_name ? "处理人：" + item.assigned_to_name : "暂未派单"}}</text>
         <view class="order-card__next"><text>{{item.nextActionText}}</text><text>›</text></view>
       </view>
       <text class="order-card__time">{{item.timeText}}</text>

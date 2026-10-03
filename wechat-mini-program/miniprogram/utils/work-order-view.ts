@@ -10,7 +10,8 @@ export const moduleLabel = (value: AlarmModule | string): string => {
     switch: "开关控制",
     lighting: "照明控制",
     thermostat: "温控控制",
-    air_conditioner: "空调控制"
+    air_conditioner: "空调控制",
+    manual: "手动工单"
   };
   return labels[value] || "设备";
 };
@@ -39,6 +40,7 @@ export const statusLabel = (value: WorkOrderStatus | string): string => {
 
 export const actionLabel = (value: WorkOrderAction | string): string => {
   const labels: Record<string, string> = {
+    created: "创建工单",
     acknowledge: "确认告警",
     acknowledged: "已确认告警",
     assign: "派单",

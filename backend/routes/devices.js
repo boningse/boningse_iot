@@ -1795,6 +1795,7 @@ router.get('/:id/logs', authenticateToken, requireDeviceAccess, async (req, res)
         online: ['上线', '连接', 'online'],
         offline: ['下线', '离线', 'offline'],
         data: ['数据', 'data'],
+        time: ['运行时间数据', '运行时间统计'],
         heartbeat: ['心跳', 'heartbeat'],
         command: ['命令', '发送', 'command'],
         error: ['错误', '失败', 'error']

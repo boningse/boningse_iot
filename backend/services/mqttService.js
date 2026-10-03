@@ -1482,6 +1482,11 @@ class MqttService {
       return 'data';
     }
 
+    // 4G温控器协议使用 pType 区分 params/property/time；计时数据不能走普通 data 路径。
+    if (String(messageData.pType || '').toLowerCase() === 'time') {
+      return 'time';
+    }
+
     // 检查消息中是否有明确的类型字段
     if (messageData.type) {
       return messageData.type;
@@ -1634,7 +1639,7 @@ class MqttService {
       }, {
         model: ProtocolConfig,
         as: 'protocol_config',
-        attributes: ['id', 'name', 'modbus_config', 'status']
+        attributes: ['id', 'name', 'modbus_config', 'data_parsing_config', 'command_config', 'status']
       }, {
         model: Device,
         as: 'parent_device',
@@ -2133,6 +2138,8 @@ class MqttService {
    * 处理温控器运行时间统计数据
    */
   async handleThermostatRuntimeData(deviceId, data, topic, messageId) {
+    let receivedLog;
+    let receivedLogData;
     try {
       // 查找设备（使用缓存）
       const device = await this.getDeviceWithCache(deviceId);
@@ -2142,6 +2149,24 @@ class MqttService {
         return;
       }
 
+      // 收到报文就保留原始 JSON，解析或入库失败也能在通信日志中追查。
+      receivedLogData = {
+        direction: 'incoming',
+        source: 'mqtt',
+        topic,
+        payload: this.sanitizeDataForStorage(data),
+        dataSize: JSON.stringify(data).length,
+        timestamp: new Date().toISOString(),
+        messageType: 'time',
+        processingStatus: 'received'
+      };
+      receivedLog = await persistDeviceLog({
+        device_id: device.id,
+        level: 'info',
+        message: '接收到温控器运行时间数据报文',
+        data: receivedLogData
+      });
+
       // 更新设备状态为在线
       await this.updateDeviceStatus(device, 'online');
 
@@ -2150,30 +2175,73 @@ class MqttService {
         await this.messageProcessingService.recordProcessingStarted(messageId);
       }
 
-      // 解析运行时间数据
-      const runtimeData = this.parseRuntimeData(data);
-      if (!runtimeData) {
+      if (data.eCode !== undefined && Number(data.eCode) !== 0) {
+        throw new Error(`温控器运行时间读取失败，eCode=${data.eCode}`);
+      }
+      const timeMapping = device.protocol_config?.data_parsing_config?.time_mapping || {};
+      const runtimeRows = this.parseRuntimeRows(data, timeMapping);
+      if (runtimeRows.length === 0) {
         logger.warn('运行时间数据解析失败', { deviceId, data });
-        return;
+        if (messageId && this.messageProcessingService) {
+          await this.messageProcessingService.recordProcessingCompleted(messageId, false, '运行时间数据不符合协议 time_mapping');
+          await this.messageProcessingService.recordStorageCompleted(messageId, false, '运行时间数据不符合协议 time_mapping');
+        }
+        throw new Error('运行时间数据不符合协议 time_mapping');
       }
 
-      // 存储到thermostat_runtime_stats表
-      await this.saveThermostatRuntimeStats(device, runtimeData);
+      const savedRows = [];
+      for (const runtimeRow of runtimeRows) {
+        const targetDevice = await this.resolveRuntimeTargetDevice(device, runtimeRow.unitId);
+        if (!targetDevice) {
+          logger.warn('未找到运行时间上报对应的温控器内机', {
+            gatewayDeviceId: device.id,
+            unitId: runtimeRow.unitId
+          });
+          continue;
+        }
+        let childLog;
+        if (String(targetDevice.id) !== String(device.id)) {
+          childLog = await persistDeviceLog({
+            device_id: targetDevice.id,
+            level: 'info',
+            message: '通过网关接收到温控器运行时间数据报文',
+            data: { ...receivedLogData, gatewayDeviceId: device.id, unitId: runtimeRow.unitId }
+          });
+        }
+        let dailyDelta;
+        try {
+          dailyDelta = await this.saveThermostatRuntimeStats(targetDevice, runtimeRow.values);
+          if (childLog) {
+            await childLog.update({
+              data: { ...childLog.data, processingStatus: 'stored', cumulativeRuntime: runtimeRow.values, dailyDelta }
+            });
+          }
+        } catch (error) {
+          if (childLog) {
+            await childLog.update({
+              level: 'error',
+              data: { ...childLog.data, processingStatus: 'failed', error: error.message }
+            }).catch(() => {});
+          }
+          throw error;
+        }
+        savedRows.push({ deviceId: targetDevice.id, unitId: runtimeRow.unitId, dailyDelta });
+      }
+      if (savedRows.length === 0) {
+        if (messageId && this.messageProcessingService) {
+          await this.messageProcessingService.recordProcessingCompleted(messageId, false, '未匹配到目标温控器设备');
+          await this.messageProcessingService.recordStorageCompleted(messageId, false, '未匹配到目标温控器设备');
+        }
+        throw new Error('未匹配到目标温控器设备');
+      }
 
       // 记录日志
-      await persistDeviceLog({
-        device_id: device.id,
-        level: 'info',
+      await receivedLog.update({
         message: '接收到温控器运行时间统计数据',
         data: {
-          direction: 'incoming',
-          source: 'mqtt',
-          topic: topic,
-          payload: this.sanitizeDataForStorage(data),
-          dataSize: JSON.stringify(data).length,
-          timestamp: new Date().toISOString(),
-          messageType: 'time',
-          runtimeStats: runtimeData
+          ...receivedLogData,
+          processingStatus: 'stored',
+          runtimeStats: savedRows
         }
       });
 
@@ -2190,10 +2258,17 @@ class MqttService {
       logger.debug('温控器运行时间统计数据处理完成', {
         deviceId: device.id,
         deviceName: device.name,
-        runtimeStats: runtimeData
+        runtimeStats: savedRows
       });
 
     } catch (error) {
+      if (receivedLog) {
+        await receivedLog.update({
+          level: 'error',
+          message: '温控器运行时间数据处理失败',
+          data: { ...receivedLogData, processingStatus: 'failed', error: error.message }
+        }).catch(() => {});
+      }
       logger.error('处理温控器运行时间统计数据失败', {
         deviceId,
         error: error.message,
@@ -2216,116 +2291,174 @@ class MqttService {
   /**
    * 解析运行时间数据
    */
-  parseRuntimeData(data) {
+  parseRuntimeRows(data, timeMapping = {}) {
     try {
-      // 如果data是字符串，尝试解析为JSON
       let parsedData = data;
       if (typeof data === 'string') {
         parsedData = JSON.parse(data);
       }
 
-      // 检查数据格式，支持两种格式：
-      // 1. 直接键值对格式：{FanLow: 123, FanMiddle: 456, ...}
-      // 2. 协议格式：{body: {items: [...], data: [[...]]}}
-      let runtimeValues = {};
+      const body = parsedData?.body || parsedData;
+      const items = Array.isArray(body?.items) ? body.items : [];
+      const rows = Array.isArray(body?.data) ? body.data : [];
+      const configuredItems = new Set(Object.keys(timeMapping || {}));
+      const columnByItem = new Map();
 
-      if (parsedData.body && parsedData.body.items && parsedData.body.data) {
-        // 协议格式：从items和data数组中提取数据
-        const items = parsedData.body.items;
-        const dataArray = parsedData.body.data[0]; // 取第一行数据
-
-        if (items.length === dataArray.length) {
-          for (let i = 0; i < items.length; i++) {
-            runtimeValues[items[i]] = dataArray[i];
-          }
-        } else {
-          logger.warn('运行时间数据格式不匹配', { items: items.length, data: dataArray.length });
-          return null;
+      for (const item of items) {
+        const mapping = timeMapping[item];
+        if (!mapping) continue;
+        const mode = String(mapping.mode || '').toLowerCase();
+        const speed = String(mapping.speed || '').toLowerCase();
+        if (['fan', 'heat', 'cool'].includes(mode) && ['low', 'middle', 'high'].includes(speed)) {
+          columnByItem.set(item, `${mode}_${speed}_runtime`);
         }
-      } else {
-        // 直接键值对格式
-        runtimeValues = parsedData;
       }
 
-      // 提取运行时间数据
-      const runtimeData = {
-        fan_low: this.extractNumericValue(runtimeValues.FanLow) || 0,
-        fan_middle: this.extractNumericValue(runtimeValues.FanMiddle) || 0,
-        fan_high: this.extractNumericValue(runtimeValues.FanHigh) || 0,
-        heat_low: this.extractNumericValue(runtimeValues.HeatLow) || 0,
-        heat_middle: this.extractNumericValue(runtimeValues.HeatMiddle) || 0,
-        heat_high: this.extractNumericValue(runtimeValues.HeatHigh) || 0,
-        cool_low: this.extractNumericValue(runtimeValues.CoolLow) || 0,
-        cool_middle: this.extractNumericValue(runtimeValues.CoolMiddle) || 0,
-        cool_high: this.extractNumericValue(runtimeValues.CoolHigh) || 0
-      };
+      if (!configuredItems.size || !columnByItem.size || !rows.length) return [];
+      const ids = Array.isArray(body.id) ? body.id : [];
+      const parsedRows = rows.map((row, rowIndex) => {
+        const values = {};
+        if (Array.isArray(row)) {
+          if (row.length !== items.length) {
+            logger.warn('运行时间数据列与协议 items 不匹配', { itemCount: items.length, valueCount: row.length });
+            return null;
+          }
+          items.forEach((item, columnIndex) => {
+            const column = columnByItem.get(item);
+            if (!column) return;
+            const numeric = this.extractNumericValue(row[columnIndex]);
+            if (numeric !== null && numeric !== undefined && Number.isFinite(Number(numeric))) {
+              values[column] = Math.max(0, Math.trunc(Number(numeric)));
+            }
+          });
+        } else if (row && typeof row === 'object') {
+          for (const [item, column] of columnByItem) {
+            if (!Object.prototype.hasOwnProperty.call(row, item)) continue;
+            const numeric = this.extractNumericValue(row[item]);
+            if (numeric !== null && numeric !== undefined && Number.isFinite(Number(numeric))) {
+              values[column] = Math.max(0, Math.trunc(Number(numeric)));
+            }
+          }
+        }
+        return Object.keys(values).length ? { unitId: ids[rowIndex] ?? null, values } : null;
+      }).filter(Boolean);
 
-      // 计算总运行时间
-      runtimeData.total_runtime = runtimeData.fan_low + runtimeData.fan_middle + runtimeData.fan_high;
-      runtimeData.runtime_cool = runtimeData.cool_low + runtimeData.cool_middle + runtimeData.cool_high;
-      runtimeData.runtime_heat = runtimeData.heat_low + runtimeData.heat_middle + runtimeData.heat_high;
-      runtimeData.runtime_fan = runtimeData.fan_low + runtimeData.fan_middle + runtimeData.fan_high;
-
-      // 根据数据库表结构映射字段
-      runtimeData.runtime_speed1 = runtimeData.fan_low;
-      runtimeData.runtime_speed2 = runtimeData.fan_middle;
-      runtimeData.runtime_speed3 = runtimeData.fan_high;
-
-      logger.debug('运行时间数据解析成功', {
-        originalData: runtimeValues, 
-        parsedData: runtimeData 
-      });
-
-      return runtimeData;
+      return parsedRows;
     } catch (error) {
       logger.error('解析运行时间数据失败', { error: error.message, data });
-      return null;
+      return [];
     }
+  }
+
+  async resolveRuntimeTargetDevice(sourceDevice, unitId) {
+    if (sourceDevice.is_thermostat && sourceDevice.device_category !== 'gateway') {
+      return sourceDevice;
+    }
+    const address = Number(unitId);
+    if (!Number.isInteger(address)) return null;
+    return Device.findOne({
+      where: {
+        parent_device_id: sourceDevice.id,
+        sub_device_sequence: address,
+        is_thermostat: true
+      }
+    });
   }
 
   /**
    * 保存温控器运行时间统计数据到数据库
    */
   async saveThermostatRuntimeStats(device, runtimeData) {
+    const metricColumns = [
+      'fan_low_runtime', 'fan_middle_runtime', 'fan_high_runtime',
+      'heat_low_runtime', 'heat_middle_runtime', 'heat_high_runtime',
+      'cool_low_runtime', 'cool_middle_runtime', 'cool_high_runtime'
+    ];
+    const client = await pool.connect();
     try {
-      const statDate = new Date().toISOString().split('T')[0]; // 当前日期
-      
-      const query = `
-        INSERT INTO thermostat_runtime_stats (
-          device_id, stat_date, runtime_speed1, 
-          runtime_speed2, runtime_speed3, created_at, updated_at
-        ) VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
-        ON CONFLICT (device_id, stat_date) 
-        DO UPDATE SET 
-          runtime_speed1 = EXCLUDED.runtime_speed1,
-          runtime_speed2 = EXCLUDED.runtime_speed2,
-          runtime_speed3 = EXCLUDED.runtime_speed3,
-          updated_at = NOW()
-      `;
+      await client.query('BEGIN');
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [String(device.id)]);
+      await client.query(`
+        INSERT INTO thermostat_runtime_snapshots (device_id) VALUES ($1)
+        ON CONFLICT (device_id) DO NOTHING
+      `, [device.id]);
+      const previousResult = await client.query(
+        `SELECT ${metricColumns.join(', ')} FROM thermostat_runtime_snapshots WHERE device_id = $1 FOR UPDATE`,
+        [device.id]
+      );
+      const previous = previousResult.rows[0];
+      const next = {};
+      const delta = {};
+      for (const column of metricColumns) {
+        const incoming = runtimeData[column];
+        const oldValue = previous[column] === null ? null : Number(previous[column]);
+        if (incoming === null || incoming === undefined) {
+          next[column] = oldValue;
+          delta[column] = 0;
+          continue;
+        }
+        const current = Math.max(0, Math.trunc(Number(incoming)));
+        next[column] = current;
+        // 首次读数只建立累计计时基线；计时器清零后从新值继续累计。
+        delta[column] = oldValue === null ? 0 : (current >= oldValue ? current - oldValue : current);
+      }
 
-      const values = [
-        device.id,
-        statDate,
-        runtimeData.runtime_speed1 || 0,
-        runtimeData.runtime_speed2 || 0,
-        runtimeData.runtime_speed3 || 0
+      await client.query(`
+        UPDATE thermostat_runtime_snapshots SET
+          ${metricColumns.map((column, index) => `${column} = $${index + 2}`).join(',\n          ')},
+          last_received_at = clock_timestamp(), updated_at = NOW()
+        WHERE device_id = $1
+      `, [device.id, ...metricColumns.map(column => next[column])]);
+
+      // Keep each actual cumulative reply; do not invent older readings or
+      // carry an omitted field into historical observations.
+      await client.query(`
+        INSERT INTO thermostat_runtime_history (device_id, observed_at, ${metricColumns.join(', ')})
+        SELECT device_id, last_received_at, ${metricColumns.map((_, index) => `$${index + 2}::bigint`).join(', ')}
+        FROM thermostat_runtime_snapshots WHERE device_id = $1
+        ON CONFLICT (device_id, observed_at) DO NOTHING
+      `, [device.id, ...metricColumns.map(column => runtimeData[column] ?? null)]);
+
+      const modeColumns = {
+        fan: ['fan_low_runtime', 'fan_middle_runtime', 'fan_high_runtime'],
+        heat: ['heat_low_runtime', 'heat_middle_runtime', 'heat_high_runtime'],
+        cool: ['cool_low_runtime', 'cool_middle_runtime', 'cool_high_runtime']
+      };
+      const speedDeltas = [0, 1, 2].map(speedIndex => Object.values(modeColumns)
+        .reduce((sum, columns) => sum + delta[columns[speedIndex]], 0));
+      const statColumns = [
+        ...metricColumns,
+        'runtime_speed1', 'runtime_speed2', 'runtime_speed3'
       ];
+      const statValues = [
+        ...metricColumns.map(column => delta[column]),
+        ...speedDeltas
+      ];
+      await client.query(`
+        INSERT INTO thermostat_runtime_stats (
+          device_id, stat_date, ${statColumns.join(', ')}, created_at, updated_at
+        ) VALUES (
+          $1, (NOW() AT TIME ZONE 'Asia/Shanghai')::date,
+          ${statColumns.map((_, index) => `$${index + 2}`).join(', ')}, NOW(), NOW()
+        )
+        ON CONFLICT (device_id, stat_date) DO UPDATE SET
+          ${statColumns.map(column => `${column} = thermostat_runtime_stats.${column} + EXCLUDED.${column}`).join(',\n          ')},
+          updated_at = NOW()
+      `, [device.id, ...statValues]);
 
-      await pool.query(query, values);
-
-      logger.debug('温控器运行时间统计数据保存成功', {
-        deviceId: device.id,
-        statDate,
-        runtimeData
-      });
-
+      await client.query('COMMIT');
+      logger.debug('温控器三模式三风速运行时间增量已保存', { deviceId: device.id, delta });
+      return delta;
     } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
       logger.error('保存温控器运行时间统计数据失败', {
         deviceId: device.id,
         error: error.message,
         runtimeData
       });
       throw error;
+    } finally {
+      client.release();
     }
   }
 

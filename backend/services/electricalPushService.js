@@ -6,6 +6,7 @@ const logger = require('../utils/logger');
 const pool = new Pool(getPoolConfig());
 const PUSH_ENDPOINT = 'https://caiji.boningse.com/api/electrical/upload-data';
 const running = new Set();
+const PUSH_CONCURRENCY = Math.max(1, Math.min(parseInt(process.env.ELECTRICAL_PUSH_CONCURRENCY, 10) || 4, 10));
 
 const METRICS = Object.freeze({
   voltage: { paraname: '电压', unit: 'V' },
@@ -153,7 +154,12 @@ async function pushDueConfigs() {
      ORDER BY COALESCE(last_attempt_at, to_timestamp(0)) ASC
      LIMIT 100`
   );
-  const results = await Promise.allSettled(due.rows.map((config) => pushConfig(config)));
+  const results = [];
+  // 配置较多时不能在一个分钟调度中同时发起上百个数据库和 HTTPS 请求。
+  for (let index = 0; index < due.rows.length; index += PUSH_CONCURRENCY) {
+    const batch = due.rows.slice(index, index + PUSH_CONCURRENCY);
+    results.push(...await Promise.allSettled(batch.map((config) => pushConfig(config))));
+  }
   const failed = results.filter((result) => result.status === 'rejected');
   if (failed.length) logger.warn('部分电气数据推送失败', { failed: failed.length, total: results.length });
   return { total: results.length, failed: failed.length };

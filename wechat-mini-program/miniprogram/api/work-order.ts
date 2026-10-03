@@ -12,6 +12,45 @@ interface AlarmListPayload {
   pagination: PageResult<WorkOrder>["pagination"];
 }
 
+export interface ManualOrderUser {
+  id: string;
+  username: string;
+  role: string;
+  building_id?: string;
+  group_id?: string;
+  department?: string;
+}
+
+export interface ManualOrderDevice {
+  id: string;
+  name: string;
+  imei?: string;
+  project_building_id?: string;
+  project_group_id?: string;
+}
+
+export interface ManualOrderOptions {
+  users: ManualOrderUser[];
+  devices: ManualOrderDevice[];
+  departments: string[];
+}
+
+export interface CreateManualOrder {
+  tenantId: string;
+  workOrderType: string;
+  title: string;
+  description: string;
+  priority: string;
+  expectedAt?: string;
+  location?: string;
+  department?: string;
+  buildingId?: string;
+  groupId?: string;
+  deviceId?: string;
+  assigneeIds: string[];
+  watcherIds: string[];
+}
+
 export const alarmApi = {
   getSummary(query: Query = {}) {
     return request<Record<string, unknown>>("/alarms/summary", { query });
@@ -30,6 +69,18 @@ export const alarmApi = {
       "/alarms/options",
       { query: { alarmId, tenantId } }
     );
+  },
+
+  getManualCapability() {
+    return request<{ canCreate: boolean }>("/alarms/manual/capability");
+  },
+
+  getManualOptions(tenantId: string) {
+    return request<ManualOrderOptions>("/alarms/manual/options", { query: { tenantId } });
+  },
+
+  createManual(data: CreateManualOrder) {
+    return request<WorkOrder>("/alarms/manual", { method: "POST", data });
   },
 
   performAction(

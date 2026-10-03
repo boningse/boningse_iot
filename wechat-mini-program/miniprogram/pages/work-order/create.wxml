@@ -1,0 +1,75 @@
+<view class="create-page">
+  <view class="create-intro">
+    <text class="create-intro__eyebrow">MANUAL WORK ORDER</text>
+    <text class="create-intro__title">主动派单</text>
+    <text class="create-intro__desc">适用于巡检保养、线下报修和临时安排。提交后会通知处理人与知会人员。</text>
+  </view>
+
+  <view wx:if="{{loading}}" class="loading-note">正在加载可派单人员与位置…</view>
+
+  <view class="form-card">
+    <view class="section-head"><text class="section-head__number">01</text><text>工单信息</text></view>
+
+    <view wx:if="{{isAdmin}}" class="field">
+      <text class="field__label">所属租户 <text class="required">*</text></text>
+      <picker mode="selector" range="{{tenantNames}}" value="{{tenantIndex}}" bindchange="onTenantChange">
+        <view class="picker-value {{tenantIndex < 0 ? 'picker-value--empty' : ''}}">{{tenantIndex < 0 ? "请选择租户" : tenantNames[tenantIndex]}}<text>›</text></view>
+      </picker>
+    </view>
+    <view wx:else class="field"><text class="field__label">所属租户</text><view class="readonly-value">{{fixedTenantName}}</view></view>
+
+    <view class="field-row">
+      <view class="field field--half">
+        <text class="field__label">工单类型 <text class="required">*</text></text>
+        <picker mode="selector" range="{{typeNames}}" value="{{typeIndex}}" bindchange="onTypeChange"><view class="picker-value">{{typeNames[typeIndex]}}<text>›</text></view></picker>
+      </view>
+      <view class="field field--half">
+        <text class="field__label">优先级 <text class="required">*</text></text>
+        <picker mode="selector" range="{{priorityNames}}" value="{{priorityIndex}}" bindchange="onPriorityChange"><view class="picker-value">{{priorityNames[priorityIndex]}}<text>›</text></view></picker>
+      </view>
+    </view>
+    <view class="field"><text class="field__label">工单标题 <text class="required">*</text></text><input class="text-input" maxlength="160" placeholder="如：康复楼空调换季保养" value="{{title}}" bindinput="onTitleInput"></input></view>
+    <view class="field"><text class="field__label">工作内容 <text class="required">*</text></text><textarea class="text-area" maxlength="5000" placeholder="写明处理事项、工作要求和注意事项" value="{{description}}" bindinput="onDescriptionInput"></textarea></view>
+  </view>
+
+  <view class="form-card">
+    <view class="section-head"><text class="section-head__number">02</text><text>地点与时间</text></view>
+    <view class="field-row">
+      <view class="field field--half"><text class="field__label">所属建筑</text><picker mode="selector" range="{{buildingNames}}" value="{{buildingIndex}}" bindchange="onBuildingChange"><view class="picker-value">{{buildingNames[buildingIndex]}}<text>›</text></view></picker></view>
+      <view class="field field--half"><text class="field__label">所属分组</text><picker mode="selector" range="{{groupNames}}" value="{{groupIndex}}" bindchange="onGroupChange"><view class="picker-value">{{groupNames[groupIndex]}}<text>›</text></view></picker></view>
+    </view>
+    <view class="field"><text class="field__label">关联设备（选填）</text><picker mode="selector" range="{{deviceNames}}" value="{{deviceIndex}}" bindchange="onDeviceChange"><view class="picker-value picker-value--truncate">{{deviceNames[deviceIndex]}}<text>›</text></view></picker></view>
+    <view class="field"><text class="field__label">详细地点</text><input class="text-input" maxlength="300" placeholder="楼层、房间或现场地址" value="{{location}}" bindinput="onLocationInput"></input><text class="field__hint">至少填写地点，或选择建筑、分组、设备之一</text></view>
+    <view class="field-row">
+      <view class="field field--half"><text class="field__label">期望完成日期</text><picker mode="date" value="{{dueDate}}" bindchange="onDateChange"><view class="picker-value {{!dueDate ? 'picker-value--empty' : ''}}">{{dueDate || "选择日期"}}<text>›</text></view></picker></view>
+      <view class="field field--half"><text class="field__label">期望完成时间</text><picker mode="time" value="{{dueTime}}" bindchange="onTimeChange"><view class="picker-value {{!dueTime ? 'picker-value--empty' : ''}}">{{dueTime || "选择时间"}}<text>›</text></view></picker></view>
+    </view>
+    <text wx:if="{{dueDate || dueTime}}" class="clear-time" bindtap="clearDue">清除期望完成时间</text>
+  </view>
+
+  <view class="form-card">
+    <view class="section-head"><text class="section-head__number">03</text><text>人员指派</text></view>
+    <view class="field"><text class="field__label">处理部门</text><picker mode="selector" range="{{departmentNames}}" value="{{departmentIndex}}" bindchange="onDepartmentChange"><view class="picker-value">{{departmentNames[departmentIndex]}}<text>›</text></view></picker><input class="text-input department-input" maxlength="100" placeholder="也可直接填写部门名称" value="{{departmentText}}" bindinput="onDepartmentInput"></input></view>
+
+    <view class="person-section"><view class="person-section__head"><text>处理人 <text class="required">*</text></text><text>已选 {{assigneeIds.length}} 人</text></view>
+      <text class="field__hint">可选择多人；建筑级、分组级人员需先选择对应位置。</text>
+      <scroll-view wx:if="{{assignees.length}}" class="person-list" scroll-y>
+        <checkbox-group bindchange="onAssigneesChange">
+          <label wx:for="{{assignees}}" wx:key="id" class="person-item"><checkbox value="{{item.id}}" checked="{{item.checked}}" color="#13795B"></checkbox><text>{{item.label}}</text></label>
+        </checkbox-group>
+      </scroll-view>
+      <view wx:else class="empty-people">当前租户或位置下暂无可选处理人</view>
+    </view>
+
+    <view class="person-section"><view class="person-section__head"><text>知会人员</text><text>已选 {{watcherIds.length}} 人</text></view>
+      <text class="field__hint">知会人员会收到站内消息，不承担接单任务。</text>
+      <scroll-view wx:if="{{watchers.length}}" class="person-list" scroll-y>
+        <checkbox-group bindchange="onWatchersChange">
+          <label wx:for="{{watchers}}" wx:key="id" class="person-item"><checkbox value="{{item.id}}" checked="{{item.checked}}" color="#13795B"></checkbox><text>{{item.label}}</text></label>
+        </checkbox-group>
+      </scroll-view>
+    </view>
+  </view>
+
+  <view class="submit-dock"><button class="submit-button" loading="{{submitting}}" disabled="{{submitting || loading}}" bindtap="submit">创建并通知处理人</button></view>
+</view>

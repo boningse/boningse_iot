@@ -872,6 +872,8 @@ function mapDevice(x) {
     voltage_b: null,
     voltage_c: null,
     powerOn: [true, 1, "1", "true", "on"].includes(x.power_status),
+    // 已知状态的入库时间，用于丢弃“比已知状态更旧”的读取结果（控制后设备回包前的旧值）。
+    statusTimestamp: x.status_timestamp ? new Date(x.status_timestamp).getTime() : 0,
     loading: false,
   };
 }
@@ -889,11 +891,15 @@ function deviceListParams() {
     return params;
 }
 
-// 上报只触发读取已入库状态，不在浏览器重复解析协议或下发 statistic 指令。
+// 实时推送只作为“重新读取已入库状态”的信号，不在浏览器重复解析协议或下发 statistic 指令。
+// 但多数推送本身只是通信日志性质（心跳、纯电气采样、控制回执 ACK 等），并不代表开关状态已变化，
+// 不能一律触发刷新——否则会在新状态入库前用旧库值覆盖本地/乐观状态（表现为“关→开→关”闪变）。
+// 因此仅在推送真正携带状态变化、或本页设备离线需恢复在线时才读取 DB。
 const switchRealtimeTopics = [
   "device_data", "device_response", "device_event", "device_status_update",
   "device_offline", "device_heartbeat", "lighting_switch_status", "lighting_electrical_data",
 ];
+const switchReportHandlers = new Map();
 let disposed = false;
 let syncTimer = null;
 let syncInterval = null;
@@ -931,7 +937,14 @@ async function syncDeviceStatuses() {
     for (const device of devices.value) {
       const row = rows.get(String(device.rawDeviceId));
       if (!row) continue;
-      if (row.power_status != null) device.powerOn = [true, 1, "1", "true", "on"].includes(row.power_status);
+      // 仅在库中状态比本页已知状态更新时才覆盖。控制指令下发后、设备回包入库前，
+      // 列表/push 读到的仍是命令前的同一行旧状态（时间戳不变），无条件覆盖会把乐观值顶回旧态，
+      // 这正是“关→开→关”的来源（如 15 秒周期轮询恰好落在命令与入库之间）。
+      const rowAt = row.status_timestamp ? new Date(row.status_timestamp).getTime() : 0;
+      if (row.power_status != null && rowAt > (device.statusTimestamp || 0)) {
+        device.powerOn = [true, 1, "1", "true", "on"].includes(row.power_status);
+        device.statusTimestamp = rowAt;
+      }
       device.status = row.device_status || device.status;
     }
   } catch (error) {
@@ -944,14 +957,35 @@ async function syncDeviceStatuses() {
   }
 }
 
-function handleSwitchReport(message) {
+// 判断推送是否真正携带设备/开关状态变化（这类推送在后端完成入库后才发出，可用于刷新）。
+function isStatusCarryingPush(topic, message) {
+  if (topic === "device_status_update" || topic === "device_offline") return true; // 在线/离线变化
+  if (topic === "lighting_switch_status") return true; // 设备上报的真实开关状态
+  // ZQC 上报的电气数据携带 power_status 时才代表开关状态；纯电气采样不算。
+  if (topic === "lighting_electrical_data") return message.power_status != null;
+  // 事件/普通数据仅在消息体明确带开关字段时才视为状态信号。
+  if (topic === "device_event" || topic === "device_data") {
+    const body = [message.payload, message.data, message].find((value) => value && typeof value === "object");
+    return body != null && ["power_status", "power_state", "switch_status", "key1", "key2", "key3"]
+      .some((key) => body[key] !== undefined && body[key] !== null);
+  }
+  // device_response（控制回执）与 device_heartbeat（心跳）是纯日志性质的上报，不触发。
+  return false;
+}
+
+function handleSwitchReport(topic, message) {
   if (!message || message.direction === "outgoing") return;
   const identifiers = [message.device_id, message.deviceId, message.device_id_value, message.imei]
     .filter((value) => value != null && value !== "").map(String);
   // id 是控制模块绑定记录ID，rawDeviceId 才是设备UUID，不能混用。
-  if (devices.value.some((device) =>
-    [device.rawDeviceId, device.deviceId].some((id) => id != null && identifiers.includes(String(id))),
-  )) queueStatusSync();
+  const device = devices.value.find((item) =>
+    [item.rawDeviceId, item.deviceId].some((id) => id != null && identifiers.includes(String(id))),
+  );
+  if (!device) return;
+  if (isStatusCarryingPush(topic, message)) { queueStatusSync(); return; }
+  // 其余为通信日志性质的上报（心跳/纯电气/ACK 等）。本页设备当前离线时视为恢复在线的信号，
+  // 及时读取一次；在线设备的这类推送不代表开关状态变化，忽略，避免用未入库的旧状态覆盖本地（乐观）值。
+  if (device.status !== "online") queueStatusSync();
 }
 
 function onRealtimeConnected() {
@@ -983,7 +1017,6 @@ async function loadDevices() {
     ElMessage.error(e.message || "加载开关设备失败");
   } finally {
     loading.value = false;
-    queueStatusSync();
   }
 }
 async function send(device, payload) {
@@ -1006,8 +1039,14 @@ async function refreshDevice(device) {
   const status = s.status === "fulfilled" ? s.value.data || {} : {};
   const electrical = e.status === "fulfilled" ? e.value : null;
   if (disposed) return;
-  if (revision === statusRevision && status.power_status != null)
+  // 只有在读到的状态比已知状态更新时才覆盖。控制后紧接着读取，拿到的常是设备回包前的旧状态，
+  // 无条件覆盖会把乐观值顶回旧态，表现为“关→开→关”；新状态改由推送/周期同步补齐。
+  const statusAt = status.timestamp ? new Date(status.timestamp).getTime() : 0;
+  if (revision === statusRevision && status.power_status != null &&
+      statusAt > (device.statusTimestamp || 0)) {
     device.powerOn = [true, 1, "1", "true", "on"].includes(status.power_status);
+    device.statusTimestamp = statusAt;
+  }
   Object.assign(device, electrical || status);
 }
 async function controlPower(device, on) {
@@ -1438,7 +1477,11 @@ async function openDetail(device) {
   }
 }
 onMounted(async () => {
-  switchRealtimeTopics.forEach((topic) => websocketService.on(topic, handleSwitchReport));
+  switchRealtimeTopics.forEach((topic) => {
+    const handler = (payload) => handleSwitchReport(topic, payload);
+    switchReportHandlers.set(topic, handler);
+    websocketService.on(topic, handler);
+  });
   websocketService.on("connected", onRealtimeConnected);
   websocketService.connect();
   onRealtimeConnected();
@@ -1456,7 +1499,8 @@ onUnmounted(() => {
   syncController?.abort();
   controlRefreshTimers.forEach(clearTimeout);
   document.removeEventListener("visibilitychange", resumeStatusSync);
-  switchRealtimeTopics.forEach((topic) => websocketService.off(topic, handleSwitchReport));
+  switchReportHandlers.forEach((handler, topic) => websocketService.off(topic, handler));
+  switchReportHandlers.clear();
   websocketService.off("connected", onRealtimeConnected);
   // 共享连接由其它模块继续使用，只移除本页监听。
 });

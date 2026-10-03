@@ -37,6 +37,7 @@ const PAGE_PERMISSION_ROLES = Object.freeze({
   alarms: ['tenant_admin', 'user', 'building_user', 'group_user'],
   'system-settings': ['tenant_admin', 'building_user']
 });
+const ACTION_PERMISSION_ROLES = Object.freeze({ 'alarms-create': ['tenant_admin'] });
 
 const getProfile = (user) => user?.profile || {};
 const getBuildingId = (user) => getProfile(user).project_building_id || getProfile(user).building_id || '';
@@ -595,7 +596,11 @@ router.get('/:id/permissions', authenticateToken, requireRole(['admin', 'tenant_
       return reject(res, 403, '无权查看该用户权限');
     }
 
-    const permissions = user.profile?.permissions || [];
+    const permissions = Array.isArray(user.profile?.permissions) ? [...user.profile.permissions] : [];
+    if (user.role === 'tenant_admin' && user.profile?.manual_work_order_create_enabled !== false
+      && !permissions.includes('alarms-create')) {
+      permissions.push('alarms-create');
+    }
 
     res.json({
       success: true,
@@ -651,7 +656,7 @@ router.put('/:id/permissions', authenticateToken, requireRole(['admin', 'tenant_
       });
     }
 
-    const validPermissions = Object.entries(PAGE_PERMISSION_ROLES)
+    const validPermissions = Object.entries({ ...PAGE_PERMISSION_ROLES, ...ACTION_PERMISSION_ROLES })
       .filter(([, roles]) => roles.includes(user.role))
       .map(([permission]) => permission);
 
@@ -671,6 +676,9 @@ router.put('/:id/permissions', authenticateToken, requireRole(['admin', 'tenant_
       permissions,
       permissions_configured: true
     };
+    if (user.role === 'tenant_admin') {
+      updatedProfile.manual_work_order_create_enabled = permissions.includes('alarms-create');
+    }
 
     await user.update({ profile: updatedProfile });
 

@@ -409,6 +409,11 @@
               </el-row>
             </el-checkbox-group>
           </el-form-item>
+          <el-form-item v-if="selectedUser.role === 'tenant_admin'" label="工单权限">
+            <el-checkbox-group v-model="userPermissions">
+              <el-checkbox label="alarms-create">手动创建并派发工单</el-checkbox>
+            </el-checkbox-group>
+          </el-form-item>
         </el-form>
       </div>
       
@@ -1136,6 +1141,7 @@ const manageUserPermissions = async (user) => {
     const response = await userAPI.getUserPermissions(user.id)
     if (response.success) {
       const availableValues = new Set(availablePermissions.value.map(permission => permission.value))
+      if (user.role === 'tenant_admin') availableValues.add('alarms-create')
       userPermissions.value = (response.data.permissions || []).filter(permission => availableValues.has(permission))
     } else {
       userPermissions.value = []

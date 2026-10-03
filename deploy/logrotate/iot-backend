@@ -1,0 +1,23 @@
+/opt/iot/logs/backend*.log {
+    daily
+    rotate 14
+    maxsize 20M
+    missingok
+    notifempty
+    compress
+    dateext
+    copytruncate
+    su bnse bnse
+}
+
+/opt/iot/backend/logs/*.log {
+    daily
+    rotate 14
+    maxsize 20M
+    missingok
+    notifempty
+    compress
+    dateext
+    copytruncate
+    su bnse bnse
+}

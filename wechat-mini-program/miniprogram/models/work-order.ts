@@ -1,4 +1,4 @@
-export type AlarmModule = "switch" | "lighting" | "thermostat" | "air_conditioner";
+export type AlarmModule = "switch" | "lighting" | "thermostat" | "air_conditioner" | "manual";
 export type AlarmSeverity = "critical" | "high" | "medium" | "low";
 export type WorkOrderStatus =
   | "active"
@@ -25,10 +25,18 @@ export interface WorkOrder {
   message?: string;
   alarm_code?: string;
   alarm_type?: string;
+  source?: string;
+  work_order_type?: string;
+  expected_at?: string;
+  location_text?: string;
+  department_name?: string;
+  assignee_ids?: string[];
+  assignee_names?: string;
+  watcher_names?: string;
   module_type: AlarmModule;
   severity: AlarmSeverity;
   status: WorkOrderStatus;
-  device_name: string;
+  device_name?: string;
   imei?: string;
   device_status?: string;
   tenant_name?: string;

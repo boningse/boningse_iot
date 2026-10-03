@@ -4,6 +4,7 @@ const logger = require('../utils/logger');
 const mqttService = require('./mqttService');
 const websocketService = require('./websocketService');
 const mqttConfigService = require('./mqttConfigService');
+const { calculateRuntimeIncrease } = require('../utils/thermostatRuntimeIncrease');
 
 /**
  * 温控器服务层
@@ -267,11 +268,14 @@ class ThermostatService {
         m.code as manufacturer_code_full,
         m.subscription_type,
         pc.command_config,
+        pc.data_parsing_config,
         p.device_id as parent_device_code,
         p.imei as parent_imei,
         p.manufacturer_code as parent_manufacturer_code,
         pm.subscription_type as parent_subscription_type,
         ppc.command_config as parent_command_config,
+        ppc.data_parsing_config as parent_data_parsing_config,
+        to_jsonb(runtime_snapshot) AS runtime_counters,
         t.name as tenant_name,
         dt.name as device_type_name,
         COALESCE(tp.last_data_time, d.updated_at) as last_update
@@ -285,6 +289,7 @@ class ThermostatService {
       LEFT JOIN devices p ON d.parent_device_id = p.id
       LEFT JOIN manufacturers pm ON p.manufacturer_code = pm.code
       LEFT JOIN protocol_configs ppc ON p.protocol_config_id = ppc.id
+      LEFT JOIN thermostat_runtime_snapshots runtime_snapshot ON runtime_snapshot.device_id = d.id
       WHERE (d.id::text = $1 OR d.device_id = $1)
         AND dt.name = '空调温控器'
         AND d.is_thermostat = true
@@ -308,6 +313,7 @@ class ThermostatService {
           device.communication_manufacturer_code = device.parent_manufacturer_code || device.manufacturer_code;
           device.communication_subscription_type = device.parent_subscription_type || device.subscription_type;
           device.command_config = device.parent_command_config || device.command_config;
+          device.data_parsing_config = device.parent_data_parsing_config || device.data_parsing_config;
           device.thermostat_unit_id = device.sub_device_sequence || 1;
         } else {
           device.communication_device_id = device.device_id;
@@ -564,13 +570,10 @@ class ThermostatService {
   }
 
   getCommandConfigCommands(commandConfig) {
-    if (commandConfig?.commands) {
-      return commandConfig.commands;
-    }
-    if (commandConfig?.command_config?.commands) {
-      return commandConfig.command_config.commands;
-    }
-    return null;
+    const nestedCommands = commandConfig?.command_config?.commands || {};
+    const rootCommands = commandConfig?.commands || {};
+    const commands = { ...nestedCommands, ...rootCommands };
+    return Object.keys(commands).length ? commands : null;
   }
 
   applyCommunicationFields(controlCommand, device) {
@@ -1673,25 +1676,18 @@ class ThermostatService {
     const defaultStart = new Date(`${endDate}T00:00:00`);
     defaultStart.setDate(defaultStart.getDate() - 29);
     const startDate = dateRange?.[0] || defaultStart.toISOString().slice(0, 10);
+    if (mode === 'dehumidify') return [];
+
     const params = [startDate, endDate, tenantId || null];
     const filters = [];
-
     if (deviceId) {
       params.push(deviceId);
-      filters.push(`tsm.device_id IN (
-        SELECT id
-        FROM devices
-        WHERE id::text = $${params.length}
-          OR device_id = $${params.length}
-          OR imei = $${params.length}
-      )`);
+      filters.push(`(d.id::text = $${params.length} OR d.device_id = $${params.length} OR d.imei = $${params.length})`);
     }
-
     if (groupId) {
       params.push(groupId);
       filters.push(`tp.group_id = $${params.length}`);
     }
-
     if (buildingId) {
       params.push(buildingId);
       filters.push(`d.project_building_id = $${params.length}`);
@@ -1700,99 +1696,83 @@ class ThermostatService {
       params.push(projectGroupId);
       filters.push(`d.project_group_id = $${params.length}`);
     }
-
-    if (mode && mode !== 'all') {
-      params.push(mode);
-      filters.push(`LOWER(COALESCE(tsm.mode, '')) = LOWER($${params.length})`);
-    }
-
     const extraFilters = filters.length ? `AND ${filters.join(' AND ')}` : '';
+    const selectedMode = ['fan', 'heat', 'cool'].includes(mode) ? mode : null;
+    const selectedColumns = selectedMode
+      ? [`${selectedMode}_low_runtime`, `${selectedMode}_middle_runtime`, `${selectedMode}_high_runtime`]
+      : null;
+    const speedExpressions = [0, 1, 2].map(index => selectedColumns
+      ? `COALESCE(trs.${selectedColumns[index]}, 0)`
+      : `COALESCE(trs.fan_${['low', 'middle', 'high'][index]}_runtime, 0) + COALESCE(trs.heat_${['low', 'middle', 'high'][index]}_runtime, 0) + COALESCE(trs.cool_${['low', 'middle', 'high'][index]}_runtime, 0)`);
 
     const query = `
-      WITH bounds AS (
-        SELECT
-          ($1::date::timestamp AT TIME ZONE 'Asia/Shanghai') AS range_start,
-          (($2::date + 1)::timestamp AT TIME ZONE 'Asia/Shanghai') AS range_end
-      ), ordered AS (
-        SELECT
-          tsm.device_id,
-          d.name AS device_name,
-          d.location,
-          tg.name AS group_name,
-          tsm.measured_at,
-          COALESCE(tsm.running_status, tsm.power_status) AS running_status,
-          LOWER(TRIM(COALESCE(tsm.fan_speed, ''))) AS fan_speed,
-          LEAD(tsm.measured_at) OVER (
-            PARTITION BY tsm.device_id ORDER BY tsm.measured_at
-          ) AS next_measured_at,
-          b.range_start,
-          b.range_end
-        FROM thermostat_status_measurements tsm
-        JOIN devices d ON d.id = tsm.device_id
-        LEFT JOIN thermostat_properties tp ON d.id = tp.device_id
-        LEFT JOIN thermostat_groups tg ON tp.group_id = tg.id
-        CROSS JOIN bounds b
-        WHERE tsm.measured_at >= b.range_start - INTERVAL '30 minutes'
-          AND tsm.measured_at < b.range_end
-          AND ($3::uuid IS NULL OR d.tenant_id = $3::uuid)
-          ${extraFilters}
-      ), segments AS (
-        SELECT *,
-          GREATEST(measured_at, range_start) AS segment_start,
-          LEAST(
-            COALESCE(next_measured_at, LEAST(NOW(), range_end)),
-            measured_at + INTERVAL '30 minutes',
-            range_end
-          ) AS segment_end
-        FROM ordered
-      )
       SELECT
-        device_id,
-        device_name,
-        location,
-        group_name,
-        TO_CHAR(segment_start AT TIME ZONE 'Asia/Shanghai', 'YYYY-MM-DD') AS stat_date,
-        ROUND(SUM(CASE
-          WHEN running_status IS TRUE AND fan_speed IN ('1', 'low', '低', '低速')
-          THEN GREATEST(EXTRACT(EPOCH FROM segment_end - segment_start), 0) ELSE 0 END))::bigint AS runtime_speed1,
-        ROUND(SUM(CASE
-          WHEN running_status IS TRUE AND fan_speed IN ('2', 'medium', 'middle', '中', '中速')
-          THEN GREATEST(EXTRACT(EPOCH FROM segment_end - segment_start), 0) ELSE 0 END))::bigint AS runtime_speed2,
-        ROUND(SUM(CASE
-          WHEN running_status IS TRUE AND fan_speed IN ('3', 'high', '高', '高速')
-          THEN GREATEST(EXTRACT(EPOCH FROM segment_end - segment_start), 0) ELSE 0 END))::bigint AS runtime_speed3,
-        MIN(measured_at) AS created_at,
-        MAX(measured_at) AS updated_at
-      FROM segments
-      WHERE segment_end > segment_start
-        AND segment_start >= range_start
-        AND segment_start < range_end
-      GROUP BY device_id, device_name, location, group_name,
-        TO_CHAR(segment_start AT TIME ZONE 'Asia/Shanghai', 'YYYY-MM-DD')
-      ORDER BY stat_date ASC, COALESCE(device_name, device_id::text) ASC
+        trs.device_id,
+        d.name AS device_name,
+        d.location,
+        tg.name AS group_name,
+        trs.stat_date::text AS stat_date,
+        ${speedExpressions[0]} AS runtime_speed1,
+        ${speedExpressions[1]} AS runtime_speed2,
+        ${speedExpressions[2]} AS runtime_speed3,
+        trs.fan_low_runtime, trs.fan_middle_runtime, trs.fan_high_runtime,
+        trs.heat_low_runtime, trs.heat_middle_runtime, trs.heat_high_runtime,
+        trs.cool_low_runtime, trs.cool_middle_runtime, trs.cool_high_runtime,
+        trs.created_at,
+        trs.updated_at
+      FROM thermostat_runtime_stats trs
+      JOIN devices d ON d.id = trs.device_id
+      LEFT JOIN thermostat_properties tp ON tp.device_id = d.id
+      LEFT JOIN thermostat_groups tg ON tg.id = tp.group_id
+      WHERE trs.stat_date BETWEEN $1::date AND $2::date
+        AND ($3::uuid IS NULL OR d.tenant_id = $3::uuid)
+        ${extraFilters}
+      ORDER BY trs.stat_date ASC, COALESCE(d.name, trs.device_id::text) ASC
     `;
 
     try {
       const result = await db.query(query, params);
       
-      // 处理运行时间数据，将数据库字段转换为前端需要的格式
-      let filteredData = result.rows.map(row => ({
+      return result.rows.map(row => ({
         ...row,
-        // 将数据库字段映射到前端字段
         runtime_speed1: parseInt(row.runtime_speed1) || 0,
         runtime_speed2: parseInt(row.runtime_speed2) || 0,
         runtime_speed3: parseInt(row.runtime_speed3) || 0,
-        // 为兼容性添加旧字段名
-        runtime_fan: parseInt(row.runtime_speed1) || 0,
-        runtime_cool: parseInt(row.runtime_speed2) || 0,
-        runtime_heat: parseInt(row.runtime_speed3) || 0
+        fan_low_runtime: parseInt(row.fan_low_runtime) || 0,
+        fan_middle_runtime: parseInt(row.fan_middle_runtime) || 0,
+        fan_high_runtime: parseInt(row.fan_high_runtime) || 0,
+        heat_low_runtime: parseInt(row.heat_low_runtime) || 0,
+        heat_middle_runtime: parseInt(row.heat_middle_runtime) || 0,
+        heat_high_runtime: parseInt(row.heat_high_runtime) || 0,
+        cool_low_runtime: parseInt(row.cool_low_runtime) || 0,
+        cool_middle_runtime: parseInt(row.cool_middle_runtime) || 0,
+        cool_high_runtime: parseInt(row.cool_high_runtime) || 0,
+        runtime_fan: ['fan_low_runtime', 'fan_middle_runtime', 'fan_high_runtime']
+          .reduce((total, key) => total + (parseInt(row[key]) || 0), 0),
+        runtime_cool: ['cool_low_runtime', 'cool_middle_runtime', 'cool_high_runtime']
+          .reduce((total, key) => total + (parseInt(row[key]) || 0), 0),
+        runtime_heat: ['heat_low_runtime', 'heat_middle_runtime', 'heat_high_runtime']
+          .reduce((total, key) => total + (parseInt(row[key]) || 0), 0)
       }));
-      
-      return filteredData;
     } catch (error) {
       logger.error('获取运行统计数据失败:', error);
       throw error;
     }
+  }
+
+  /**
+   * Detail-only seven-day cumulative difference. Device access is checked by
+   * the existing detail route before this query; other statistics stay unchanged.
+   */
+  async getSevenDayRuntimeIncrease(deviceId, latestReceivedAt) {
+    if (!latestReceivedAt) return calculateRuntimeIncrease([]);
+    const result = await db.query(`
+      SELECT * FROM thermostat_runtime_history
+      WHERE device_id = $1
+        AND observed_at BETWEEN $2::timestamptz - INTERVAL '7 days 1 hour' AND $2::timestamptz
+      ORDER BY observed_at ASC
+    `, [deviceId, latestReceivedAt]);
+    return calculateRuntimeIncrease(result.rows);
   }
 
   // ============================================

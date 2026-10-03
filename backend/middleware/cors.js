@@ -115,6 +115,10 @@ const corsMiddleware = (req, res, next) => {
   const origin = req.headers.origin;
   const method = req.method;
 
+  // 没有 Origin 的请求不是浏览器跨域请求（如同源 GET、健康检查、反向代理）。
+  // 不应把它们当成 CORS 拒绝并持续写入告警日志。
+  if (!origin) return next();
+
   // 记录CORS请求
   logger.debug('CORS请求', {
     origin,

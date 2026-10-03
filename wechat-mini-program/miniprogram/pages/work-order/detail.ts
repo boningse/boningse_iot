@@ -41,6 +41,8 @@ Page({
       severityText?: string;
       statusText?: string;
       occurredText?: string;
+      expectedText?: string;
+      typeText?: string;
     }) | null,
     actions: [] as TimelineView[],
     photos: [] as WorkOrderPhoto[],
@@ -74,7 +76,9 @@ Page({
         statusText: statusLabel(result.alarm.status),
         occurredText: formatDateTime(
           result.alarm.last_occurred_at || result.alarm.first_occurred_at
-        )
+        ),
+        expectedText: result.alarm.expected_at ? formatDateTime(result.alarm.expected_at) : "",
+        typeText: ({ maintenance: "计划保养", inspection: "定期巡检", repair: "线下报修", temporary: "临时任务", other: "其他事项" } as Record<string, string>)[result.alarm.work_order_type || ""] || "其他事项"
       };
       const actions = result.actions.map((item) => ({
         ...item,
@@ -101,7 +105,7 @@ Page({
     const user = session.getUser();
     if (!user) return [];
     const isManager = ["admin", "tenant_admin"].includes(user.role);
-    const isAssignee = String(alarm.assigned_to || "") === String(user.id);
+    const isAssignee = this.isAssignee(alarm, user.id);
     const canTransfer = isManager || isAssignee;
     const buttons: ActionButton[] = [];
 
@@ -153,15 +157,21 @@ Page({
 
   workflowHint(alarm: WorkOrder): string {
     const user = session.getUser();
-    const isAssignee = String(alarm.assigned_to || "") === String(user?.id || "");
-    if (alarm.status === "active") return "管理员确认告警并派给现场处理人员";
-    if (alarm.status === "acknowledged") return "告警已确认，等待管理员派单";
+    const isAssignee = this.isAssignee(alarm, user?.id);
+    if (alarm.status === "active") return alarm.source === "manual" ? "等待管理员再次派单" : "管理员确认告警并派给现场处理人员";
+    if (alarm.status === "acknowledged") return alarm.source === "manual" ? "处理人已退回，等待重新派单" : "告警已确认，等待管理员派单";
     if (alarm.status === "assigned" && isAssignee) return "这是派给你的工单，请接单后开始现场处理";
-    if (alarm.status === "assigned") return `等待 ${alarm.assigned_to_name || "处理人"} 接单`;
+    if (alarm.status === "assigned") return `等待 ${alarm.assignee_names || alarm.assigned_to_name || "处理人"} 接单`;
     if (alarm.status === "processing" && isAssignee) return "请记录现场进展；完成时上传照片并填写处理结果";
-    if (alarm.status === "processing") return `${alarm.assigned_to_name || "处理人"} 正在现场处理`;
+    if (alarm.status === "processing") return `${alarm.assignee_names || alarm.assigned_to_name || "处理人"} 正在现场处理`;
     if (alarm.status === "resolved") return "处理结果已提交，等待管理员确认关闭";
     return "工单已完成并关闭";
+  },
+
+  isAssignee(alarm: WorkOrder, userId?: string): boolean {
+    if (!userId) return false;
+    return String(alarm.assigned_to || "") === String(userId)
+      || (alarm.assignee_ids || []).some((id) => String(id) === String(userId));
   },
 
   async cachePhotos(photos: WorkOrderPhoto[]) {

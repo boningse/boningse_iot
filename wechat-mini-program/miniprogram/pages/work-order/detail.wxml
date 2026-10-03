@@ -2,7 +2,7 @@
   <view wx:if="{{alarm}}" class="order-overview panel">
     <view class="order-overview__head">
       <view class="order-overview__severity order-overview__severity--{{alarm.severity}}">{{alarm.severityText}}</view>
-      <text>{{alarm.moduleText}}</text>
+      <text>{{alarm.source === "manual" ? "手动派单" : alarm.moduleText}}</text>
       <status-badge status="{{alarm.status}}"></status-badge>
     </view>
     <text class="order-overview__title">{{alarm.title}}</text>
@@ -10,14 +10,19 @@
     <view class="order-device">
       <view class="order-device__icon"><image src="/assets/icons/building.png" mode="aspectFit"></image></view>
       <view class="order-device__copy">
-        <text class="order-device__name">{{alarm.device_name}}</text>
-        <text class="order-device__location">{{alarm.building_name || "未分配建筑"}} · {{alarm.group_name || "未分配分组"}}</text>
+        <text class="order-device__name">{{alarm.device_name || alarm.location_text || "非设备工单"}}</text>
+        <text class="order-device__location">{{alarm.building_name || "未指定建筑"}} · {{alarm.group_name || "未指定分组"}}</text>
       </view>
-      <status-badge status="{{alarm.device_status}}"></status-badge>
+      <status-badge wx:if="{{alarm.device_name}}" status="{{alarm.device_status}}"></status-badge>
     </view>
     <view class="order-info">
-      <view><text>告警时间</text><text>{{alarm.occurredText}}</text></view>
-      <view><text>当前处理人</text><text>{{alarm.assigned_to_name || "暂未派单"}}</text></view>
+      <view><text>{{alarm.source === "manual" ? "创建时间" : "告警时间"}}</text><text>{{alarm.occurredText}}</text></view>
+      <view wx:if="{{alarm.source === 'manual'}}"><text>工单类型</text><text>{{alarm.typeText}}</text></view>
+      <view wx:if="{{alarm.expectedText}}"><text>期望完成</text><text>{{alarm.expectedText}}</text></view>
+      <view wx:if="{{alarm.location_text}}"><text>详细地点</text><text>{{alarm.location_text}}</text></view>
+      <view wx:if="{{alarm.department_name}}"><text>处理部门</text><text>{{alarm.department_name}}</text></view>
+      <view><text>当前处理人</text><text>{{alarm.assignee_names || alarm.assigned_to_name || "暂未派单"}}</text></view>
+      <view wx:if="{{alarm.watcher_names}}"><text>知会人员</text><text>{{alarm.watcher_names}}</text></view>
       <view wx:if="{{alarm.alarm_code}}"><text>告警编号</text><text>{{alarm.alarm_code}}</text></view>
     </view>
   </view>

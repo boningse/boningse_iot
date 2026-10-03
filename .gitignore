@@ -68,3 +68,8 @@ debug_*.js
 # ===== 临时/运行时文件 =====
 .last_backup_path
 ._VERSION
+
+# Local developer-tool and Vite temporary files at the repository root
+/project.config.json
+/project.private.config.json
+/frontend/vite.config.js.timestamp-*.mjs

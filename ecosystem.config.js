@@ -11,7 +11,6 @@ module.exports = {
         NODE_ENV: 'production',
         PORT: 3003
       },
-      log_file: '/opt/iot/logs/backend.log',
       out_file: '/opt/iot/logs/backend-out.log',
       error_file: '/opt/iot/logs/backend-err.log',
       pid_file: '/opt/iot/logs/backend.pid',

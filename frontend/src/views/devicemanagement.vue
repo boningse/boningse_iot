@@ -599,6 +599,7 @@
               <el-option label="设备上线" value="online" />
               <el-option label="设备下线" value="offline" />
               <el-option label="数据通信" value="data" />
+              <el-option label="运行时间" value="time" />
               <el-option label="心跳" value="heartbeat" />
               <el-option label="命令" value="command" />
               <el-option label="错误" value="error" />
@@ -689,35 +690,11 @@
               </el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="详细信息" show-overflow-tooltip>
+          <el-table-column label="详细信息">
             <template #default="{ row }">
-              <div v-if="row.data" class="log-details">
-                <el-popover placement="top" width="600" trigger="hover">
-                  <template #reference>
-                    <el-text type="info" size="small">查看详情</el-text>
-                  </template>
-                  <div class="log-data-container">
-                    <div class="log-meta">
-                      <p><strong>主题:</strong> {{ row.data.topic || "-" }}</p>
-                      <p><strong>时间:</strong> {{ row.data.timestamp }}</p>
-                      <p v-if="row.data.sender">
-                        <strong>发送者:</strong> {{ row.data.sender }}
-                      </p>
-                      <p v-if="row.data.statusChange">
-                        <strong>状态变化:</strong>
-                        {{ row.data.statusChange.from }} →
-                        {{ row.data.statusChange.to }}
-                      </p>
-                    </div>
-                    <div class="log-payload">
-                      <strong>数据内容:</strong>
-                      <pre class="log-data">{{
-                        formatLogData(row.data.payload)
-                      }}</pre>
-                    </div>
-                  </div>
-                </el-popover>
-              </div>
+              <el-button v-if="row.data" link type="primary" size="small" @click="openLogDetail(row)">
+                查看详情
+              </el-button>
               <span v-else>-</span>
             </template>
           </el-table-column>
@@ -741,6 +718,30 @@
         <span class="dialog-footer">
           <el-button @click="logDialogVisible = false">关闭</el-button>
         </span>
+      </template>
+    </el-dialog>
+
+    <el-dialog
+      v-model="logDetailDialogVisible"
+      title="通信日志详情"
+      width="min(760px, 94vw)"
+      top="6vh"
+      append-to-body
+      destroy-on-close
+      @closed="selectedLogDetail = null"
+    >
+      <div v-if="selectedLogDetail" class="communication-log-detail" tabindex="0" aria-label="通信日志详情，可上下滚动">
+        <p><strong>主题：</strong>{{ selectedLogDetail.data.topic || '-' }}</p>
+        <p><strong>时间：</strong>{{ selectedLogDetail.timestamp }}</p>
+        <p v-if="selectedLogDetail.data.sender"><strong>发送者：</strong>{{ selectedLogDetail.data.sender }}</p>
+        <p v-if="selectedLogDetail.data.statusChange">
+          <strong>状态变化：</strong>{{ selectedLogDetail.data.statusChange.from }} → {{ selectedLogDetail.data.statusChange.to }}
+        </p>
+        <strong>数据内容：</strong>
+        <pre>{{ formatLogData(selectedLogDetail.data.payload) }}</pre>
+      </div>
+      <template #footer>
+        <el-button @click="logDetailDialogVisible = false">关闭</el-button>
       </template>
     </el-dialog>
 
@@ -917,6 +918,12 @@ const currentEditId = ref(null);
  * 日志对话框相关
  */
 const logDialogVisible = ref(false);
+const logDetailDialogVisible = ref(false);
+const selectedLogDetail = ref(null);
+const openLogDetail = (log) => {
+  selectedLogDetail.value = log;
+  logDetailDialogVisible.value = true;
+};
 const currentDevice = ref(null);
 const deviceLogs = ref([]);
 const filteredDeviceLogs = ref([]);
@@ -1840,6 +1847,7 @@ const loadDeviceLogs = async () => {
  */
 const getLogTypeFromMessage = (message, messageType = "") => {
   const normalizedType = String(messageType).toLowerCase();
+  if (normalizedType === "time") return "time";
   if (normalizedType.includes("command")) return "command";
   if (normalizedType.includes("heartbeat")) return "heartbeat";
   if (normalizedType.includes("error")) return "error";
@@ -1867,7 +1875,8 @@ const filterLogs = () => {
   let filtered = [...deviceLogs.value];
 
   if (logFilter.type) {
-    filtered = filtered.filter((log) => log.type === logFilter.type);
+    filtered = filtered.filter((log) => log.type === logFilter.type
+      || (logFilter.type === "data" && log.type === "time"));
   }
 
   if (logFilter.level) {
@@ -2308,6 +2317,7 @@ const getLogTypeTagType = (type) => {
     offline: "warning",
     heartbeat: "success",
     data: "primary",
+    time: "primary",
     command: "warning",
     error: "danger",
     info: "info",
@@ -2324,6 +2334,7 @@ const getLogTypeLabel = (type) => {
     offline: "设备下线",
     heartbeat: "心跳",
     data: "数据通信",
+    time: "运行时间",
     command: "命令",
     error: "错误",
     info: "信息",
@@ -2385,6 +2396,7 @@ const getDirectionIcon = (direction) => {
 const getMessageTypeTagType = (messageType) => {
   const typeMap = {
     data: "primary",
+    time: "primary",
     command: "warning",
     status: "success",
     response: "info",
@@ -2399,6 +2411,7 @@ const getMessageTypeTagType = (messageType) => {
 const getMessageTypeLabel = (messageType) => {
   const typeMap = {
     data: "数据",
+    time: "运行时间",
     command: "命令",
     status: "状态",
     response: "响应",
@@ -3369,6 +3382,32 @@ onUnmounted(() => {
         overflow-x: auto;
       }
     }
+  }
+}
+// 详情弹窗挂载到 body，滚动样式不依赖设备页面的父容器。
+.communication-log-detail {
+  max-height: calc(82vh - 130px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding-right: 8px;
+  overflow-wrap: anywhere;
+
+  p {
+    margin: 0 0 12px;
+    line-height: 1.6;
+  }
+
+  pre {
+    margin: 12px 0 0;
+    padding: 16px;
+    background: var(--fill-lighter, #f5f7fa);
+    border: 1px solid var(--border-light, #e4e7ed);
+    border-radius: 6px;
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
   }
 }
 </style>

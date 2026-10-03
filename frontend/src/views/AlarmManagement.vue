@@ -1,6 +1,6 @@
 <template>
   <div class="alarm-page">
-    <section class="metric-strip" aria-label="告警概览">
+    <section class="metric-strip" aria-label="工单概览">
       <button
         v-for="metric in metrics"
         :key="metric.key"
@@ -21,7 +21,7 @@
 
     <section class="distribution-band">
       <div class="distribution-group">
-        <div class="band-title">当前告警分类</div>
+        <div class="band-title">当前工单分类</div>
         <div class="module-bars">
           <button
             v-for="item in moduleSummary"
@@ -54,6 +54,10 @@
     </section>
 
     <section class="filter-band">
+      <div v-if="canCreateManual" class="manual-create-bar">
+        <span>计划保养、线下报修和临时任务可直接发起工单</span>
+        <el-button type="primary" :icon="Plus" @click="openManualCreate">手动创建工单</el-button>
+      </div>
       <div class="status-tabs">
         <button
           v-for="item in statusTabs"
@@ -72,7 +76,7 @@
           v-model="filters.keyword"
           :prefix-icon="Search"
           clearable
-          placeholder="设备、IMEI、告警内容"
+          placeholder="设备、IMEI、工单标题或内容"
           @keyup.enter="applyFilters"
           @clear="applyFilters"
         />
@@ -87,6 +91,10 @@
         </el-select>
         <el-select v-model="filters.moduleType" clearable placeholder="控制类型">
           <el-option v-for="item in moduleOptions" :key="item.value" :label="item.label" :value="item.value" />
+        </el-select>
+        <el-select v-model="filters.sourceType" clearable placeholder="工单来源">
+          <el-option label="设备报警" value="alarm" />
+          <el-option label="手动派单" value="manual" />
         </el-select>
         <el-select v-model="filters.severity" clearable placeholder="告警等级">
           <el-option v-for="item in severityOptions" :key="item.value" :label="item.label" :value="item.value" />
@@ -119,7 +127,7 @@
             <span class="severity-pill" :class="row.severity">{{ severityLabel(row.severity) }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="告警信息" min-width="280">
+        <el-table-column label="工单信息" min-width="280">
           <template #default="{ row }">
             <div class="alarm-main">
               <strong>{{ row.title }}</strong>
@@ -130,7 +138,7 @@
         <el-table-column label="设备" min-width="180">
           <template #default="{ row }">
             <div class="device-cell">
-              <strong>{{ row.device_name }}</strong>
+              <strong>{{ row.device_name || row.location_text || "非设备工单" }}</strong>
               <span>{{ row.imei }}</span>
             </div>
           </template>
@@ -138,9 +146,12 @@
         <el-table-column label="分类" width="110">
           <template #default="{ row }">{{ moduleLabel(row.module_type) }}</template>
         </el-table-column>
+        <el-table-column label="来源" width="100">
+          <template #default="{ row }"><el-tag :type="row.source === 'manual' ? 'warning' : 'info'" size="small">{{ sourceLabel(row) }}</el-tag></template>
+        </el-table-column>
         <el-table-column label="位置" min-width="150">
           <template #default="{ row }">
-            {{ [row.building_name, row.group_name].filter(Boolean).join(" / ") || "未分配" }}
+            {{ [row.building_name, row.group_name, row.location_text].filter(Boolean).join(" / ") || "未分配" }}
           </template>
         </el-table-column>
         <el-table-column label="状态" width="104">
@@ -149,13 +160,13 @@
           </template>
         </el-table-column>
         <el-table-column label="处理人" width="110">
-          <template #default="{ row }">{{ row.assigned_to_name || "未派单" }}</template>
+          <template #default="{ row }">{{ row.assignee_names || row.assigned_to_name || "未派单" }}</template>
         </el-table-column>
-        <el-table-column label="最近发生" width="154">
+        <el-table-column label="创建/最近" width="154">
           <template #default="{ row }">
             <div class="time-cell">
               <span>{{ getRelativeTime(row.last_occurred_at) }}</span>
-              <small>累计 {{ row.occurrence_count }} 次</small>
+              <small>{{ row.source === 'manual' ? formatDateTime(row.expected_at) : `累计 ${row.occurrence_count} 次` }}</small>
             </div>
           </template>
         </el-table-column>
@@ -183,11 +194,11 @@
           <h3>{{ row.title }}</h3>
           <p>{{ row.message }}</p>
           <div class="mobile-device">
-            <span>{{ row.device_name }}</span>
-            <small>{{ moduleLabel(row.module_type) }} · {{ getRelativeTime(row.last_occurred_at) }}</small>
+            <span>{{ row.device_name || row.location_text || "非设备工单" }}</span>
+            <small>{{ sourceLabel(row) }} · {{ getRelativeTime(row.last_occurred_at) }}</small>
           </div>
         </article>
-        <el-empty v-if="!loading && alarms.length === 0" description="暂无符合条件的告警" />
+        <el-empty v-if="!loading && alarms.length === 0" description="暂无符合条件的工单" />
       </div>
 
       <footer class="table-footer">
@@ -220,14 +231,19 @@
 
         <template v-if="currentAlarm">
           <section class="detail-grid">
-            <div><span>设备名称</span><strong>{{ currentAlarm.device_name }}</strong></div>
-            <div><span>IMEI / 设备ID</span><strong>{{ currentAlarm.imei }}</strong></div>
+            <div><span>工单来源</span><strong>{{ sourceLabel(currentAlarm) }}</strong></div>
+            <div v-if="currentAlarm.source === 'manual'"><span>工单类型</span><strong>{{ manualTypeLabel(currentAlarm.work_order_type) }}</strong></div>
+            <div v-if="currentAlarm.device_id"><span>设备名称</span><strong>{{ currentAlarm.device_name }}</strong></div>
+            <div v-if="currentAlarm.device_id"><span>IMEI / 设备ID</span><strong>{{ currentAlarm.imei }}</strong></div>
             <div><span>设备分类</span><strong>{{ moduleLabel(currentAlarm.module_type) }}</strong></div>
-            <div><span>所属位置</span><strong>{{ [currentAlarm.building_name, currentAlarm.group_name].filter(Boolean).join(" / ") || "未分配" }}</strong></div>
-            <div><span>首次发生</span><strong>{{ formatDateTime(currentAlarm.first_occurred_at) }}</strong></div>
-            <div><span>最近发生</span><strong>{{ formatDateTime(currentAlarm.last_occurred_at) }}</strong></div>
-            <div><span>累计次数</span><strong>{{ currentAlarm.occurrence_count }}</strong></div>
-            <div><span>当前处理人</span><strong>{{ currentAlarm.assigned_to_name || "未派单" }}</strong></div>
+            <div><span>所属位置</span><strong>{{ [currentAlarm.building_name, currentAlarm.group_name, currentAlarm.location_text].filter(Boolean).join(" / ") || "未分配" }}</strong></div>
+            <div v-if="currentAlarm.expected_at"><span>期望完成</span><strong>{{ formatDateTime(currentAlarm.expected_at) }}</strong></div>
+            <div v-if="currentAlarm.department_name"><span>处理部门</span><strong>{{ currentAlarm.department_name }}</strong></div>
+            <div><span>{{ currentAlarm.source === 'manual' ? '创建时间' : '首次发生' }}</span><strong>{{ formatDateTime(currentAlarm.first_occurred_at) }}</strong></div>
+            <div v-if="currentAlarm.source !== 'manual'"><span>最近发生</span><strong>{{ formatDateTime(currentAlarm.last_occurred_at) }}</strong></div>
+            <div v-if="currentAlarm.source !== 'manual'"><span>累计次数</span><strong>{{ currentAlarm.occurrence_count }}</strong></div>
+            <div><span>当前处理人</span><strong>{{ currentAlarm.assignee_names || currentAlarm.assigned_to_name || "未派单" }}</strong></div>
+            <div v-if="currentAlarm.watcher_names"><span>知会人员</span><strong>{{ currentAlarm.watcher_names }}</strong></div>
             <div v-if="currentAlarm.metric_key"><span>触发数据</span><strong>{{ metricDisplay(currentAlarm) }}</strong></div>
             <div v-if="currentAlarm.alarm_code"><span>设备代码</span><strong>{{ currentAlarm.alarm_code }}</strong></div>
           </section>
@@ -279,6 +295,41 @@
         </template>
       </div>
     </el-drawer>
+
+    <el-dialog v-model="manualVisible" title="手动创建工单" width="min(720px, 96vw)" destroy-on-close>
+      <el-form :model="manualForm" label-position="top" class="manual-form">
+        <div class="manual-form-grid">
+          <el-form-item v-if="isAdmin" label="所属租户" required>
+            <el-select v-model="manualForm.tenantId" filterable placeholder="请选择租户" style="width:100%" @change="manualTenantChanged">
+              <el-option v-for="item in tenants" :key="item.id" :value="item.id" :label="item.name" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="工单类型" required>
+            <el-select v-model="manualForm.workOrderType" style="width:100%">
+              <el-option v-for="item in manualTypes" :key="item.value" :value="item.value" :label="item.label" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="优先级" required>
+            <el-select v-model="manualForm.priority" style="width:100%">
+              <el-option v-for="item in severityOptions" :key="item.value" :value="item.value" :label="item.label" />
+            </el-select>
+          </el-form-item>
+        </div>
+        <el-form-item label="工单标题" required><el-input v-model="manualForm.title" maxlength="160" show-word-limit placeholder="如：康复楼空调换季保养" /></el-form-item>
+        <el-form-item label="工作内容" required><el-input v-model="manualForm.description" type="textarea" :rows="4" maxlength="5000" show-word-limit placeholder="写明需要处理的问题、任务要求及现场注意事项" /></el-form-item>
+        <div class="manual-form-grid">
+          <el-form-item label="所属建筑"><el-select v-model="manualForm.buildingId" clearable filterable placeholder="选择建筑" style="width:100%" @change="manualBuildingChanged"><el-option v-for="item in manualBuildings" :key="item.id" :label="item.name" :value="item.id" /></el-select></el-form-item>
+          <el-form-item label="所属分组"><el-select v-model="manualForm.groupId" clearable filterable placeholder="选择分组" style="width:100%" @change="manualScopeChanged"><el-option v-for="item in manualGroups" :key="item.id" :label="item.name" :value="item.id" /></el-select></el-form-item>
+          <el-form-item label="关联设备（选填）"><el-select v-model="manualForm.deviceId" clearable filterable placeholder="可不关联设备" style="width:100%" @change="manualDeviceChanged"><el-option v-for="item in manualDevices" :key="item.id" :label="`${item.name} · ${item.imei || ''}`" :value="item.id" /></el-select></el-form-item>
+          <el-form-item label="处理地点"><el-input v-model="manualForm.location" maxlength="300" placeholder="房间、楼层或详细地址" /></el-form-item>
+          <el-form-item label="期望完成时间"><el-date-picker v-model="manualForm.expectedAt" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" placeholder="请选择时间" style="width:100%" /></el-form-item>
+          <el-form-item label="处理部门"><el-select v-model="manualForm.department" filterable allow-create default-first-option clearable placeholder="选择或填写部门" style="width:100%"><el-option v-for="item in manualDepartments" :key="item" :label="item" :value="item" /></el-select></el-form-item>
+        </div>
+        <el-form-item label="处理人（可多选）" required><el-select v-model="manualForm.assigneeIds" multiple filterable placeholder="请选择处理人" style="width:100%"><el-option v-for="item in manualEligibleUsers" :key="item.id" :label="`${item.username} · ${roleLabel(item.role)}`" :value="item.id" /></el-select></el-form-item>
+        <el-form-item label="知会人员（选填）"><el-select v-model="manualForm.watcherIds" multiple filterable placeholder="抄送处理进度" style="width:100%"><el-option v-for="item in manualWatcherUsers" :key="item.id" :label="`${item.username} · ${roleLabel(item.role)}`" :value="item.id" /></el-select></el-form-item>
+      </el-form>
+      <template #footer><el-button @click="manualVisible=false">取消</el-button><el-button type="primary" :loading="manualSubmitting" @click="submitManual">创建并通知处理人</el-button></template>
+    </el-dialog>
 
     <el-dialog v-model="actionVisible" :title="actionDialogTitle" width="min(500px, 92vw)" destroy-on-close>
       <el-form label-position="top">
@@ -356,6 +407,14 @@ const moduleOptions = [
   { value: "lighting", label: "照明控制" },
   { value: "thermostat", label: "温控控制" },
   { value: "air_conditioner", label: "空调控制" },
+  { value: "manual", label: "手动工单" },
+];
+const manualTypes = [
+  { value: "maintenance", label: "计划保养" },
+  { value: "inspection", label: "定期巡检" },
+  { value: "repair", label: "线下报修" },
+  { value: "temporary", label: "临时任务" },
+  { value: "other", label: "其他事项" },
 ];
 const severityOptions = [
   { value: "critical", label: "紧急" },
@@ -397,6 +456,14 @@ const userInfo = JSON.parse(localStorage.getItem("userInfo") || "{}");
 const route = useRoute();
 const isAdmin = computed(() => userInfo.role === "admin");
 const canInitialDispatch = computed(() => ["admin", "tenant_admin"].includes(userInfo.role));
+const canCreateManual = ref(false);
+const manualVisible = ref(false);
+const manualSubmitting = ref(false);
+const manualUsers = ref([]);
+const manualDeviceOptions = ref([]);
+const manualDepartments = ref([]);
+const manualForm = reactive({ tenantId: "", workOrderType: "maintenance", title: "", description: "", priority: "medium",
+  expectedAt: "", location: "", department: "", buildingId: "", groupId: "", deviceId: "", assigneeIds: [], watcherIds: [] });
 const loading = ref(false);
 const detailLoading = ref(false);
 const detailVisible = ref(false);
@@ -425,6 +492,7 @@ const filters = reactive({
   buildingId: "",
   groupId: "",
   moduleType: "",
+  sourceType: "",
   severity: "",
   status: "open",
   mine: route.query.mine === "true",
@@ -440,11 +508,11 @@ const actionForm = reactive({
 });
 
 const metrics = computed(() => [
-  { key: "open", label: "未闭环告警", value: Number(summary.value.totals.active || 0) + Number(summary.value.totals.acknowledged || 0) + Number(summary.value.totals.assigned || 0) + Number(summary.value.totals.processing || 0), icon: Activity, tone: "teal", filter: "open" },
-  { key: "critical", label: "紧急告警", value: summary.value.totals.critical || 0, icon: TriangleAlert, tone: "red", filter: "open", severity: "critical" },
+  { key: "open", label: "未闭环工单", value: Number(summary.value.totals.active || 0) + Number(summary.value.totals.acknowledged || 0) + Number(summary.value.totals.assigned || 0) + Number(summary.value.totals.processing || 0), icon: Activity, tone: "teal", filter: "open" },
+  { key: "critical", label: "紧急工单", value: summary.value.totals.critical || 0, icon: TriangleAlert, tone: "red", filter: "open", severity: "critical" },
   { key: "processing", label: "处理中", value: summary.value.totals.processing || 0, icon: Clock3, tone: "amber", filter: "processing" },
   { key: "resolved", label: "已解决", value: summary.value.totals.resolved || 0, icon: ShieldCheck, tone: "green", filter: "resolved" },
-  { key: "total", label: "告警总数", value: summary.value.totals.total || 0, icon: CircleAlert, tone: "gray", filter: "" },
+  { key: "total", label: "工单总数", value: summary.value.totals.total || 0, icon: CircleAlert, tone: "gray", filter: "" },
 ]);
 
 const moduleSummary = computed(() => {
@@ -464,6 +532,26 @@ const severitySummary = computed(() => {
 });
 
 const filteredGroups = computed(() => groups.value.filter((item) => !filters.buildingId || item.building_id === filters.buildingId));
+const manualBuildings = computed(() => buildings.value.filter((item) => !manualForm.tenantId || item.tenant_id === manualForm.tenantId));
+const manualGroups = computed(() => groups.value.filter((item) => (!manualForm.tenantId || item.tenant_id === manualForm.tenantId)
+  && (!manualForm.buildingId || item.building_id === manualForm.buildingId)));
+const manualDevices = computed(() => manualDeviceOptions.value.filter((item) =>
+  (!manualForm.buildingId || item.project_building_id === manualForm.buildingId)
+  && (!manualForm.groupId || item.project_group_id === manualForm.groupId)));
+const manualEligibleUsers = computed(() => manualUsers.value.filter((item) => {
+  if (!["user", "building_user", "group_user"].includes(item.role)) return false;
+  if (item.role === "user") return true;
+  const buildingId = item.building_id;
+  const groupId = item.group_id;
+  if (item.role === "building_user") return Boolean(manualForm.buildingId) && buildingId === manualForm.buildingId;
+  return Boolean(manualForm.groupId) && groupId === manualForm.groupId;
+}));
+const manualWatcherUsers = computed(() => manualUsers.value.filter((item) =>
+  !manualForm.assigneeIds.includes(item.id) && (item.role === "user" || item.role === "tenant_admin"
+    || (item.role === "building_user" && Boolean(manualForm.buildingId)
+      && item.building_id === manualForm.buildingId)
+    || (item.role === "group_user" && Boolean(manualForm.groupId)
+      && item.group_id === manualForm.groupId))));
 const selectedActiveIds = computed(() => alarms.value.filter((item) => selectedIds.value.includes(item.id) && item.status === "active").map((item) => item.id));
 const actionNeedsNote = computed(() => ["assign", "reject", "process", "resolve", "reopen", "comment"].includes(actionForm.action));
 const actionSupportsPhotos = computed(() => ["accept", "process", "resolve", "comment"].includes(actionForm.action));
@@ -568,6 +656,76 @@ const loadAssignees = async (alarmId) => {
   const result = await alarmAPI.getOptions({ tenantId, alarmId });
   assignees.value = result?.data?.users || [];
 };
+const loadManualOptions = async () => {
+  if (!manualForm.tenantId) return;
+  const result = await alarmAPI.getManualOptions({ tenantId: manualForm.tenantId });
+  if (!result.success) throw new Error(result.message || "获取创建选项失败");
+  manualUsers.value = result.data.users || [];
+  manualDeviceOptions.value = result.data.devices || [];
+  manualDepartments.value = result.data.departments || [];
+};
+const manualScopeChanged = () => {
+  const selectedGroup = groups.value.find((item) => item.id === manualForm.groupId);
+  if (selectedGroup?.building_id && !manualForm.buildingId) manualForm.buildingId = selectedGroup.building_id;
+  manualForm.assigneeIds = manualForm.assigneeIds.filter((id) => manualEligibleUsers.value.some((item) => item.id === id));
+  manualForm.watcherIds = manualForm.watcherIds.filter((id) => manualWatcherUsers.value.some((item) => item.id === id));
+};
+const manualBuildingChanged = () => {
+  manualForm.groupId = "";
+  manualForm.deviceId = "";
+  manualScopeChanged();
+};
+const manualTenantChanged = async () => {
+  Object.assign(manualForm, { buildingId: "", groupId: "", deviceId: "", assigneeIds: [], watcherIds: [], department: "" });
+  manualUsers.value = [];
+  manualDeviceOptions.value = [];
+  try {
+    await Promise.all([loadOptionsForManualTenant(), loadManualOptions()]);
+  } catch (error) { ElMessage.error(error.message || "加载租户选项失败"); }
+};
+const loadOptionsForManualTenant = async () => {
+  const [buildingResult, groupResult] = await Promise.all([
+    projectManagementAPI.getBuildings({ tenantId: manualForm.tenantId, pageSize: 1000 }),
+    projectManagementAPI.getGroups({ tenantId: manualForm.tenantId, pageSize: 1000 }),
+  ]);
+  buildings.value = normalizeList(buildingResult, ["buildings"]);
+  groups.value = normalizeList(groupResult, ["groups"]);
+};
+const manualDeviceChanged = () => {
+  const device = manualDeviceOptions.value.find((item) => item.id === manualForm.deviceId);
+  if (!device) return;
+  manualForm.buildingId = device.project_building_id || "";
+  manualForm.groupId = device.project_group_id || "";
+  manualScopeChanged();
+};
+const openManualCreate = async () => {
+  Object.assign(manualForm, { tenantId: filters.tenantId || userInfo.tenant_id || "", workOrderType: "maintenance",
+    title: "", description: "", priority: "medium", expectedAt: "", location: "", department: "",
+    buildingId: "", groupId: "", deviceId: "", assigneeIds: [], watcherIds: [] });
+  manualVisible.value = true;
+  if (manualForm.tenantId) {
+    try { await Promise.all([loadOptionsForManualTenant(), loadManualOptions()]); }
+    catch (error) { ElMessage.error(error.message || "加载创建选项失败"); }
+  }
+};
+const submitManual = async () => {
+  if (!manualForm.tenantId) return ElMessage.warning("请选择所属租户");
+  if (!manualForm.title.trim() || !manualForm.description.trim()) return ElMessage.warning("请填写工单标题和工作内容");
+  if (!manualForm.assigneeIds.length) return ElMessage.warning("请至少选择一位处理人");
+  if (!manualForm.deviceId && !manualForm.buildingId && !manualForm.groupId && !manualForm.location.trim()) return ElMessage.warning("请填写处理地点或关联设备");
+  manualSubmitting.value = true;
+  try {
+    const result = await alarmAPI.createManual({ ...manualForm, watcherIds: manualForm.watcherIds.filter((id) => !manualForm.assigneeIds.includes(id)) });
+    if (!result.success) throw new Error(result.message || "创建失败");
+    ElMessage.success("工单已创建，处理人和知会人员已收到站内消息");
+    manualVisible.value = false;
+    filters.status = "";
+    pagination.page = 1;
+    await refreshAll();
+    await openDetail({ id: result.data.id });
+  } catch (error) { ElMessage.error(error.message || "创建工单失败"); }
+  finally { manualSubmitting.value = false; }
+};
 
 const applyFilters = () => {
   pagination.page = 1;
@@ -580,6 +738,7 @@ const resetFilters = () => {
     buildingId: "",
     groupId: "",
     moduleType: "",
+    sourceType: "",
     severity: "",
     status: "open",
     mine: false,
@@ -759,12 +918,15 @@ const submitAction = async () => {
 };
 
 const moduleLabel = (value) => moduleOptions.find((item) => item.value === value)?.label || value;
+const manualTypeLabel = (value) => manualTypes.find((item) => item.value === value)?.label || "其他事项";
+const sourceLabel = (alarm) => alarm?.source === "manual" ? "手动派单" : "设备报警";
 const severityLabel = (value) => severityOptions.find((item) => item.value === value)?.label || value;
 const statusLabel = (value) => statusLabels[value] || value;
 const actionLabel = (value) => actionLabels[value] || value;
 const roleLabel = (value) => ({ admin: "管理员", tenant_admin: "租户管理员", user: "普通用户", building_user: "建筑用户", group_user: "分组用户" }[value] || value);
 const isOpenStatus = (value) => ["active", "acknowledged", "assigned", "processing"].includes(value);
-const isCurrentAssignee = (alarm) => String(alarm?.assigned_to || "") === String(userInfo.id || "");
+const isCurrentAssignee = (alarm) => String(alarm?.assigned_to || "") === String(userInfo.id || "")
+  || (alarm?.assignee_ids || []).some((id) => String(id) === String(userInfo.id || ""));
 const canHandle = (alarm) => isCurrentAssignee(alarm) || canInitialDispatch.value;
 const canTransfer = (alarm) => isCurrentAssignee(alarm) || canInitialDispatch.value;
 const canComment = (alarm) => isCurrentAssignee(alarm) || canInitialDispatch.value;
@@ -778,6 +940,8 @@ const revokeAlarmPhotoUrls = () => {
 };
 
 onMounted(async () => {
+  try { canCreateManual.value = Boolean((await alarmAPI.getManualCapability()).data?.canCreate); }
+  catch { canCreateManual.value = false; }
   await loadOptions();
   await refreshAll();
   if (route.query.alarmId) await openDetail({ id: route.query.alarmId });
@@ -805,6 +969,24 @@ watch(
 </script>
 
 <style lang="scss" scoped>
+.manual-create-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+  color: #64748b;
+  font-size: 13px;
+}
+.manual-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 16px;
+}
+@media (max-width: 640px) {
+  .manual-form-grid { grid-template-columns: 1fr; }
+  .manual-create-bar { align-items: flex-start; flex-direction: column; }
+}
 .alarm-page {
   min-width: 0;
   padding: 22px 24px 30px;
