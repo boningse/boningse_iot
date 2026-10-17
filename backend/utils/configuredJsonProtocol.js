@@ -10,6 +10,24 @@ const parseObject = (value) => {
   }
 };
 
+// Some vendor documents show register reports with unquoted keys/hex words.
+// Accept only this narrow data shape when explicitly enabled by the protocol.
+const parseConfiguredRegisterLiteral = (value) => {
+  if (typeof value !== 'string') return null;
+  const text = value.trim();
+  const iccid = text.match(/^\{\s*ICCID\s*:\s*([0-9A-Za-z]{10,64})\s*\}$/i);
+  if (iccid) return { ICCID: iccid[1] };
+  const args = text.match(/^\{\s*args\s*:\s*\{\s*([^{}]*)\s*\}\s*\}$/i);
+  if (!args) return null;
+  const fields = {};
+  for (const pair of args[1].split(',')) {
+    const match = pair.trim().match(/^(f\d{2})\s*:\s*([0-9a-f]{1,4})$/i);
+    if (!match) return null;
+    fields[match[1].toLowerCase()] = match[2];
+  }
+  return Object.keys(fields).length ? { args: fields } : null;
+};
+
 const pathTokens = (path) => String(path || '')
   .replace(/^\$\.?/, '')
   .replace(/\[(\d+)\]/g, '.$1')
@@ -39,6 +57,23 @@ const matchesRule = (payload, rule) => {
 };
 
 const resolveFieldValue = (payload, record, field) => {
+  if (field.combine_words) {
+    const { high_path, low_path } = field.combine_words;
+    const high = getValueByPath(payload, high_path);
+    const low = getValueByPath(payload, low_path);
+    if (high === undefined || low === undefined) return undefined;
+    const highWord = parseConfiguredNumber(high, field.radix);
+    const lowWord = parseConfiguredNumber(low, field.radix);
+    if (field.combine_words.fractional_low_is_scaled &&
+        Number.isFinite(highWord) && Number.isFinite(lowWord) &&
+        (Number.isInteger(highWord) || highWord === 0) && lowWord >= 0 && lowWord < 0x10000 &&
+        (!Number.isInteger(lowWord) || lowWord <= 0xffff)) {
+      if (!Number.isInteger(highWord) || !Number.isInteger(lowWord)) return highWord * 0x10000 + lowWord;
+    }
+    if (!Number.isInteger(highWord) || !Number.isInteger(lowWord) ||
+        highWord < 0 || highWord > 0xffff || lowWord < 0 || lowWord > 0xffff) return undefined;
+    return highWord * 0x10000 + lowWord;
+  }
   const paths = Array.isArray(field.path || field.source)
     ? (field.path || field.source)
     : [field.path || field.source || field.name];
@@ -54,8 +89,23 @@ const resolveFieldValue = (payload, record, field) => {
   return values[0];
 };
 
+const parseConfiguredNumber = (value, radix) => {
+  if (typeof value === 'number') return value;
+  if (radix === 16 && typeof value === 'string') {
+    const text = value.trim().replace(/^0x/i, '');
+    return /^[0-9a-f]+$/i.test(text) ? Number.parseInt(text, 16) : NaN;
+  }
+  return Number(value);
+};
+
 const convertValue = (rawValue, field) => {
-  let value = rawValue;
+  let value = field.radix === 16 ? parseConfiguredNumber(rawValue, 16) : rawValue;
+  if (field.signed_bits && Number.isInteger(value)) {
+    const widths = (Array.isArray(field.signed_bits) ? field.signed_bits : [field.signed_bits])
+      .map(Number).filter((width) => Number.isInteger(width) && width > 1).sort((a, b) => a - b);
+    const width = widths.find((candidate) => value >= 2 ** (candidate - 1) && value < 2 ** candidate);
+    if (width) value -= 2 ** width;
+  }
   if (field.map && typeof field.map === 'object') {
     const key = String(value);
     if (Object.prototype.hasOwnProperty.call(field.map, key)) {
@@ -69,7 +119,7 @@ const convertValue = (rawValue, field) => {
     case 'number':
     case 'float':
     case 'integer': {
-      const numeric = Number(value);
+      const numeric = parseConfiguredNumber(value);
       if (!Number.isFinite(numeric)) return null;
       value = field.type === 'integer' ? Math.trunc(numeric) : numeric;
       break;
@@ -94,9 +144,12 @@ const convertValue = (rawValue, field) => {
 };
 
 const parseConfiguredJsonUplink = (payloadValue, configValue) => {
-  const payload = parseObject(payloadValue);
   const config = parseObject(configValue);
   if (config.codec !== 'configured_json') return { matched: false, data: {} };
+  const payload = parseObject(payloadValue);
+  if (!Object.keys(payload).length && config.allow_register_literal) {
+    Object.assign(payload, parseConfiguredRegisterLiteral(payloadValue) || {});
+  }
   if (!matchesRule(payload, config.message_match)) return { matched: false, data: {} };
   const record = config.record_path ? getValueByPath(payload, config.record_path) : payload;
   if (!record || typeof record !== 'object') return { matched: true, data: {} };
@@ -146,6 +199,59 @@ const renderTemplate = (template, values) => {
   return template.replace(/\{(\w+)\}/g, (_, key) => values[key] ?? '');
 };
 
+const buildConfiguredJsonCommand = (command, device, currentState, commandConfigValue) => {
+  const config = parseObject(commandConfigValue);
+  if (config.codec !== 'configured_json' || config.command_format !== 'register_words') {
+    throw new Error('协议未启用配置驱动的JSON寄存器命令');
+  }
+  const parameters = config.parameters || {};
+  const provided = Object.entries(parameters).filter(([, item]) =>
+    item.command_field && command[item.command_field] !== undefined
+  );
+  const commands = Array.isArray(config.commands) ? config.commands : [];
+  const selected = provided.length > 1
+    ? commands.find((item) => item.aggregate === true)
+    : commands.find((item) => item.name === command.action);
+  if (!selected) throw new Error(`协议未配置控制动作: ${command.action}`);
+  const registers = selected.registers || {};
+  if (!Object.keys(registers).length) throw new Error(`协议控制动作没有寄存器: ${selected.name}`);
+  const encodedRegisters = {};
+  const state = {};
+  for (const [register, parameterName] of Object.entries(registers)) {
+    const parameter = parameters[parameterName];
+    if (!parameter) throw new Error(`协议未配置控制参数: ${parameterName}`);
+    let raw = command[parameter.command_field];
+    if (raw === undefined || raw === null || raw === '') raw = currentState?.[parameter.state_field];
+    if ((raw === undefined || raw === null || raw === '') && parameter.default !== undefined) raw = parameter.default;
+    if (raw === undefined || raw === null || raw === '') throw new Error(`控制参数缺少值: ${parameterName}`);
+    const key = String(raw).trim().toLowerCase();
+    const mapped = parameter.values ? parameter.values[key] : raw;
+    if (mapped === undefined) throw new Error(`控制参数值不在协议映射中: ${parameterName}`);
+    const number = Number(mapped);
+    if (!Number.isFinite(number)) throw new Error(`控制参数不是有效数字: ${parameterName}`);
+    if (parameter.min !== undefined && number < parameter.min) throw new Error(`控制参数小于协议下限: ${parameterName}`);
+    if (parameter.max !== undefined && number > parameter.max) throw new Error(`控制参数大于协议上限: ${parameterName}`);
+    const word = Math.round(number * Number(parameter.multiplier ?? 1));
+    if (word < 0 || word > 0xffff) throw new Error(`控制参数超出16位寄存器范围: ${parameterName}`);
+    encodedRegisters[register] = config.register_value_format === 'number'
+      ? word
+      : word.toString(16).toUpperCase().padStart(4, '0');
+    if (parameter.state_output_field) {
+      state[parameter.state_output_field] = parameter.state_output_type === 'boolean'
+        ? Boolean(number)
+        : raw;
+    }
+  }
+  const values = createTemplateValues(device);
+  const topic = renderTemplate(config.topicTemplates?.control || '', values);
+  if (!topic) throw new Error('协议未配置控制MQTT主题');
+  const payload = renderTemplate(selected.payload || { args: '{registers}' }, {
+    ...values,
+    registers: encodedRegisters
+  });
+  return { command_name: selected.name, mqtt_payload: payload, topic, state };
+};
+
 const buildConfiguredJsonAutoResponse = (payloadValue, device, commandConfigValue) => {
   const payload = parseObject(payloadValue);
   const commandConfig = parseObject(commandConfigValue);
@@ -167,8 +273,10 @@ const buildConfiguredJsonAutoResponse = (payloadValue, device, commandConfigValu
 
 module.exports = {
   buildConfiguredJsonAutoResponse,
+  buildConfiguredJsonCommand,
   createTemplateValues,
   getValueByPath,
+  parseConfiguredRegisterLiteral,
   parseConfiguredJsonUplink,
   renderTemplate
 };

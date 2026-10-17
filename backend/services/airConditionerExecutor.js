@@ -2,6 +2,7 @@ const mqttService = require('./mqttService');
 const telemetryStore = require('./telemetryStore');
 const db = require('../utils/database');
 const { buildConfiguredCommand } = require('../utils/configuredModbusProtocol');
+const { buildConfiguredJsonCommand } = require('../utils/configuredJsonProtocol');
 
 const executeAirConditionerControl = async (device, command, userId = null) => {
   let mqttCommand = command;
@@ -19,11 +20,16 @@ const executeAirConditionerControl = async (device, command, userId = null) => {
       encodedCommand = buildConfiguredCommand(command, device, commandConfig);
       mqttCommand = encodedCommand.mqtt_payload;
       protocolName = protocol.name;
+    } else if (commandConfig?.codec === 'configured_json') {
+      encodedCommand = buildConfiguredJsonCommand(command, device, device, commandConfig);
+      mqttCommand = encodedCommand.mqtt_payload;
+      protocolName = protocol.name;
     }
   }
 
   try {
-    await mqttService.sendCommandToDevice(device.imei, mqttCommand);
+    await mqttService.sendCommandToDevice(device.imei, mqttCommand,
+      encodedCommand?.topic ? { mqttTopic: encodedCommand.topic } : {});
   } catch (error) {
     await telemetryStore.logControl({
       device,
@@ -31,7 +37,7 @@ const executeAirConditionerControl = async (device, command, userId = null) => {
       action: command.action || 'air_conditioner_control',
       command,
       encodedPayload: encodedCommand
-        ? { protocol: protocolName, command_name: encodedCommand.command_name, hex: encodedCommand.hex, mqtt_payload: mqttCommand }
+        ? { protocol: protocolName, command_name: encodedCommand.command_name, hex: encodedCommand.hex, topic: encodedCommand.topic, mqtt_payload: mqttCommand }
         : mqttCommand,
       status: 'failed',
       errorMessage: error.message,
@@ -70,7 +76,7 @@ const executeAirConditionerControl = async (device, command, userId = null) => {
     source: 'control_command',
     rawPayload: {
       command,
-      ...(encodedCommand ? { protocol: protocolName, command_name: encodedCommand.command_name, hex: encodedCommand.hex } : {})
+      ...(encodedCommand ? { protocol: protocolName, command_name: encodedCommand.command_name, hex: encodedCommand.hex, topic: encodedCommand.topic } : {})
     }
   });
   await telemetryStore.logControl({
@@ -79,7 +85,7 @@ const executeAirConditionerControl = async (device, command, userId = null) => {
     action: command.action || 'air_conditioner_control',
     command,
     encodedPayload: encodedCommand
-      ? { protocol: protocolName, command_name: encodedCommand.command_name, hex: encodedCommand.hex, mqtt_payload: mqttCommand }
+      ? { protocol: protocolName, command_name: encodedCommand.command_name, hex: encodedCommand.hex, topic: encodedCommand.topic, mqtt_payload: mqttCommand }
       : mqttCommand,
     status: 'sent',
     userId

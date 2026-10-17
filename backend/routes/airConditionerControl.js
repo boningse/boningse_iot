@@ -216,7 +216,8 @@ router.post('/sync-devices', authenticateToken, async (req, res) => {
        SELECT d.tenant_id, d.id, 'air_conditioner', true
        FROM devices d
        JOIN device_types dt ON dt.id = d.device_type_id
-       WHERE dt.name = $1
+       LEFT JOIN protocol_configs pc ON pc.id = d.protocol_config_id
+       WHERE (dt.name = $1 OR pc.data_parsing_config->>'module_type' = 'air_conditioner')
          AND COALESCE(d.device_category, 'standalone') <> 'gateway'${tenantClause}
          AND NOT EXISTS (
            SELECT 1 FROM control_device_assignments assignment
